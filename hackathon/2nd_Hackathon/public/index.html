@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevQ - 개발자 Q&A</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- 헤더 -->
+  <header class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/index.html" class="text-2xl font-bold text-indigo-600">DevQ</a>
+      <nav id="nav-area" class="flex items-center gap-3 text-sm"></nav>
+    </div>
+  </header>
+
+  <!-- 메인 -->
+  <main class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-xl font-semibold text-gray-800">질문 목록</h1>
+      <button id="btn-ask" class="hidden bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition"
+              onclick="location.href='/question-form.html'">
+        + 질문하기
+      </button>
+    </div>
+
+    <div id="question-list" class="space-y-4">
+      <p class="text-gray-400 text-center py-12">불러오는 중...</p>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    // 헤더 네비게이션 렌더링
+    function renderNav() {
+      const nav = document.getElementById('nav-area');
+      if (isLoggedIn()) {
+        const user = getUser();
+        nav.innerHTML = `
+          ${isAdmin() ? `<a href="/admin.html" class="text-purple-600 font-medium hover:underline">관리자 대시보드</a>` : ''}
+          <span class="text-gray-600">${user.nickname}님</span>
+          <button onclick="logout()" class="text-gray-500 hover:text-red-500 transition">로그아웃</button>
+        `;
+        document.getElementById('btn-ask').classList.remove('hidden');
+      } else {
+        nav.innerHTML = `
+          <a href="/login.html" class="text-indigo-600 hover:underline">로그인</a>
+          <a href="/register.html" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition">회원가입</a>
+        `;
+      }
+    }
+
+    // 질문 목록 불러오기
+    async function loadQuestions() {
+      const container = document.getElementById('question-list');
+      try {
+        const res = await fetch('/api/questions');
+        const questions = await res.json();
+
+        if (questions.length === 0) {
+          container.innerHTML = '<p class="text-gray-400 text-center py-12">아직 질문이 없습니다. 첫 번째 질문을 남겨보세요!</p>';
+          return;
+        }
+
+        container.innerHTML = questions.map(q => `
+          <a href="/question-detail.html?id=${q.id}"
+             class="block bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition border border-gray-100">
+            <h2 class="text-base font-semibold text-gray-800 mb-2">${escapeHtml(q.title)}</h2>
+            <div class="flex items-center gap-3 text-xs text-gray-500">
+              <span class="font-medium text-gray-700">${escapeHtml(q.nickname)}</span>
+              <span>${formatDate(q.created_at)}</span>
+              ${q.tag ? renderTags(q.tag) : ''}
+            </div>
+          </a>
+        `).join('');
+      } catch {
+        container.innerHTML = '<p class="text-red-400 text-center py-12">질문 목록을 불러오지 못했습니다.</p>';
+      }
+    }
+
+    function renderTags(tagStr) {
+      return tagStr.split(',')
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(t => `<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">${escapeHtml(t)}</span>`)
+        .join('');
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+      return new Date(dateStr).toLocaleDateString('ko-KR', {
+        year: 'numeric', month: 'short', day: 'numeric'
+      });
+    }
+
+    renderNav();
+    loadQuestions();
+  </script>
+</body>
+</html>

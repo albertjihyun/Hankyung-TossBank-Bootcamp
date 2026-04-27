@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>토스증권 홈</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      font-family: Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: #ffffff;
+      color: #191f28;
+    }
+
+    body {
+      overflow-x: auto;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .wrapper {
+      width: 1280px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background: #ffffff;
+      position: relative;
+    }
+
+    .header {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1280px;
+      height: 84px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      border-bottom: 1px solid #f2f4f6;
+      z-index: 1000;
+    }
+
+    .header img {
+      width: 96px;
+      display: block;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      min-height: 100vh;
+      padding-top: 84px;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-640px);
+      width: 160px;
+      height: calc(100vh - 84px);
+      background: #ffffff;
+      padding: 24px 0 24px 20px;
+    }
+
+    .sidebar ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .sidebar a {
+      font-size: 12px;
+      color: #4e5968;
+      line-height: 1.4;
+      display: inline-block;
+      text-decoration: none;
+    }
+
+    .sidebar .active a {
+      color: #191f28;
+      font-weight: 700;
+    }
+
+    .main {
+      grid-column: 2;
+      padding: 36px 24px 48px 24px;
+      background: #ffffff;
+    }
+
+    .hero {
+      width: 100%;
+      min-height: 320px;
+      border: 1px solid #e5e8eb;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #f8fbff 0%, #eef5ff 100%);
+      padding: 34px 36px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 24px;
+      align-items: center;
+      margin-bottom: 22px;
+      overflow: hidden;
+    }
+
+    .hero-text {
+      max-width: 540px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #e8f3ff;
+      color: #3182f6;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .hero-title {
+      font-size: 42px;
+      line-height: 1.25;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #191f28;
+      margin-bottom: 16px;
+      word-break: keep-all;
+    }
+
+    .hero-desc {
+      font-size: 16px;
+      line-height: 1.7;
+      color: #6b7684;
+      word-break: keep-all;
+      margin-bottom: 22px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+      height: 46px;
+      padding: 0 18px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .btn-primary {
+      background: #3182f6;
+      color: #ffffff;
+    }
+
+    .btn-secondary {
+      background: #f2f4f6;
+      color: #4e5968;
+    }
+
+    .hero-image-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .hero-image {
+      width: 100%;
+      max-width: 430px;
+      display: block;
+      object-fit: contain;
+    }
+
+    .section {
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #191f28;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .quick-card {
+      border: 1px solid #e5e8eb;
+      border-radius: 16px;
+      background: #ffffff;
+      padding: 22px;
+      min-height: 190px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .quick-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .quick-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .quick-tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .quick-tag.blue {
+      background: #eef6ff;
+      color: #3182f6;
+    }
+
+    .quick-tag.green {
+      background: #eefbf5;
+      color: #14a673;
+    }
+
+    .quick-title {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: #191f28;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      word-break: keep-all;
+    }
+
+    .quick-desc {
+      font-size: 13px;
+      color: #6b7684;
+      line-height: 1.65;
+      word-break: keep-all;
+      margin-bottom: 16px;
+    }
+
+    .quick-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 38px;
+      padding: 0 14px;
+      border-radius: 10px;
+      background: #f2f4f6;
+      color: #4e5968;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .quick-image {
+      width: 140px;
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .quick-image img {
+      width: 100%;
+      max-width: 130px;
+      object-fit: contain;
+      display: block;
+    }
+
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .service-card {
+      border: 1px solid #e5e8eb;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 18px 16px;
+      min-height: 138px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .service-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+    }
+
+    .service-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: #f2f7ff;
+      color: #3182f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+
+    .service-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #191f28;
+      margin-bottom: 8px;
+      line-height: 1.4;
+      word-break: keep-all;
+    }
+
+    .service-desc {
+      font-size: 12px;
+      color: #6b7684;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <header class="header">
+      <a href="/">
+        <img src="/static/logo.png" alt="토스증권 로고" />
+      </a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <ul>
+          <li class="active"><a href="/">홈</a></li>
+          <li><a href="/investors">투자 주체별 매매 현황</a></li>
+          <li><a href="/news">뉴스</a></li>
+          <li><a href="/themes">종목 TOP 10</a></li>
+          <li><a href="/mbti">투자 mbti 검사</a></li>
+          <li><a href="/recommend">맞춤 상품 추천</a></li>
+          <li><a href="/popular">인기 상품</a></li>
+        </ul>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div class="hero-text">
+            <div class="hero-badge">토스증권 투자 도우미</div>
+            <h1 class="hero-title">
+              나에게 맞는 투자 정보와<br />
+              상품을 한눈에 확인해보세요
+            </h1>
+            <p class="hero-desc">
+              투자 주체별 매매 흐름, 최신 뉴스, 인기 종목, 투자 MBTI 검사,
+              맞춤 상품 추천까지 한 화면에서 자연스럽게 연결되도록 구성했습니다.
+            </p>
+
+            <div class="hero-buttons">
+              <a class="btn-primary" href="/mbti">투자 mbti 검사 시작하기</a>
+              <a class="btn-secondary" href="/popular">인기 상품 보러가기</a>
+            </div>
+          </div>
+
+          <div class="hero-image-wrap">
+            <img class="hero-image" src="/static/index1.png" alt="메인 투자 서비스 이미지" />
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">빠른 시작</h2>
+
+          <div class="quick-grid">
+            <article class="quick-card">
+              <div class="quick-left">
+                <div class="quick-tag blue">맞춤 추천</div>
+                <h3 class="quick-title">내 투자 성향에 맞는 상품 찾기</h3>
+                <p class="quick-desc">
+                  투자 MBTI 검사를 통해 내 성향을 파악하고,
+                  결과에 맞는 추천 상품을 바로 확인해보세요.
+                </p>
+                <a class="quick-link" href="/mbti">검사하러 가기</a>
+              </div>
+
+              <div class="quick-image">
+                <img src="/static/index2.png" alt="투자 성향 검사 이미지" />
+              </div>
+            </article>
+
+            <article class="quick-card">
+              <div class="quick-left">
+                <div class="quick-tag green">시장 체크</div>
+                <h3 class="quick-title">지금 시장에서 많이 보는 정보</h3>
+                <p class="quick-desc">
+                  투자 주체별 매매 현황과 뉴스, 인기 테마 종목을 함께 확인하면서
+                  시장 흐름을 빠르게 파악할 수 있습니다.
+                </p>
+                <a class="quick-link" href="/investors">시장 흐름 보러가기</a>
+              </div>
+
+              <div class="quick-image">
+                <img src="/static/index1.png" alt="시장 정보 이미지" />
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">서비스 바로가기</h2>
+
+          <div class="service-grid">
+            <a class="service-card" href="/investors">
+              <div class="service-icon">📊</div>
+              <div class="service-name">투자 주체별 매매 현황</div>
+              <div class="service-desc">
+                개인, 외국인, 기관의 순매수/순매도 흐름을 확인합니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/news">
+              <div class="service-icon">📰</div>
+              <div class="service-name">뉴스</div>
+              <div class="service-desc">
+                오늘의 투자 판단에 참고할 수 있는 최신 뉴스를 모아봅니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/themes">
+              <div class="service-icon">🔥</div>
+              <div class="service-name">종목 TOP 10</div>
+              <div class="service-desc">
+                현재 시장에서 주목받는 인기 테마 종목을 살펴봅니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/popular">
+              <div class="service-icon">🏦</div>
+              <div class="service-name">인기 상품</div>
+              <div class="service-desc">
+                많은 사용자가 선택한 대표 투자 상품을 확인할 수 있습니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/mbti">
+              <div class="service-icon">🧪</div>
+              <div class="service-name">투자 mbti 검사</div>
+              <div class="service-desc">
+                몇 가지 질문을 통해 내 투자 스타일을 간단히 분석합니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/diagnosis">
+              <div class="service-icon">📝</div>
+              <div class="service-name">결과 분석</div>
+              <div class="service-desc">
+                투자 MBTI 결과를 자세한 설명과 함께 다시 확인할 수 있습니다.
+              </div>
+            </a>
+
+            <a class="service-card" href="/recommend">
+              <div class="service-icon">🎯</div>
+              <div class="service-name">맞춤 상품 추천</div>
+              <div class="service-desc">
+                검사 결과를 바탕으로 성향에 맞는 상품을 추천받아보세요.
+              </div>
+            </a>
+
+            <a class="service-card" href="/popular">
+              <div class="service-icon">⭐</div>
+              <div class="service-name">인기 상품 둘러보기</div>
+              <div class="service-desc">
+                입문자도 쉽게 볼 수 있도록 인기 상품을 정리해두었습니다.
+              </div>
+            </a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

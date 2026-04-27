@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>투자 주체별 매매 현황</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            min-height: 100%;
+            font-family: Arial, sans-serif;
+            background: #ffffff;
+            color: #191f28;
+        }
+
+        body {
+            overflow-x: auto;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .wrapper {
+            width: 1280px;
+            min-height: 100vh;
+            margin: 0 auto;
+            background: white;
+            position: relative;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1280px;
+            height: 84px;
+            background: white;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            border-bottom: 1px solid #f2f4f6;
+            z-index: 1000;
+        }
+
+        .header-logo img {
+            width: 96px;
+            display: block;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 160px 1fr;
+            padding-top: 84px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 84px;
+            left: 50%;
+            transform: translateX(-640px);
+            width: 160px;
+            height: calc(100vh - 84px);
+            padding: 24px 0 24px 20px;
+            background: #fff;
+        }
+
+        .sidebar-menu {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .sidebar-menu li a {
+            font-size: 12px;
+            color: #4e5968;
+        }
+
+        .sidebar-menu li.active a {
+            font-weight: 700;
+            color: #191f28;
+        }
+
+        .main {
+            grid-column: 2;
+            padding: 32px 24px 48px 24px;
+        }
+
+        .page-title {
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+        }
+
+        .page-subtitle {
+            font-size: 20px;
+            color: #6b7684;
+            margin-bottom: 32px;
+        }
+
+        .card-list {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .invest-card {
+            height: 280px;
+            border: 1px solid #e5e8eb;
+            border-radius: 12px;
+            background: white;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 80px;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .card-left {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+        }
+
+        .investor-name {
+            font-size: 26px;
+            font-weight: 700;
+            color: #333d4b;
+            margin-bottom: 10px;
+        }
+
+        .value {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 14px;
+        }
+
+        .value.red {
+            color: #ef4d5a;
+        }
+
+        .value.blue {
+            color: #2f6fd6;
+        }
+
+        .desc-strong {
+            font-size: 15px;
+            font-weight: 700;
+            color: #333d4b;
+            margin-bottom: 8px;
+        }
+
+        .desc-light {
+            font-size: 13px;
+            color: #8b95a1;
+            line-height: 1.5;
+        }
+
+        .card-right {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .graph-box {
+            position: relative;
+            width: 64px;
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .graph-center-line {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 100%;
+            height: 1px;
+            background: #e5e8eb;
+        }
+
+        .bar {
+            position: absolute;
+            width: 40px;
+        }
+
+        .bar.up {
+            bottom: 50%;
+            background: #ef4d5a;
+            border-radius: 4px 4px 0 0;
+        }
+
+        .bar.down {
+            top: 50%;
+            background: #2f6fd6;
+            border-radius: 0 0 4px 4px;
+        }
+
+        .bar.personal {
+            height: 50px;
+        }
+
+        .bar.foreign {
+            height: 32px;
+        }
+
+        .bar.org {
+            height: 90px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <header class="header">
+            <div class="header-logo">
+                <a href="/">
+                    <img src="/static/logo.png" alt="로고" />
+                </a>
+            </div>
+        </header>
+
+        <div class="layout">
+            <aside class="sidebar">
+                <ul class="sidebar-menu">
+                    <li><a href="/">홈</a></li>
+                    <li class="active"><a href="/investors">투자 주체별 매매 현황</a></li>
+                    <li><a href="/news">뉴스</a></li>
+                    <li><a href="/themes">종목 TOP 10</a></li>
+                    <li><a href="/mbti">투자 mbti 검사</a></li>
+                    <li><a href="/recommend">맞춤 상품 추천</a></li>
+                    <li><a href="/popular">인기 상품</a></li>
+                </ul>
+            </aside>
+
+            <main class="main">
+                <h1 class="page-title">투자 주체별 매매 현황</h1>
+                <p class="page-subtitle">오늘 시장에서 투자 주체별 매매 흐름을 확인해보세요.</p>
+
+                <section class="card-list">
+                    <!-- 개인 -->
+                    <article class="invest-card">
+                        <div class="card-left">
+                            <div>
+                                <h2 class="investor-name">개인</h2>
+                                <div class="value red">+500억원</div>
+                            </div>
+
+                            <div>
+                                <div class="desc-strong">개인이 순매수 중입니다</div>
+                                <div class="desc-light">최근 시장에서 개인 투자자들의 매수세가 이어지고 있습니다.</div>
+                            </div>
+                        </div>
+
+                        <div class="card-right">
+                            <div class="graph-box">
+                                <div class="graph-center-line"></div>
+                                <div class="bar up personal"></div>
+                            </div>
+                        </div>
+                    </article>
+
+                    <!-- 외국인 -->
+                    <article class="invest-card">
+                        <div class="card-left">
+                            <div>
+                                <h2 class="investor-name">외국인</h2>
+                                <div class="value blue">-320억원</div>
+                            </div>
+
+                            <div>
+                                <div class="desc-strong">외국인은 순매도</div>
+                                <div class="desc-light">외국인 자금이 일부 차익 실현에 나서고 있습니다.</div>
+                            </div>
+                        </div>
+
+                        <div class="card-right">
+                            <div class="graph-box">
+                                <div class="graph-center-line"></div>
+                                <div class="bar down foreign"></div>
+                            </div>
+                        </div>
+                    </article>
+
+                    <!-- 기관 -->
+                    <article class="invest-card">
+                        <div class="card-left">
+                            <div>
+                                <h2 class="investor-name">기관</h2>
+                                <div class="value blue">-931억원</div>
+                            </div>
+
+                            <div>
+                                <div class="desc-strong">기관 매도 확대</div>
+                                <div class="desc-light">기관 투자자들의 매도세가 강하게 나타나고 있습니다.</div>
+                            </div>
+                        </div>
+
+                        <div class="card-right">
+                            <div class="graph-box">
+                                <div class="graph-center-line"></div>
+                                <div class="bar down org"></div>
+                            </div>
+                        </div>
+                    </article>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script src="/static/stocks.js"></script>
+</body>
+</html>

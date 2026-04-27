@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevQ - 관리자 대시보드</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- 헤더 -->
+  <header class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <a href="/index.html" class="text-2xl font-bold text-indigo-600">DevQ</a>
+        <span class="bg-purple-100 text-purple-700 text-xs font-semibold px-2 py-0.5 rounded-full">관리자</span>
+      </div>
+      <button onclick="logout()" class="text-sm text-gray-500 hover:text-red-500 transition">로그아웃</button>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-8 space-y-10">
+
+    <!-- 회원 목록 -->
+    <section>
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">회원 목록</h2>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-gray-500 text-left">
+            <tr>
+              <th class="px-4 py-3 font-medium">번호</th>
+              <th class="px-4 py-3 font-medium">닉네임</th>
+              <th class="px-4 py-3 font-medium">이메일</th>
+              <th class="px-4 py-3 font-medium">역할</th>
+              <th class="px-4 py-3 font-medium">가입일</th>
+              <th class="px-4 py-3 font-medium">관리</th>
+            </tr>
+          </thead>
+          <tbody id="user-table" class="divide-y divide-gray-100 text-gray-700">
+            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 질문 목록 -->
+    <section>
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">질문 목록</h2>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-gray-500 text-left">
+            <tr>
+              <th class="px-4 py-3 font-medium">번호</th>
+              <th class="px-4 py-3 font-medium">제목</th>
+              <th class="px-4 py-3 font-medium">작성자</th>
+              <th class="px-4 py-3 font-medium">태그</th>
+              <th class="px-4 py-3 font-medium">작성일</th>
+              <th class="px-4 py-3 font-medium">관리</th>
+            </tr>
+          </thead>
+          <tbody id="question-table" class="divide-y divide-gray-100 text-gray-700">
+            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    redirectIfNoAdmin();
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+      return new Date(dateStr).toLocaleDateString('ko-KR', {
+        year: 'numeric', month: 'short', day: 'numeric'
+      });
+    }
+
+    // 회원 삭제
+    async function deleteUser(id, rowEl) {
+      if (!confirm('회원을 삭제하면 해당 회원의 질문과 답변도 모두 삭제됩니다. 계속할까요?')) return;
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: 'DELETE',
+        headers: authHeader(),
+      });
+      if (res.ok) {
+        rowEl.remove();
+        // 번호 재정렬
+        const rows = document.querySelectorAll('#user-table tr');
+        rows.forEach((tr, i) => {
+          tr.querySelector('td:first-child').textContent = i + 1;
+        });
+      } else {
+        const data = await res.json();
+        alert(data.message);
+      }
+    }
+
+    // 회원 목록 로드
+    async function loadUsers() {
+      const tbody = document.getElementById('user-table');
+      try {
+        const res   = await fetch('/api/admin/users', { headers: authHeader() });
+        const users = await res.json();
+
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">회원이 없습니다.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = users.map((u, i) => `
+          <tr id="urow-${u.id}" class="hover:bg-gray-50 transition">
+            <td class="px-4 py-3">${i + 1}</td>
+            <td class="px-4 py-3 font-medium">${escapeHtml(u.nickname)}</td>
+            <td class="px-4 py-3 text-gray-500">${escapeHtml(u.email)}</td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${u.role === 'admin'
+                ? 'bg-purple-100 text-purple-700'
+                : 'bg-gray-100 text-gray-600'}">
+                ${u.role}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-gray-500">${formatDate(u.created_at)}</td>
+            <td class="px-4 py-3">
+              <button onclick="deleteUser(${u.id}, document.getElementById('urow-${u.id}'))"
+                      class="text-xs text-red-500 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-50 transition">
+                삭제
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-400">불러오기 실패</td></tr>';
+      }
+    }
+
+    // 질문 삭제
+    async function deleteQuestion(id, rowEl) {
+      if (!confirm('질문을 삭제하면 모든 답변도 삭제됩니다. 계속할까요?')) return;
+      const res = await fetch(`/api/questions/${id}`, {
+        method: 'DELETE',
+        headers: authHeader(),
+      });
+      if (res.ok) {
+        rowEl.remove();
+      } else {
+        const data = await res.json();
+        alert(data.message);
+      }
+    }
+
+    // 질문 목록 로드
+    async function loadQuestions() {
+      const tbody = document.getElementById('question-table');
+      try {
+        const res       = await fetch('/api/admin/questions', { headers: authHeader() });
+        const questions = await res.json();
+
+        if (questions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">질문이 없습니다.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = questions.map((q, i) => `
+          <tr id="qrow-${q.id}" class="hover:bg-gray-50 transition">
+            <td class="px-4 py-3">${i + 1}</td>
+            <td class="px-4 py-3">
+              <a href="/question-detail.html?id=${q.id}" class="text-indigo-600 hover:underline font-medium">
+                ${escapeHtml(q.title)}
+              </a>
+            </td>
+            <td class="px-4 py-3">${escapeHtml(q.nickname)}</td>
+            <td class="px-4 py-3 text-gray-500">${escapeHtml(q.tag || '-')}</td>
+            <td class="px-4 py-3 text-gray-500">${formatDate(q.created_at)}</td>
+            <td class="px-4 py-3">
+              <button onclick="deleteQuestion(${q.id}, document.getElementById('qrow-${q.id}'))"
+                      class="text-xs text-red-500 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-50 transition">
+                강제 삭제
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-400">불러오기 실패</td></tr>';
+      }
+    }
+
+    loadUsers();
+    loadQuestions();
+  </script>
+</body>
+</html>

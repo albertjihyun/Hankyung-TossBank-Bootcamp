@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>인기 테마 종목 TOP 6</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            min-height: 100%;
+            font-family: Arial, sans-serif;
+            background: white;
+            color: #191f28;
+        }
+
+        body {
+            overflow-x: auto;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .wrapper {
+            width: 1280px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background: white;
+            position: relative;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1280px;
+            height: 84px;
+            background: white;
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            border-bottom: 1px solid #f2f4f6;
+            z-index: 1000;
+        }
+
+        .header img {
+            width: 96px;
+            display: block;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 160px 1fr;
+            padding-top: 84px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 84px;
+            left: 50%;
+            transform: translateX(-640px);
+            width: 160px;
+            height: calc(100vh - 84px);
+            padding: 24px 0 24px 20px;
+            background: #ffffff;
+        }
+
+        .sidebar ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .sidebar a {
+            font-size: 12px;
+            color: #4e5968;
+            text-decoration: none;
+        }
+
+        .sidebar .active a {
+            font-weight: 700;
+            color: #191f28;
+        }
+
+        .main {
+            grid-column: 2;
+            padding: 40px 24px;
+        }
+
+        .panel {
+            border: 1px solid #e5e8eb;
+            padding: 40px;
+            background: white;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: #6b7684;
+            margin-bottom: 24px;
+        }
+
+        .table-wrap {
+            border: 1px solid #edf2f7;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            background: #f8fafc;
+            font-size: 13px;
+            color: #6b7684;
+            text-align: left;
+            padding: 14px 16px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        tbody td {
+            padding: 16px;
+            border-bottom: 1px solid #f2f4f6;
+            font-size: 15px;
+        }
+
+        .rank {
+            width: 60px;
+            text-align: center;
+        }
+
+        .rank-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #367ce8;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+
+        .stock {
+            font-weight: 700;
+        }
+
+        .theme {
+            font-size: 13px;
+            color: #8b95a1;
+            margin-top: 4px;
+        }
+
+        .number {
+            font-weight: 700;
+        }
+
+        .up {
+            color: #34a36f;
+            font-weight: 700;
+        }
+
+        .down {
+            color: #e05a4f;
+            font-weight: 700;
+        }
+
+        .arrow {
+            font-size: 14px;
+            margin-left: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrapper">
+
+        <header class="header">
+            <a href="/">
+                <img src="/static/logo.png" alt="토스증권 로고">
+            </a>
+        </header>
+
+        <div class="layout">
+
+            <aside class="sidebar">
+                <ul>
+                    <li><a href="/">홈</a></li>
+                    <li><a href="/investors">투자 주체별 매매 현황</a></li>
+                    <li><a href="/news">뉴스</a></li>
+                    <li class="active"><a href="/themes">종목 TOP 10</a></li>
+                    <li><a href="/mbti">투자 mbti 검사</a></li>
+                    <li><a href="/recommend">맞춤 상품 추천</a></li>
+                    <li><a href="/popular">인기 상품</a></li>
+                </ul>
+            </aside>
+
+            <main class="main">
+
+                <section class="panel">
+
+                    <h1 class="title">인기 테마 종목 TOP 6</h1>
+                    <p class="subtitle">초보 투자자들을 위한 인기 테마 종목을 확인해 보세요.</p>
+
+                    <div class="table-wrap">
+
+                        <table>
+
+                            <thead>
+                                <tr>
+                                    <th class="rank">순위</th>
+                                    <th>종목명 / 테마</th>
+                                    <th>현재가</th>
+                                    <th>전일대비</th>
+                                    <th>등락률</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="themeTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </section>
+
+            </main>
+
+        </div>
+
+    </div>
+
+    <script src="/static/stocks.js"></script>
+
+    <script>
+        const body = document.getElementById("themeTableBody")
+
+        function formatPrice(v) {
+            return Number(v).toLocaleString("ko-KR") + "원"
+        }
+
+        function formatChange(v) {
+            const abs = Math.abs(v).toLocaleString("ko-KR")
+            return v > 0 ? "+" + abs : "-" + abs
+        }
+
+        function formatRate(rate, change) {
+            const r = Number(rate).toFixed(2)
+            return change > 0 ? "+" + r + "%" : "-" + r + "%"
+        }
+
+        function arrow(change) {
+            return change > 0 ? "↑" : "↓"
+        }
+
+        function direction(change) {
+            return change > 0 ? "up" : "down"
+        }
+
+        function render() {
+            const data = STOCKS_DATA.themesData.slice(0, 6)
+
+            body.innerHTML = ""
+
+            data.forEach(function (item, i) {
+                const dir = direction(item.change)
+
+                const tr = document.createElement("tr")
+
+                tr.innerHTML = `
+<td class="rank">
+<span class="rank-circle">${i + 1}</span>
+</td>
+
+<td>
+<div class="stock">${item.stockName}</div>
+<div class="theme">${item.theme}</div>
+</td>
+
+<td class="number">
+${formatPrice(item.currentPrice)}
+</td>
+
+<td class="${dir}">
+${formatChange(item.change)}
+<span class="arrow">${arrow(item.change)}</span>
+</td>
+
+<td class="${dir}">
+${formatRate(item.changeRate, item.change)}
+<span class="arrow">${arrow(item.change)}</span>
+</td>
+`
+
+                body.appendChild(tr)
+            })
+        }
+
+        render()
+    </script>
+
+</body>
+
+</html>

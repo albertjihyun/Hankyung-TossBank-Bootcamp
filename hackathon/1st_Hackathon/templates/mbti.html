@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>투자 MBTI 검사</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      font-family: Arial, sans-serif;
+      background-color: #ffffff;
+      color: #191f28;
+    }
+
+    body {
+      overflow-x: auto;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .wrapper {
+      width: 1280px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background-color: #ffffff;
+      position: relative;
+    }
+
+    .header {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1280px;
+      height: 84px;
+      background-color: #ffffff;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      z-index: 1000;
+      border-bottom: 1px solid #f2f4f6;
+    }
+
+    .header img {
+      width: 96px;
+      display: block;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      min-height: 100vh;
+      padding-top: 84px;
+      background-color: #ffffff;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-640px);
+      width: 160px;
+      height: calc(100vh - 84px);
+      background-color: #ffffff;
+      padding: 24px 0 24px 20px;
+    }
+
+    .sidebar ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .sidebar a {
+      font-size: 12px;
+      color: #4e5968;
+      line-height: 1.4;
+      display: inline-block;
+    }
+
+    .sidebar .active a {
+      color: #191f28;
+      font-weight: 700;
+    }
+
+    .main {
+      grid-column: 2;
+      padding: 36px 24px 48px 24px;
+      background-color: #ffffff;
+    }
+
+    .panel {
+      width: 100%;
+      min-height: 760px;
+      border: 1px solid #e5e8eb;
+      background: #f8fafc;
+      padding: 36px 34px 40px;
+    }
+
+    .page-title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #191f28;
+      margin-bottom: 10px;
+      letter-spacing: -0.03em;
+    }
+
+    .page-subtitle {
+      text-align: center;
+      font-size: 16px;
+      color: #6b7684;
+      line-height: 1.5;
+      margin-bottom: 34px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .test-card,
+    .result-card {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border: 1px solid #eef2f6;
+      border-radius: 12px;
+      padding: 28px 20px 24px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    }
+
+    .question-top {
+      margin-bottom: 18px;
+    }
+
+    .question-title {
+      font-size: 17px;
+      line-height: 1.5;
+      font-weight: 700;
+      color: #191f28;
+      word-break: keep-all;
+    }
+
+    .question-number {
+      color: #367ce8;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background-color: #edf2f7;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background-color: #367ce8;
+      width: 10%;
+      transition: width 0.2s ease;
+    }
+
+    .option-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .option-item {
+      width: 100%;
+    }
+
+    .option-label {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid #edf2f7;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background-color: #ffffff;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .option-label:hover {
+      border-color: #cfe0ff;
+      background-color: #fbfdff;
+    }
+
+    .option-radio {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #d1d6db;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .option-label.selected {
+      border-color: #cfe0ff;
+      background-color: #f8fbff;
+    }
+
+    .option-label.selected .option-radio {
+      border-color: #7aa7ef;
+    }
+
+    .option-label.selected .option-radio::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #367ce8;
+      transform: translate(-50%, -50%);
+    }
+
+    .option-text {
+      font-size: 15px;
+      line-height: 1.5;
+      color: #4e5968;
+      word-break: keep-all;
+      text-align: left;
+    }
+
+    .button-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .nav-button {
+      min-width: 120px;
+      height: 42px;
+      border: none;
+      border-radius: 8px;
+      background-color: #367ce8;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .nav-button:disabled {
+      background-color: #dbe7fb;
+      color: #7f96b6;
+      cursor: default;
+    }
+
+    .sub-button {
+      min-width: 88px;
+      height: 42px;
+      border: 1px solid #d1d6db;
+      border-radius: 8px;
+      background-color: #ffffff;
+      color: #4e5968;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .result-card {
+      display: none;
+      text-align: center;
+      padding-top: 34px;
+      padding-bottom: 30px;
+    }
+
+    .result-image {
+      width: 120px;
+      height: 120px;
+      object-fit: contain;
+      margin-bottom: 18px;
+    }
+
+    .result-type {
+      font-size: 28px;
+      font-weight: 700;
+      color: #191f28;
+      line-height: 1.3;
+      margin-bottom: 12px;
+      letter-spacing: -0.03em;
+    }
+
+    .result-description {
+      max-width: 560px;
+      margin: 0 auto 20px;
+      font-size: 16px;
+      line-height: 1.7;
+      color: #4e5968;
+      word-break: keep-all;
+    }
+
+    .result-badge-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 22px;
+    }
+
+    .result-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background-color: #eef5ff;
+      color: #367ce8;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .result-button-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .notice-text {
+      text-align: center;
+      font-size: 13px;
+      color: #8b95a1;
+      margin-top: 18px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <header class="header">
+      <a href="/">
+        <img src="/static/logo.png" alt="토스증권 로고" />
+      </a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <ul class="sidebar-menu">
+          <li><a href="/">홈</a></li>
+          <li><a href="/investors">투자 주체별 매매 현황</a></li>
+          <li><a href="/news">뉴스</a></li>
+          <li><a href="/themes">종목 TOP 10</a></li>
+          <li class="active"><a href="/mbti">투자 mbti 검사</a></li>
+          <li><a href="/recommend">맞춤 상품 추천</a></li>
+          <li><a href="/popular">인기 상품</a></li>
+        </ul>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <h1 class="page-title">투자 MBTI 검사</h1>
+          <p class="page-subtitle">간단한 질문에 답하고 나에게 맞는 투자 성향을 확인해 보세요.</p>
+
+          <section id="testCard" class="test-card">
+            <div class="progress-wrap">
+              <div id="progressFill" class="progress-fill"></div>
+            </div>
+
+            <div class="question-top">
+              <h2 id="questionTitle" class="question-title"></h2>
+            </div>
+
+            <div id="optionList" class="option-list"></div>
+
+            <div class="button-row">
+              <button id="prevButton" class="sub-button" type="button">이전</button>
+              <button id="nextButton" class="nav-button" type="button" disabled>다음</button>
+            </div>
+
+            <p class="notice-text">마지막 질문은 결과를 결정하는 데 더 크게 반영됩니다.</p>
+          </section>
+
+          <section id="resultCard" class="result-card">
+            <img id="resultImage" class="result-image" src="" alt="투자 유형 이미지" />
+            <h2 id="resultType" class="result-type"></h2>
+            <p id="resultDescription" class="result-description"></p>
+
+            <div id="resultBadgeRow" class="result-badge-row"></div>
+
+            <div class="result-button-row">
+              <button id="restartButton" class="nav-button" type="button">다시 검사하기</button>
+              <button id="diagnosisButton" class="sub-button" type="button">결과 분석</button>
+            </div>
+
+            <p class="notice-text">추천 상품 페이지에서 이 결과를 바탕으로 맞춤 상품을 연결할 수 있습니다.</p>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/test.js"></script>
+  <script>
+    const fallbackTestData = {
+      questions: [
+        {
+          id: 1,
+          question: "갑자기 여유 자금이 생겼다면 어떻게 하시겠습니까?",
+          options: [
+            { text: "일단 안전한 곳에 넣어두고 생각한다.", type: "SAFE" },
+            { text: "자료를 충분히 분석하고 투자한다.", type: "ANALYSIS" },
+            { text: "요즘 뜨는 투자처를 찾아본다.", type: "TREND" },
+            { text: "수익이 크다면 과감하게 투자한다.", type: "RISK" }
+          ]
+        },
+        {
+          id: 2,
+          question: "투자를 결정할 때 가장 중요하게 보는 것은?",
+          options: [
+            { text: "원금 손실 가능성", type: "SAFE" },
+            { text: "기업 재무와 데이터", type: "ANALYSIS" },
+            { text: "시장 분위기와 흐름", type: "TREND" },
+            { text: "수익률 가능성", type: "RISK" }
+          ]
+        },
+        {
+          id: 3,
+          question: "주변 사람들이 특정 종목을 추천한다면?",
+          options: [
+            { text: "검증되지 않았으면 안 한다.", type: "SAFE" },
+            { text: "데이터를 찾아보고 판단한다.", type: "ANALYSIS" },
+            { text: "지금 시장 반응을 먼저 본다.", type: "TREND" },
+            { text: "기회라면 빠르게 들어간다.", type: "RISK" }
+          ]
+        },
+        {
+          id: 4,
+          question: "투자 손실이 발생했을 때 당신의 반응은?",
+          options: [
+            { text: "다음부터 더 안정적인 투자만 한다.", type: "SAFE" },
+            { text: "왜 손실이 났는지 분석한다.", type: "ANALYSIS" },
+            { text: "시장 분위기를 다시 확인한다.", type: "TREND" },
+            { text: "손실보다 다음 기회를 본다.", type: "RISK" }
+          ]
+        },
+        {
+          id: 5,
+          question: "투자를 시작할 때 가장 먼저 하는 행동은?",
+          options: [
+            { text: "안전한 상품부터 찾는다.", type: "SAFE" },
+            { text: "리포트와 데이터를 조사한다.", type: "ANALYSIS" },
+            { text: "지금 사람들이 뭘 하는지 본다.", type: "TREND" },
+            { text: "수익 가능성이 큰 곳을 찾는다.", type: "RISK" }
+          ]
+        },
+        {
+          id: 6,
+          question: "투자 스타일을 한 문장으로 표현하면?",
+          options: [
+            { text: "천천히 안정적으로.", type: "SAFE" },
+            { text: "이해한 것만 투자.", type: "ANALYSIS" },
+            { text: "흐름을 읽는 투자.", type: "TREND" },
+            { text: "큰 수익을 노리는 투자.", type: "RISK" }
+          ]
+        },
+        {
+          id: 7,
+          question: "시장 변동성이 클 때 당신은?",
+          options: [
+            { text: "투자를 줄이고 지켜본다.", type: "SAFE" },
+            { text: "데이터를 분석한다.", type: "ANALYSIS" },
+            { text: "시장의 흐름을 살핀다.", type: "TREND" },
+            { text: "기회라고 생각한다.", type: "RISK" }
+          ]
+        },
+        {
+          id: 8,
+          question: "투자 정보를 어디서 가장 많이 얻나요?",
+          options: [
+            { text: "안정적인 금융기관 정보", type: "SAFE" },
+            { text: "기업 보고서와 데이터", type: "ANALYSIS" },
+            { text: "뉴스와 커뮤니티", type: "TREND" },
+            { text: "고수익 사례", type: "RISK" }
+          ]
+        },
+        {
+          id: 9,
+          question: "투자를 할 때 가장 걱정되는 것은?",
+          options: [
+            { text: "원금 손실", type: "SAFE" },
+            { text: "정보 부족", type: "ANALYSIS" },
+            { text: "타이밍 놓침", type: "TREND" },
+            { text: "큰 기회 놓침", type: "RISK" }
+          ]
+        },
+        {
+          id: 10,
+          weight: 3,
+          question: "딱 하나만 선택해야 한다면 당신에게 가장 중요한 투자 기준은?",
+          options: [
+            { text: "안정성", type: "SAFE" },
+            { text: "분석과 근거", type: "ANALYSIS" },
+            { text: "시장 흐름", type: "TREND" },
+            { text: "높은 수익", type: "RISK" }
+          ]
+        }
+      ],
+      results: {
+        SAFE: {
+          title: "안정형 투자자",
+          description: "안정적인 자산 관리와 리스크 최소화를 중요하게 생각하는 투자자입니다."
+        },
+        ANALYSIS: {
+          title: "분석형 투자자",
+          description: "데이터와 근거를 바탕으로 논리적인 투자를 하는 스타일입니다."
+        },
+        TREND: {
+          title: "트렌드형 투자자",
+          description: "시장 흐름과 분위기를 빠르게 읽는 감각형 투자자입니다."
+        },
+        RISK: {
+          title: "고수익추구형 투자자",
+          description: "높은 수익을 위해 리스크도 감수하는 공격적인 투자자입니다."
+        }
+      }
+    };
+
+    const TEST_SOURCE = window.TEST_DATA || fallbackTestData;
+
+    const questionTitle = document.getElementById("questionTitle");
+    const optionList = document.getElementById("optionList");
+    const progressFill = document.getElementById("progressFill");
+    const prevButton = document.getElementById("prevButton");
+    const nextButton = document.getElementById("nextButton");
+
+    const testCard = document.getElementById("testCard");
+    const resultCard = document.getElementById("resultCard");
+    const resultImage = document.getElementById("resultImage");
+    const resultType = document.getElementById("resultType");
+    const resultDescription = document.getElementById("resultDescription");
+    const resultBadgeRow = document.getElementById("resultBadgeRow");
+    const restartButton = document.getElementById("restartButton");
+    const diagnosisButton = document.getElementById("diagnosisButton");
+
+    const questions = TEST_SOURCE.questions;
+    const results = TEST_SOURCE.results;
+
+    let currentIndex = 0;
+    let answers = new Array(questions.length).fill(null);
+    let finalResultType = null;
+
+    function getImageByType(type) {
+      const imageMap = {
+        SAFE: "/static/mbtiSafe.png",
+        ANALYSIS: "/static/mbtiAnalysis.png",
+        TREND: "/static/mbtiTrend.png",
+        RISK: "/static/mbtiRisk.png"
+      };
+
+      return imageMap[type] || "/static/mbtiSafe.png";
+    }
+
+    function getBadgesByType(type) {
+      const badgeMap = {
+        SAFE: ["안정 우선", "리스크 회피", "예측 가능성"],
+        ANALYSIS: ["데이터 기반", "합리적 판단", "근거 중시"],
+        TREND: ["시장 감각", "흐름 중시", "유연한 대응"],
+        RISK: ["고수익 추구", "과감한 선택", "기회 포착"]
+      };
+
+      return badgeMap[type] || [];
+    }
+
+    function updateProgress() {
+      const percent = ((currentIndex + 1) / questions.length) * 100;
+      progressFill.style.width = percent + "%";
+    }
+
+    function updateButtons() {
+      prevButton.disabled = currentIndex === 0;
+      nextButton.disabled = answers[currentIndex] === null;
+      nextButton.textContent = "다음";
+    }
+
+    function renderQuestion() {
+      const currentQuestion = questions[currentIndex];
+      questionTitle.innerHTML = '<span class="question-number">' +
+        String(currentQuestion.id).padStart(2, "0") +
+        '.</span>' + currentQuestion.question;
+
+      optionList.innerHTML = "";
+
+      currentQuestion.options.forEach(function(option, optionIndex) {
+        const item = document.createElement("div");
+        item.className = "option-item";
+
+        const label = document.createElement("button");
+        label.type = "button";
+        label.className = "option-label";
+
+        if (answers[currentIndex] === optionIndex) {
+          label.classList.add("selected");
+        }
+
+        label.innerHTML = `
+          <span class="option-radio"></span>
+          <span class="option-text">${option.text}</span>
+        `;
+
+        label.addEventListener("click", function() {
+          answers[currentIndex] = optionIndex;
+          renderQuestion();
+        });
+
+        item.appendChild(label);
+        optionList.appendChild(item);
+      });
+
+      updateProgress();
+      updateButtons();
+    }
+
+    function calculateResultType() {
+      const score = {
+        SAFE: 0,
+        ANALYSIS: 0,
+        TREND: 0,
+        RISK: 0
+      };
+
+      questions.forEach(function(question, index) {
+        const selectedIndex = answers[index];
+        if (selectedIndex === null) return;
+
+        const selectedOption = question.options[selectedIndex];
+        const weight = question.weight || 1;
+
+        score[selectedOption.type] += weight;
+      });
+
+      const maxScore = Math.max(score.SAFE, score.ANALYSIS, score.TREND, score.RISK);
+
+      const topTypes = Object.keys(score).filter(function(type) {
+        return score[type] === maxScore;
+      });
+
+      if (topTypes.length === 1) {
+        return topTypes[0];
+      }
+
+      const lastQuestionIndex = questions.length - 1;
+      const lastSelectedIndex = answers[lastQuestionIndex];
+      const lastSelectedType = questions[lastQuestionIndex].options[lastSelectedIndex].type;
+
+      if (topTypes.includes(lastSelectedType)) {
+        return lastSelectedType;
+      }
+
+      for (let i = answers.length - 1; i >= 0; i--) {
+        const selectedIndex = answers[i];
+        if (selectedIndex === null) continue;
+
+        const type = questions[i].options[selectedIndex].type;
+        if (topTypes.includes(type)) {
+          return type;
+        }
+      }
+
+      return topTypes[0];
+    }
+
+    function showResult() {
+      finalResultType = calculateResultType();
+      const result = results[finalResultType];
+
+      testCard.style.display = "none";
+      resultCard.style.display = "block";
+
+      resultImage.src = getImageByType(finalResultType);
+      resultType.textContent = result.title;
+      resultDescription.textContent = result.description;
+
+      resultBadgeRow.innerHTML = "";
+      getBadgesByType(finalResultType).forEach(function(text) {
+        const badge = document.createElement("span");
+        badge.className = "result-badge";
+        badge.textContent = text;
+        resultBadgeRow.appendChild(badge);
+      });
+
+      localStorage.setItem("investmentMbtiType", finalResultType);
+      localStorage.setItem("investmentMbtiTitle", result.title);
+      localStorage.setItem("investmentMbtiDescription", result.description);
+    }
+
+    function restartTest() {
+      currentIndex = 0;
+      answers = new Array(questions.length).fill(null);
+      finalResultType = null;
+
+      resultCard.style.display = "none";
+      testCard.style.display = "block";
+
+      renderQuestion();
+    }
+
+    prevButton.addEventListener("click", function() {
+      if (currentIndex > 0) {
+        currentIndex -= 1;
+        renderQuestion();
+      }
+    });
+
+    nextButton.addEventListener("click", function() {
+      if (answers[currentIndex] === null) {
+        return;
+      }
+
+      if (currentIndex === questions.length - 1) {
+        showResult();
+        return;
+      }
+
+      currentIndex += 1;
+      renderQuestion();
+    });
+
+    restartButton.addEventListener("click", function() {
+      restartTest();
+    });
+
+    diagnosisButton.addEventListener("click", function() {
+      if (!finalResultType) {
+        finalResultType = calculateResultType();
+      }
+
+      const result = results[finalResultType];
+
+      localStorage.setItem("investmentMbtiType", finalResultType);
+      localStorage.setItem("investmentMbtiTitle", result.title);
+      localStorage.setItem("investmentMbtiDescription", result.description);
+
+      window.location.href = "/diagnosis";
+    });
+
+    renderQuestion();
+  </script>
+</body>
+</html>

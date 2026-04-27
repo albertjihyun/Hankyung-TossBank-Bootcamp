@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>인기 상품</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      font-family: Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background-color: #ffffff;
+      color: #191f28;
+    }
+
+    body {
+      overflow-x: auto;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .wrapper {
+      width: 1280px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background-color: #ffffff;
+      position: relative;
+    }
+
+    .header {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1280px;
+      height: 84px;
+      background-color: #ffffff;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      z-index: 1000;
+      border-bottom: 1px solid #f2f4f6;
+    }
+
+    .header img {
+      width: 96px;
+      display: block;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      min-height: 100vh;
+      padding-top: 84px;
+      background-color: #ffffff;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-640px);
+      width: 160px;
+      height: calc(100vh - 84px);
+      background-color: #ffffff;
+      padding: 24px 0 24px 20px;
+    }
+
+    .sidebar ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .sidebar a {
+      font-size: 12px;
+      color: #4e5968;
+      line-height: 1.4;
+      display: inline-block;
+    }
+
+    .sidebar .active a {
+      color: #191f28;
+      font-weight: 700;
+    }
+
+    .main {
+      grid-column: 2;
+      padding: 30px 24px 48px 24px;
+      background-color: #ffffff;
+    }
+
+    .content-box {
+      width: 100%;
+      min-height: 700px;
+      border: 1px solid #e5e8eb;
+      background-color: #ffffff;
+      padding: 30px;
+    }
+
+    .inner-panel {
+      width: 100%;
+      min-height: 610px;
+      border: 1px solid #f2f4f6;
+      background-color: #ffffff;
+      padding: 42px 38px 40px;
+    }
+
+    .section-title {
+      font-size: 30px;
+      font-weight: 800;
+      color: #191f28;
+      line-height: 1.35;
+      margin-bottom: 10px;
+      letter-spacing: -0.02em;
+      word-break: keep-all;
+    }
+
+    .section-subtitle {
+      font-size: 15px;
+      color: #8b95a1;
+      line-height: 1.6;
+      margin-bottom: 30px;
+      word-break: keep-all;
+    }
+
+    .product-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .product-card {
+      border: 1px solid #edf2f7;
+      border-radius: 16px;
+      background-color: #ffffff;
+      padding: 22px 22px 20px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      min-height: 122px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    }
+
+    .product-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .product-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .rank {
+      font-size: 18px;
+      font-weight: 800;
+      color: #3182f6;
+      flex-shrink: 0;
+      min-width: 38px;
+    }
+
+    .product-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #191f28;
+      line-height: 1.4;
+      letter-spacing: -0.01em;
+      word-break: keep-all;
+    }
+
+    .product-desc {
+      font-size: 14px;
+      color: #6b7684;
+      line-height: 1.6;
+      word-break: keep-all;
+    }
+
+    .badge {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      min-width: 84px;
+    }
+
+    .badge.safe {
+      background-color: #eef6ff;
+      color: #3182f6;
+    }
+
+    .badge.analysis {
+      background-color: #f2f4ff;
+      color: #5b6bff;
+    }
+
+    .badge.trend {
+      background-color: #f5f7fa;
+      color: #6b7684;
+    }
+
+    .badge.risk {
+      background-color: #fff4ea;
+      color: #ff7a00;
+    }
+
+    .empty-message {
+      padding: 24px 0;
+      color: #8b95a1;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <header class="header">
+      <a href="/">
+        <img src="/static/logo.png" alt="토스증권 로고" />
+      </a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <ul>
+          <li><a href="/">홈</a></li>
+          <li><a href="/investors">투자 주체별 매매 현황</a></li>
+          <li><a href="/news">뉴스</a></li>
+          <li><a href="/themes">종목 TOP 10</a></li>
+          <li><a href="/mbti">투자 mbti 검사</a></li>
+          <li><a href="/recommend">맞춤 상품 추천</a></li>
+          <li class="active"><a href="/popular">인기 상품</a></li>
+        </ul>
+      </aside>
+
+      <main class="main">
+        <section class="content-box">
+          <section class="inner-panel">
+            <h1 class="section-title">많은 분들이 선택한 인기 투자 상품을 소개합니다.</h1>
+            <p class="section-subtitle">
+              안정적이면서도 매력적인 수익을 기대할 수 있는 인기 상품을 모아봤어요.
+            </p>
+
+            <div id="productGrid" class="product-grid"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/products.js"></script>
+  <script>
+    const productGrid = document.getElementById("productGrid");
+
+    function getBadgeInfo(type) {
+      switch (type) {
+        case "SAFE":
+          return { text: "안정형", className: "safe" };
+        case "ANALYSIS":
+          return { text: "분석형", className: "analysis" };
+        case "TREND":
+          return { text: "트렌드형", className: "trend" };
+        case "RISK":
+          return { text: "공격형", className: "risk" };
+        default:
+          return { text: "추천", className: "trend" };
+      }
+    }
+
+    function renderProducts() {
+      if (
+        typeof PRODUCTS_DATA === "undefined" ||
+        !PRODUCTS_DATA.products ||
+        !Array.isArray(PRODUCTS_DATA.products)
+      ) {
+        productGrid.innerHTML =
+          '<p class="empty-message">상품 데이터를 불러오지 못했습니다.</p>';
+        return;
+      }
+
+      const products = PRODUCTS_DATA.products
+        .slice()
+        .sort((a, b) => a.rank - b.rank)
+        .slice(0, 10);
+
+      if (products.length === 0) {
+        productGrid.innerHTML =
+          '<p class="empty-message">표시할 인기 상품이 없습니다.</p>';
+        return;
+      }
+
+      productGrid.innerHTML = products.map((product) => {
+        const badgeInfo = getBadgeInfo(product.recommendedType);
+
+        return `
+          <article class="product-card">
+            <div class="product-left">
+              <div class="product-top">
+                <div class="rank">${product.rank}위</div>
+                <div class="product-name">${product.productName}</div>
+              </div>
+              <div class="product-desc">${product.productDescription}</div>
+            </div>
+            <div class="badge ${badgeInfo.className}">${badgeInfo.text}</div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    renderProducts();
+  </script>
+</body>
+</html>
