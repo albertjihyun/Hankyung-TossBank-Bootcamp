@@ -1,12 +1,3 @@
-[submodule "hackathon/1st_Hackathon"]
-	path = hackathon/1st_Hackathon
-	url = https://github.com/albertjihyun/1st_Hackerton
-[submodule "hackathon/2nd_Hackathon"]
-	path = hackathon/2nd_Hackathon
-	url = https://github.com/albertjihyun/2nd_Hackerton
 [submodule "hackathon/3rd"]
 	path = hackathon/3rd
-	url = https://github.com/albertjihyun/3rd_Hackerton
-[submodule "hackathon/3rd_Hackathon"]
-	path = hackathon/3rd_Hackathon
 	url = https://github.com/albertjihyun/3rd_Hackerton
