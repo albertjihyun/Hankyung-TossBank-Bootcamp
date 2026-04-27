@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>맞춤 상품 추천</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      font-family: Arial, sans-serif;
+      background-color: #ffffff;
+      color: #191f28;
+    }
+
+    body {
+      overflow-x: auto;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .wrapper {
+      width: 1280px;
+      min-height: 100vh;
+      margin: 0 auto;
+      background-color: #ffffff;
+      position: relative;
+    }
+
+    .header {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1280px;
+      height: 84px;
+      background-color: #ffffff;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      z-index: 1000;
+      border-bottom: 1px solid #f2f4f6;
+    }
+
+    .header img {
+      width: 96px;
+      display: block;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      min-height: 100vh;
+      padding-top: 84px;
+      background-color: #ffffff;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-640px);
+      width: 160px;
+      height: calc(100vh - 84px);
+      background-color: #ffffff;
+      padding: 24px 0 24px 20px;
+    }
+
+    .sidebar ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .sidebar a {
+      font-size: 12px;
+      color: #4e5968;
+      line-height: 1.4;
+      display: inline-block;
+    }
+
+    .sidebar .active a {
+      color: #191f28;
+      font-weight: 700;
+    }
+
+    .main {
+      grid-column: 2;
+      padding: 30px 24px 48px 24px;
+      background-color: #ffffff;
+    }
+
+    .panel {
+      width: 100%;
+      min-height: 760px;
+      border: 1px solid #e5e8eb;
+      background: #ffffff;
+      padding: 24px;
+    }
+
+    .hero {
+      width: 100%;
+      min-height: 260px;
+      border-radius: 22px;
+      padding: 34px 34px 30px;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 26px;
+      overflow: hidden;
+    }
+
+    .hero.safe {
+      background: linear-gradient(135deg, #eef7ff 0%, #dfeeff 100%);
+    }
+
+    .hero.analysis {
+      background: linear-gradient(135deg, #f4f5ff 0%, #e7e9ff 100%);
+    }
+
+    .hero.trend {
+      background: linear-gradient(135deg, #effcf4 0%, #daf7e5 100%);
+    }
+
+    .hero.risk {
+      background: linear-gradient(135deg, #fff3ec 0%, #ffe1d5 100%);
+    }
+
+    .hero-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .hero-title {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: #191f28;
+      margin-bottom: 14px;
+      letter-spacing: -0.03em;
+      word-break: keep-all;
+    }
+
+    .hero-subtitle {
+      font-size: 15px;
+      line-height: 1.75;
+      color: #4e5968;
+      max-width: 520px;
+      word-break: keep-all;
+    }
+
+    .hero-right {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .hero-image {
+      width: 100%;
+      max-width: 280px;
+      height: 200px;
+      object-fit: cover;
+      border-radius: 20px;
+      display: block;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.10);
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #191f28;
+      margin-bottom: 16px;
+      letter-spacing: -0.03em;
+    }
+
+    .recommend-primary {
+      border: 1px solid #e5e8eb;
+      border-radius: 20px;
+      background: #ffffff;
+      padding: 24px 24px 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+    }
+
+    .primary-content {
+      margin-bottom: 18px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .tag.safe {
+      background: #e8f3ff;
+      color: #2f6fd6;
+    }
+
+    .tag.analysis {
+      background: #efeeff;
+      color: #635bff;
+    }
+
+    .tag.trend {
+      background: #e9f9ef;
+      color: #1d9b57;
+    }
+
+    .tag.risk {
+      background: #fff0ea;
+      color: #eb5b2b;
+    }
+
+    .primary-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .product-main-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #191f28;
+      line-height: 1.35;
+      margin-bottom: 10px;
+      word-break: keep-all;
+    }
+
+    .product-desc {
+      font-size: 15px;
+      line-height: 1.75;
+      color: #6b7684;
+      max-width: 640px;
+      word-break: keep-all;
+    }
+
+    .rate-badge {
+      min-width: 104px;
+      height: 42px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: #191f28;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .primary-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #f2f4f6;
+      color: #4e5968;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .detail-btn {
+      min-width: 92px;
+      height: 40px;
+      border: none;
+      border-radius: 10px;
+      background: #3182f6;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0 16px;
+    }
+
+    .sub-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 18px;
+    }
+
+    .sub-card {
+      border: 1px solid #e5e8eb;
+      border-radius: 18px;
+      background: #ffffff;
+      padding: 20px;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.03);
+    }
+
+    .sub-card-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .sub-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sub-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #191f28;
+      line-height: 1.45;
+      margin-bottom: 10px;
+      word-break: keep-all;
+    }
+
+    .sub-desc {
+      font-size: 14px;
+      color: #6b7684;
+      line-height: 1.75;
+      margin-bottom: 14px;
+      word-break: keep-all;
+    }
+
+    .sub-image {
+      width: 138px;
+      height: 138px;
+      object-fit: cover;
+      border-radius: 16px;
+      flex-shrink: 0;
+    }
+
+    .action-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      justify-content: flex-start;
+    }
+
+    .action-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #191f28;
+      margin-bottom: 2px;
+      letter-spacing: -0.02em;
+    }
+
+    .action-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 12px;
+      background: #fafbfc;
+      border-radius: 10px;
+      font-size: 13px;
+      color: #333d4b;
+      font-weight: 600;
+    }
+
+    .action-item span:first-child {
+      color: #6b7684;
+      margin-right: 8px;
+    }
+
+    .empty-wrap {
+      min-height: 620px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .empty-card {
+      width: 100%;
+      max-width: 620px;
+      border: 1px solid #e5e8eb;
+      border-radius: 16px;
+      background: #ffffff;
+      padding: 42px 32px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    }
+
+    .empty-icon {
+      font-size: 58px;
+      margin-bottom: 16px;
+    }
+
+    .empty-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #191f28;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .empty-desc {
+      font-size: 14px;
+      color: #6b7684;
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+
+    .go-test-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 46px;
+      padding: 0 20px;
+      border-radius: 12px;
+      background: #3182f6;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <header class="header">
+      <a href="/">
+        <img src="/static/logo.png" alt="토스증권 로고" />
+      </a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <ul>
+          <li><a href="/">홈</a></li>
+          <li><a href="/investors">투자 주체별 매매 현황</a></li>
+          <li><a href="/news">뉴스</a></li>
+          <li><a href="/themes">종목 TOP 10</a></li>
+          <li><a href="/mbti">투자 mbti 검사</a></li>
+          <li class="active"><a href="/recommend">맞춤 상품 추천</a></li>
+          <li><a href="/popular">인기 상품</a></li>
+        </ul>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div id="recommendContainer"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/products.js"></script>
+  <script>
+    const recommendContainer = document.getElementById("recommendContainer");
+
+    const TYPE_META = {
+      SAFE: {
+        className: "safe",
+        label: "안정형 추천",
+        heroTitle: "안정형 투자자님을 위한 맞춤형 투자 상품을 추천드려요!",
+        defaultTitle: "안정 중심 투자형",
+        defaultDesc: "원금 손실 가능성을 줄이고 꾸준하고 안정적인 흐름을 선호하는 투자자에게 잘 맞는 상품 구성이에요.",
+        image: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=600&q=80",
+        chips: ["🌱 낮은 리스크", "🏦 예금형 선호", "📘 안정적 운용"],
+        rates: ["연 3.5%", "연 3.2%", "연 3.1%"]
+      },
+      ANALYSIS: {
+        className: "analysis",
+        label: "분석형 추천",
+        heroTitle: "분석형 투자자님을 위한 맞춤형 투자 상품을 추천드려요!",
+        defaultTitle: "데이터 기반 분석형",
+        defaultDesc: "감각보다는 수치와 근거, 리포트와 논리를 중심으로 투자 판단을 내리는 성향에 맞는 추천이에요.",
+        image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=600&q=80",
+        chips: ["📊 데이터 기반", "🧠 정량 분석", "📚 리서치 선호"],
+        rates: ["기대 수익 8.2%", "성과 추적 7.6%", "정량 분석 7.1%"]
+      },
+      TREND: {
+        className: "trend",
+        label: "트렌드형 추천",
+        heroTitle: "트렌드형 투자자님을 위한 맞춤형 투자 상품을 추천드려요!",
+        defaultTitle: "시장 흐름 포착형",
+        defaultDesc: "요즘 주목받는 산업과 테마, 시장 분위기를 빠르게 읽고 대응하는 투자자에게 어울리는 추천이에요.",
+        image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=600&q=80",
+        chips: ["🔥 테마 민감", "📈 모멘텀 선호", "🌍 시장 반응"],
+        rates: ["상승률 12.1%", "주목도 10.4%", "트렌드 9.8%"]
+      },
+      RISK: {
+        className: "risk",
+        label: "고수익형 추천",
+        heroTitle: "고수익추구형 투자자님을 위한 맞춤형 투자 상품을 추천드려요!",
+        defaultTitle: "공격적 수익 추구형",
+        defaultDesc: "높은 변동성도 감수하면서 큰 수익 기회를 찾는 투자자에게 어울리는 상품 구성이에요.",
+        image: "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?auto=format&fit=crop&w=600&q=80",
+        chips: ["🚀 고수익 지향", "⚡ 빠른 판단", "💥 변동성 수용"],
+        rates: ["기대 수익 15.3%", "공격 지수 13.8%", "성장 잠재력 11.9%"]
+      }
+    };
+
+    function getStoredType() {
+      return localStorage.getItem("investmentMbtiType");
+    }
+
+    function getStoredTitle(type) {
+      const stored = localStorage.getItem("investmentMbtiTitle");
+      if (stored) return stored;
+      return TYPE_META[type].defaultTitle;
+    }
+
+    function getStoredDescription(type) {
+      const stored = localStorage.getItem("investmentMbtiDescription");
+      if (stored) return stored;
+      return TYPE_META[type].defaultDesc;
+    }
+
+    function getProductsArray() {
+      if (window.PRODUCTS_DATA && Array.isArray(window.PRODUCTS_DATA.products)) {
+        return window.PRODUCTS_DATA.products;
+      }
+
+      if (window.PRODUCTS_DATA && Array.isArray(window.PRODUCTS_DATA.items)) {
+        return window.PRODUCTS_DATA.items;
+      }
+
+      if (window.productsData && Array.isArray(window.productsData)) {
+        return window.productsData;
+      }
+
+      return [];
+    }
+
+    function normalizeType(rawType) {
+      if (!rawType) return null;
+
+      const upper = String(rawType).toUpperCase();
+
+      if (TYPE_META[upper]) return upper;
+
+      if (upper.includes("SAFE")) return "SAFE";
+      if (upper.includes("ANALYSIS")) return "ANALYSIS";
+      if (upper.includes("TREND")) return "TREND";
+      if (upper.includes("RISK")) return "RISK";
+
+      return null;
+    }
+
+    function getProductsByType(type) {
+      const items = getProductsArray();
+
+      return items.filter(function(item) {
+        const rawType = item.type || item.mbtiType || item.category || "";
+        return normalizeType(rawType) === type;
+      });
+    }
+
+    function renderEmptyState() {
+      recommendContainer.innerHTML = `
+        <div class="empty-wrap">
+          <div class="empty-card">
+            <div class="empty-icon">🧭</div>
+            <h2 class="empty-title">아직 투자 성향 결과가 없어요</h2>
+            <p class="empty-desc">
+              먼저 투자 MBTI 검사를 완료하면<br>
+              성향에 맞는 맞춤형 상품 추천을 보여드릴게요.
+            </p>
+            <a class="go-test-btn" href="/mbti">투자 mbti 검사하러 가기</a>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRecommendPage(type) {
+      const meta = TYPE_META[type];
+      const savedTitle = getStoredTitle(type);
+      const savedDescription = getStoredDescription(type);
+      const products = getProductsByType(type);
+
+      if (products.length === 0) {
+        renderEmptyState();
+        return;
+      }
+
+      const mainProduct = products[0];
+      const secondProduct = products[1] || null;
+      const thirdProduct = products[2] || null;
+
+      recommendContainer.innerHTML = `
+        <section class="hero ${meta.className}">
+          <div class="hero-left">
+            <h1 class="hero-title">${meta.heroTitle}</h1>
+            <p class="hero-subtitle">${savedDescription}</p>
+          </div>
+          <div class="hero-right">
+            <img class="hero-image" src="${meta.image}" alt="${savedTitle} 이미지" />
+          </div>
+        </section>
+
+        <h2 class="section-title">추천 상품</h2>
+
+        <article class="recommend-primary">
+          <div class="primary-content">
+            <div class="tag ${meta.className}">${meta.label}</div>
+
+            <div class="primary-top">
+              <div>
+                <h3 class="product-main-title">${mainProduct.productName}</h3>
+                <p class="product-desc">${mainProduct.productDescription}</p>
+              </div>
+              <div class="rate-badge">${meta.rates[0]}</div>
+            </div>
+          </div>
+
+          <div class="primary-bottom">
+            <div class="chip-list">
+              ${meta.chips.map(function(chip) {
+                return `<span class="chip">${chip}</span>`;
+              }).join("")}
+            </div>
+            <button class="detail-btn" onclick="location.href='/popular'">자세히</button>
+          </div>
+        </article>
+
+        <div class="sub-grid">
+          <article class="sub-card">
+            <div class="sub-card-inner">
+              <div class="sub-left">
+                <div class="tag ${meta.className}">추가 추천</div>
+                <h3 class="sub-title">${secondProduct ? secondProduct.productName : savedTitle}</h3>
+                <p class="sub-desc">${secondProduct ? secondProduct.productDescription : savedDescription}</p>
+                <span class="chip">${meta.rates[1]}</span>
+              </div>
+              <img class="sub-image" src="${meta.image}" alt="${savedTitle} 보조 이미지" />
+            </div>
+          </article>
+
+          <article class="sub-card action-card">
+            <div class="action-title">다음 액션</div>
+
+            <div class="action-item">
+              <div><span>🎁</span>${thirdProduct ? thirdProduct.productName : "추천 상품 더 보기"}</div>
+            </div>
+
+            <div class="action-item">
+              <div><span>📋</span>내 투자 성향 다시 확인하기</div>
+            </div>
+
+            <div class="action-item">
+              <div><span>📈</span>인기 상품 페이지 둘러보기</div>
+            </div>
+          </article>
+        </div>
+      `;
+    }
+
+    function initRecommendPage() {
+      const savedType = normalizeType(getStoredType());
+
+      if (!savedType || !TYPE_META[savedType]) {
+        renderEmptyState();
+        return;
+      }
+
+      renderRecommendPage(savedType);
+    }
+
+    initRecommendPage();
+  </script>
+</body>
+</html>
