@@ -145,5 +145,4 @@ I look forward to building a more refined project in the next hackathon 🚀
 
 ## 🔗 Links
 
-- GitHub: https://github.com/albertjihyun/1st_Hackerton  
 - YouTube (Demo of actual page flow): https://youtu.be/cXFTRYnkE-M
