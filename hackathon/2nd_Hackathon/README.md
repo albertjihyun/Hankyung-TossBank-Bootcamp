@@ -3,7 +3,6 @@
 > A community platform where developers ask questions and get answers.  
 > Built end-to-end in 8 hours: from database design to cloud deployment.
 
-**Live URL:** `https://intro-rail-shorter-alan.trycloudflare.com`
 **Stack:** HTML · Tailwind CSS · Vanilla JS · Node.js · Express · MariaDB · JWT · Cloudflare Tunnel
 
 ---
