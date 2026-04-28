@@ -24,7 +24,7 @@ Developers spend a significant portion of their time stuck. Most of that time is
 
 ### Core User Flows
 
-We identified three distinct user types and designed around their needs:
+I identified three distinct user types and designed around their needs:
 
 **Guest (not logged in)**
 - Can browse all questions and read answers freely
@@ -45,7 +45,7 @@ We identified three distinct user types and designed around their needs:
 
 ### Why These Features, In This Order
 
-We prioritized features by **user value × implementation speed**:
+I prioritized features by **user value × implementation speed**:
 
 1. **Auth first** — everything else depends on knowing who the user is
 2. **Question CRUD** — the core loop of the product
@@ -240,9 +240,6 @@ npm install express mysql2 jsonwebtoken bcrypt cors
 # Seed sample data
 node seed.js
 
-# Install pm2 for persistent process management
-sudo npm install -g pm2
-
 # Install cloudflared
 wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared-linux-amd64.deb
@@ -253,65 +250,59 @@ sudo dpkg -i cloudflared-linux-amd64.deb
 ```bash
 cd /var/www
 
-# Start Node server with pm2 (survives SSH disconnect)
-pm2 start server.js
-pm2 save
+# Start Node server (detached from the shell session)
+node server.js &
+disown -a
 
 # Start cloudflared tunnel (get public HTTPS URL)
-cloudflared tunnel --url http://localhost:3000
+cloudflared tunnel --url http://localhost:3000 &
+disown -a
 ```
 
 The tunnel outputs a URL like `https://xxxx.trycloudflare.com` — that's the live address.
 
+> **Note:** `disown -a` detaches the process from the shell so it survives SSH disconnects. For production, pm2 or systemd would be the right choice — they add crash recovery and auto-restart on reboot — but this was sufficient within the time constraints.
+
 ### Restart after VM reboot
 
 ```bash
-pm2 resurrect
-cloudflared tunnel --url http://localhost:3000
+node server.js &
+disown -a
+cloudflared tunnel --url http://localhost:3000 &
+disown -a
 ```
 
 ---
 
 ## Troubleshooting
 
-### `npm install` fails with EACCES / permission denied
+### 502 Bad Gateway
 
-**Symptom:** `npm install` throws `Error: EACCES: permission denied, open '/var/www/package.json'`
+502 always means `localhost:3000` isn't responding — Cloudflare itself is fine. The cause varies depending on when it happens:
 
-**Cause:** The `/var/www` directory was created by root (or another user via FileZilla's initial upload), so the current user doesn't have write access.
+**Immediate 502 on the tunnel URL**
 
-**Fix:**
+The server isn't running at all. Either it failed to start, or the previous process was never cleaned up.
+
 ```bash
-sudo chown -R $USER:$USER /var/www
+ps aux | grep node   # check if the process is running
+node server.js &
+disown -a
 ```
-Then re-run `npm install`. This is a one-time fix — once ownership is corrected it stays.
 
----
+**Server dies when the SSH session closes**
 
-### `Cannot find module 'bcrypt'`
+Processes started in a shell session are children of that shell. When the session ends, the OS sends SIGHUP to all child processes, killing them. `disown -a` detaches the process from the shell so it keeps running after the SSH session closes.
 
-**Symptom:** `node seed.js` throws `Error: Cannot find module 'bcrypt'` even after `npm install` completed without visible errors.
-
-**Cause:** `bcrypt` is a native Node.js addon that compiles C++ during installation. Without `build-essential` (`gcc`, `g++`, `make`), the compilation silently fails and the module is left in a broken state.
-
-**Fix:**
 ```bash
-sudo apt-get install -y build-essential
-npm install express mysql2 jsonwebtoken bcrypt cors
+node server.js &
+disown -a
 ```
-Always install `build-essential` before `npm install` on a fresh Linux environment.
 
----
+**502 after a few minutes (worked fine at first)**
 
-### Server dies after a few minutes (502 Bad Gateway)
+An unhandled exception crashed the process. Adding global error handlers in `server.js` prevents unexpected errors from taking the server down.
 
-**Symptom:** The site loads fine initially, then returns a Cloudflare 502 after a short time. SSH was open the whole time.
-
-**Cause:** The Node.js process was started with a plain `node server.js` command (or `nohup`), which has no crash recovery. An unhandled exception or memory issue killed the process. Cloudflare tunnel was still running, but there was nothing on `localhost:3000` to forward to.
-
-**Fix — two layers:**
-
-1. Add global error handlers in `server.js` so unexpected errors don't kill the process:
 ```js
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
@@ -321,31 +312,7 @@ process.on('uncaughtException', (err) => {
 });
 ```
 
-2. Use pm2 so the process auto-restarts even if it does crash:
-```bash
-pm2 start server.js
-pm2 save
-```
-
-Check process status anytime with:
-```bash
-pm2 list
-pm2 logs
-```
-
----
-
-### Server stops when SSH session closes
-
-**Symptom:** Everything works while the browser SSH console is open. Closing the browser kills the server.
-
-**Cause:** Processes started in a shell session are children of that shell. When the shell exits, the OS sends SIGHUP to all child processes.
-
-**Fix:** Use pm2, which runs as a daemon independent of the SSH session:
-```bash
-pm2 start server.js
-```
-Unlike `nohup`, pm2 also restarts the process automatically if it crashes, and persists across VM reboots with `pm2 save` + `pm2 startup`.
+> For the SSH and crash cases, pm2 or systemd would be the proper fix — they survive SSH disconnects, auto-restart on crash, and persist across reboots. `disown -a` + error handlers was the pragmatic choice given the time constraints.
 
 ---
 
@@ -367,32 +334,16 @@ The backend query uses `ORDER BY id ASC` so the display order is always consiste
 
 ---
 
-### 502 immediately on tunnel URL
-
-**Symptom:** Opening the cloudflared URL shows a Cloudflare 502 right away.
-
-**Cause:** Node server isn't running. Either it failed to start, or the previous process was never cleaned up.
-
-**Fix:**
-```bash
-pm2 list          # check if server.js is online
-pm2 logs          # see why it might have crashed
-pm2 restart server.js
-```
-502 always means `localhost:3000` isn't responding. Cloudflare itself is fine.
-
----
-
 ## Reflection
 
 **What worked well:**
 - The middleware chain (`verifyToken → requireAdmin → checkOwnerOrAdmin`) made permission logic clean and reusable. Adding new protected routes was a one-liner.
 - Tailwind CDN meant zero build config. Writing UI was fast.
-- `ON DELETE CASCADE` on all foreign keys meant we never had to write cleanup queries.
+- `ON DELETE CASCADE` on all foreign keys meant I never had to write cleanup queries.
 - Wrapping every route in `try-catch` + adding global `unhandledRejection`/`uncaughtException` handlers meant SQL errors and unexpected failures never took the server down.
 
-**What we'd improve with more time:**
+**What I'd improve with more time:**
 - Tag-based filtering (the data is already there — just needs a `WHERE tag LIKE ?`)
 - Answer count displayed on the question list cards
-- pm2 ecosystem config for environment-specific settings
+- pm2 or systemd for proper process management (crash recovery + reboot persistence)
 - HTTPS on the origin, not just through the Cloudflare tunnel
