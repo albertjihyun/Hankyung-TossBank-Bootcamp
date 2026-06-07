@@ -3,14 +3,6 @@
 A room-based platform where up to 4 players compete by trading virtual stocks within a 3-minute session.  
 Built end-to-end in 8 hours: from database design to cloud deployment.
 
-**Stack**: Next.js · TypeScript · Tailwind CSS · Zustand · React Query · MariaDB · JWT · GCP · Cloudflare
-
----
-
-- **Participant**: [Your Name]  
-- **Deployment URL**: [Cloudflare Domain]  
-- **GitHub**: [Repository URL]
-
 ---
 
 # 1. Project Overview
