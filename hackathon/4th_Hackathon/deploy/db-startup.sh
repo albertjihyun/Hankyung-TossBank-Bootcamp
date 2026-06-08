@@ -56,3 +56,41 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   "https://storage.googleapis.com/upload/storage/v1/b/${BUCKET}/o?uploadType=media&name=openrun.jar"
 
 echo "DB 부트스트랩 + jar 업로드 완료"
+
+# 5) cloudflared Quick Tunnel — GCP LB로 공개 HTTPS URL 제공 (실패해도 DB/jar엔 영향 없게 best-effort)
+set +e
+curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb" -o /tmp/cloudflared.deb
+dpkg -i /tmp/cloudflared.deb || apt-get install -f -y
+
+# LB(openrun-fr) IP가 생길 때까지 기다렸다가 터널을 띄우는 래퍼. (DB VM 부팅이 LB 생성보다 빠를 수 있으므로 폴링)
+cat > /opt/cloudflared-run.sh <<'CFRUN'
+#!/bin/bash
+M="http://metadata.google.internal/computeMetadata/v1"; H="Metadata-Flavor: Google"
+PROJECT=$(curl -s -H "$H" "$M/project/project-id")
+while :; do
+  TOKEN=$(curl -s -H "$H" "$M/instance/service-accounts/default/token" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+  LB_IP=$(curl -s -H "Authorization: Bearer $TOKEN" "https://compute.googleapis.com/compute/v1/projects/$PROJECT/global/forwardingRules/openrun-fr" | python3 -c "import sys,json;print(json.load(sys.stdin).get('IPAddress',''))" 2>/dev/null)
+  [ -n "$LB_IP" ] && break
+  echo "LB(openrun-fr) 아직 없음 — 15초 후 재시도"; sleep 15
+done
+echo "cloudflared → http://$LB_IP 로 Quick Tunnel 시작"
+exec cloudflared tunnel --no-autoupdate --url "http://$LB_IP"
+CFRUN
+chmod +x /opt/cloudflared-run.sh
+
+cat > /etc/systemd/system/cloudflared.service <<'CFUNIT'
+[Unit]
+Description=cloudflared quick tunnel -> GCP LB (openrun)
+After=network.target
+[Service]
+ExecStart=/opt/cloudflared-run.sh
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+CFUNIT
+systemctl daemon-reload
+systemctl enable --now cloudflared
+set -e
+
+echo "cloudflared 설정 완료 (공개 URL은 journalctl -u cloudflared 에서 확인)"
