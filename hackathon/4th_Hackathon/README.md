@@ -6,9 +6,10 @@
 ## 제출 정보
 - **참가자:** albertjihyun
 - **프로젝트:** 오픈런(Openrun) — 선착순 한정 행사 예약·대기열·자동 승계 웹 서비스
-- **배포 URL:** http://8.232.231.103  (GCP 글로벌 LB — 멀티존 MIG 2대로 분산) · HTTPS는 Cloudflare 터널로 제공(재배포 시 주소 변경)
+- **배포 URL:** https://preference-crm-cannon-crest.trycloudflare.com  *(Cloudflare 터널 → GCP 글로벌 LB → 멀티존 MIG 2대 / LB 직접 IP: http://8.232.231.103)*
 - **GitHub:** https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp
-- **개발 보고서:** 본 README · **인프라 설계서:** [ARCHITECTURE.md](ARCHITECTURE.md) · **배포 가이드:** [DEPLOY.md](DEPLOY.md)
+- **개발 보고서(README):** https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp/blob/main/hackathon/4th_Hackathon/README.md
+- **인프라 설계서:** [ARCHITECTURE.md](ARCHITECTURE.md) · **배포 가이드:** [DEPLOY.md](DEPLOY.md)
 
 ---
 
