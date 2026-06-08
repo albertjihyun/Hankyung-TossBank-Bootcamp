@@ -28,8 +28,11 @@ apt-get install -y openjdk-21-jdk curl python3
 TOKEN=$(curl -s -H "$H" "$M/instance/service-accounts/default/token" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 
 mkdir -p /opt/openrun
-# 비공개 버킷에서 jar (인증된 Storage API)
-curl -s -H "Authorization: Bearer $TOKEN" -o /opt/openrun/openrun.jar "https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/openrun.jar?alt=media"
+# 비공개 버킷에서 jar (인증된 Storage API).
+# DB VM이 빌드·업로드를 끝낼 때까지 jar이 없을 수 있으므로 성공할 때까지 재시도 → 부팅 순서에 무관하게 자가수렴.
+until curl -fs -H "Authorization: Bearer $TOKEN" -o /opt/openrun/openrun.jar "https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/openrun.jar?alt=media"; do
+  echo "jar 아직 준비 안 됨 — 10초 후 재시도"; sleep 10
+done
 # Secret Manager에서 DB 비번
 DB_PW=$(curl -s -H "Authorization: Bearer $TOKEN" "https://secretmanager.googleapis.com/v1/projects/${PROJECT}/secrets/openrun-db-pw/versions/latest:access" | python3 -c "import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)['payload']['data']).decode())")
 
