@@ -20,10 +20,18 @@ chmod +x deploy/*.sh
 export DB_PW='강한비밀번호'        # ★ 비밀은 git에 없음 → 실행 시 주입(필수)
 # (선택) export REGION=asia-northeast3
 
-./deploy/provision.sh             # 5~8분 뒤 LB IP로 접속 가능
+./deploy/provision.sh             # 5~8분 뒤 LB IP / cloudflared URL로 접속 가능
 # ...
 ./deploy/teardown.sh              # 끝나면 비용 차단
 ```
+
+### 공개 HTTPS URL 확인 (cloudflared Quick Tunnel)
+DB VM이 부팅 시 cloudflared Quick Tunnel을 자동으로 띄워 **공개 HTTPS URL**을 만든다(도메인·계정 불필요). URL 확인:
+```bash
+gcloud compute ssh openrun-db --zone=asia-northeast3-a \
+  --command="sudo journalctl -u cloudflared --no-pager | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1"
+```
+> ⚠️ **Quick Tunnel이라 배포(=DB VM 재생성)마다 URL이 바뀐다.** 고정 도메인이 필요하면 Named Tunnel + 토큰(Secret Manager)으로 전환 — 현재는 계정·도메인 없이 즉시 공개되는 데모 모드.
 
 ## "어디서든 pull → 재현"의 경계 (정직하게)
 코드/스크립트는 100% 이 리포에 있다. 다만 **git이 담을 수 없는 전제 3가지**는 실행 환경에 있어야 한다 — 이건 모든 클라우드 배포의 본질:
