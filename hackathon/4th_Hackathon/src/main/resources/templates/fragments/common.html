@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <!-- 공통 head fragment -->
+    <th:block th:fragment="pagehead(title)">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title th:text="${title} ? ${title} + ' · 오픈런' : '오픈런'">오픈런</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+        <link rel="stylesheet" as="style" crossorigin
+              href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+        <link rel="stylesheet" th:href="@{/css/style.css}">
+    </th:block>
+</head>
+<body>
+<!-- 공통 헤더 fragment -->
+<header th:fragment="header" class="site-header">
+    <div class="container header-inner">
+        <a class="brand" th:href="@{/}">🏃 오픈런</a>
+        <nav class="nav">
+            <a th:href="@{/}">홈</a>
+            <a sec:authorize="hasRole('USER')" th:href="@{/me/reservations}">내 예약</a>
+            <a sec:authorize="hasRole('HOST')" th:href="@{/host/events}">내 행사</a>
+            <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}">관리</a>
+
+            <span sec:authorize="isAuthenticated()" class="who">
+                <b sec:authentication="principal.nickname">닉네임</b>님
+            </span>
+            <form sec:authorize="isAuthenticated()" th:action="@{/logout}" method="post" class="inline">
+                <button type="submit" class="btn btn-ghost">로그아웃</button>
+            </form>
+            <a sec:authorize="!isAuthenticated()" th:href="@{/login}" class="btn btn-ghost">로그인</a>
+            <a sec:authorize="!isAuthenticated()" th:href="@{/signup}" class="btn btn-primary">회원가입</a>
+        </nav>
+    </div>
+</header>
+
+<!-- 플래시 메시지 fragment -->
+<div th:fragment="flash" th:if="${message}" class="container">
+    <div class="flash" th:text="${message}"></div>
+</div>
+
+<!-- 공통 푸터 fragment -->
+<footer th:fragment="footer" class="site-footer">
+    <div class="container">
+        <small>🏃 오픈런 · 눈치싸움 없이, 누른 순서대로 공정하게 — 4th Hackathon Demo</small>
+    </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('참가자 현황')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+
+<main class="container">
+    <a class="back" th:href="@{/host/events}">← 내 행사</a>
+    <h1 th:text="${event.title}">제목</h1>
+    <div class="card-meta">
+        <span class="status" th:classappend="'status-' + ${event.status.name().toLowerCase()}"
+              th:text="${event.status.label}">상태</span>
+        <span>정원 <b th:text="${event.capacity}">0</b></span>
+        <span>예약확정 <b th:text="${event.reservedCount}">0</b></span>
+        <span>잔여 <b th:text="${event.remaining}">0</b></span>
+    </div>
+
+    <h2>참가자 목록</h2>
+    <table class="table" th:if="${not #lists.isEmpty(reservations)}">
+        <thead>
+        <tr><th>닉네임</th><th>상태</th><th>대기순번</th><th>신청일시</th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="r : ${reservations}">
+            <td th:text="${r.member.nickname}">닉네임</td>
+            <td><span class="status" th:classappend="'rstatus-' + ${r.status.name().toLowerCase()}"
+                      th:text="${r.status.label}">상태</span></td>
+            <td th:text="${r.waitingSeq != null} ? ${r.waitingSeq} : '-'">-</td>
+            <td th:text="${#temporals.format(r.createdAt, 'yyyy-MM-dd HH:mm:ss')}">일시</td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(reservations)}" class="empty">아직 신청자가 없습니다.</p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('내 행사')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<div th:replace="~{fragments/common :: flash}"></div>
+
+<main class="container">
+    <div class="row-between">
+        <h1>내 행사</h1>
+        <a th:href="@{/host/events/new}" class="btn btn-primary">+ 행사 등록</a>
+    </div>
+
+    <table class="table" th:if="${not #lists.isEmpty(events)}">
+        <thead>
+        <tr><th>제목</th><th>카테고리</th><th>정원</th><th>예약</th><th>상태</th><th>오픈</th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="e : ${events}">
+            <td><a th:href="@{/host/events/{id}(id=${e.id})}" th:text="${e.title}">제목</a></td>
+            <td th:text="${e.category.label}">카테고리</td>
+            <td th:text="${e.capacity}">0</td>
+            <td><b th:text="${e.reservedCount}">0</b></td>
+            <td><span class="status" th:classappend="'status-' + ${e.status.name().toLowerCase()}"
+                      th:text="${e.status.label}">상태</span></td>
+            <td th:text="${#temporals.format(e.openAt, 'MM-dd HH:mm')}">오픈</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <p th:if="${#lists.isEmpty(events)}" class="empty">
+        등록한 행사가 없습니다. <a th:href="@{/host/events/new}">첫 행사 등록하기</a>
+    </p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# 통합 테스트용: 인메모리 H2 (MariaDB 없이 동시성 검증 — H2 MVStore 는 SELECT ... FOR UPDATE 지원)
+spring:
+  datasource:
+    url: jdbc:h2:mem:openrun;DB_CLOSE_DELAY=-1;MODE=LEGACY;LOCK_TIMEOUT=20000
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+    hikari:
+      maximum-pool-size: 50   # 동시 예약 스레드가 커넥션 대기로 직렬화되지 않도록 충분히 확보
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        format_sql: false
+    open-in-view: false
+  session:
+    jdbc:
+      initialize-schema: always
+  thymeleaf:
+    cache: false

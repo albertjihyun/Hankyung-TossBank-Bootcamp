@@ -1,0 +1,8 @@
+# 운영 프로파일 (배포 시 --spring.profiles.active=prod)
+# DB 자격증명은 openrun.env(EnvironmentFile)에서 환경변수로 주입 — 커밋 금지
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  thymeleaf:
+    cache: true
