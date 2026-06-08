@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/common :: pagehead(${event.title})}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<div th:replace="~{fragments/common :: flash}"></div>
+
+<main class="container narrow">
+    <a class="back" th:href="@{/}">← 목록으로</a>
+
+    <article class="detail" th:data-event-id="${event.id}"
+             th:data-open-at="${#temporals.format(event.openAt, 'yyyy-MM-dd''T''HH:mm:ss')}">
+        <div class="card-top">
+            <span class="badge" th:text="${event.category.label}">카테고리</span>
+            <span class="status" id="ev-status"
+                  th:classappend="'status-' + ${event.status.name().toLowerCase()}"
+                  th:text="${event.status.label}">상태</span>
+        </div>
+
+        <h1 th:text="${event.title}">제목</h1>
+        <p class="card-host" th:text="'by ' + ${event.host.nickname}">호스트</p>
+        <p class="desc" th:text="${event.description}">설명</p>
+
+        <!-- 카운트다운 (SCHEDULED 일 때) -->
+        <div id="countdown" class="countdown" th:if="${event.status.name() == 'SCHEDULED'}">
+            오픈까지 <span id="countdown-timer">--:--:--</span>
+        </div>
+
+        <!-- 잔여석 (폴링으로 갱신) -->
+        <div class="seat-box">
+            <div class="seat-num">
+                <span id="seat-remaining" th:text="${event.remaining}">0</span>
+                <span class="seat-total"> / <span th:text="${event.capacity}">0</span> 석</span>
+            </div>
+            <div class="seat-bar">
+                <div id="seat-fill" class="seat-fill"
+                     th:style="'width:' + (${event.capacity} > 0 ? (${event.reservedCount} * 100 / ${event.capacity}) : 0) + '%'"></div>
+            </div>
+        </div>
+
+        <!-- 예약 버튼 -->
+        <div class="reserve-area">
+            <!-- 이미 신청한 경우 -->
+            <div th:if="${myReservationStatus != null}" class="alert alert-ok">
+                <span th:if="${myReservationStatus == 'RESERVED'}">✅ 예약 확정된 행사입니다.</span>
+                <span th:if="${myReservationStatus == 'WAITING'}">⏳ 대기열에 등록되어 있습니다.</span>
+                <a th:href="@{/me/reservations}">내 예약 보기</a>
+            </div>
+
+            <!-- 신청 가능 (USER, 미신청) -->
+            <form sec:authorize="hasRole('USER')" th:if="${myReservationStatus == null}"
+                  th:action="@{/events/{id}/reserve(id=${event.id})}" method="post">
+                <button id="reserve-btn" type="submit"
+                        class="btn btn-primary btn-block btn-lg"
+                        th:disabled="${event.status.name() == 'SCHEDULED'}">
+                    <span th:if="${event.status.name() == 'SCHEDULED'}">오픈 대기 중</span>
+                    <span th:if="${event.status.name() == 'OPEN' and !event.full}">선착순 예약하기</span>
+                    <span th:if="${event.full}">대기열 등록하기</span>
+                </button>
+            </form>
+
+            <!-- 비로그인 -->
+            <div sec:authorize="!isAuthenticated()" class="alert">
+                예약하려면 <a th:href="@{/login}">로그인</a>이 필요합니다.
+            </div>
+            <!-- HOST/ADMIN 안내 -->
+            <div sec:authorize="hasAnyRole('HOST','ADMIN')" class="muted">
+                참가자(USER) 계정으로 예약할 수 있습니다.
+            </div>
+        </div>
+    </article>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+<script th:src="@{/js/event-detail.js}"></script>
+</body>
+</html>

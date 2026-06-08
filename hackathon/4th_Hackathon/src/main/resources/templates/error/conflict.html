@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('안내')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<main class="container narrow error-page">
+    <h1>🙏 안내</h1>
+    <p class="conflict-msg" th:text="${message}">처리할 수 없는 요청입니다.</p>
+    <a th:href="@{/}" class="btn btn-primary">홈으로</a>
+    <a th:href="@{/me/reservations}" class="btn btn-ghost" sec:authorize="hasRole('USER')"
+       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">내 예약 보기</a>
+</main>
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

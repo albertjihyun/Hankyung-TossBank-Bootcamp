@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head th:replace="~{fragments/common :: pagehead('홈')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<div th:replace="~{fragments/common :: flash}"></div>
+
+<main class="container">
+    <section class="hero">
+        <h1>지금 열리는 자리, 선착순으로 공정하게</h1>
+        <p>구글폼·DM 말고 — 실시간 잔여석을 보고, 오픈 순간 한 번에.</p>
+    </section>
+
+    <!-- 탭 필터 (TECH_SPEC §5 tab) -->
+    <nav class="tabs">
+        <a th:href="@{/(category=${selectedCategory})}"
+           th:classappend="${selectedTab == null} ? 'active'">전체</a>
+        <a th:href="@{/(tab='open', category=${selectedCategory})}"
+           th:classappend="${selectedTab == 'open'} ? 'active'">오픈중</a>
+        <a th:href="@{/(tab='scheduled', category=${selectedCategory})}"
+           th:classappend="${selectedTab == 'scheduled'} ? 'active'">오픈예정</a>
+        <a th:href="@{/(tab='closed', category=${selectedCategory})}"
+           th:classappend="${selectedTab == 'closed'} ? 'active'">마감</a>
+    </nav>
+
+    <!-- 카테고리 필터 -->
+    <nav class="chips">
+        <a th:href="@{/(tab=${selectedTab})}"
+           th:classappend="${selectedCategory == null} ? 'active'">전체</a>
+        <a th:each="c : ${categories}"
+           th:href="@{/(tab=${selectedTab}, category=${c})}"
+           th:classappend="${selectedCategory != null and selectedCategory.name() == c.name()} ? 'active'"
+           th:text="${c.label}">카테고리</a>
+    </nav>
+
+    <!-- 행사 카드 그리드 -->
+    <section class="grid">
+        <article th:each="e : ${events}" class="card"
+                 th:classappend="${e.status.name() == 'CLOSED'} ? 'card-closed'">
+            <div class="card-top">
+                <span class="badge" th:text="${e.category.label}">카테고리</span>
+                <span class="status"
+                      th:classappend="'status-' + ${e.status.name().toLowerCase()}"
+                      th:text="${e.status.label}">상태</span>
+            </div>
+            <h3 class="card-title">
+                <a th:href="@{/events/{id}(id=${e.id})}" th:text="${e.title}">제목</a>
+            </h3>
+            <p class="card-host" th:text="'by ' + ${e.host.nickname}">호스트</p>
+            <div class="card-meta">
+                <span class="seats">
+                    잔여 <b th:text="${e.remaining}">0</b> / <span th:text="${e.capacity}">0</span>
+                </span>
+                <span class="opens"
+                      th:if="${e.status.name() == 'SCHEDULED'}"
+                      th:attr="data-open-at=${#temporals.format(e.openAt, 'yyyy-MM-dd''T''HH:mm:ss')}">
+                    오픈예정
+                </span>
+            </div>
+        </article>
+        <p th:if="${#lists.isEmpty(events)}" class="empty">조건에 맞는 행사가 없습니다.</p>
+    </section>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>
