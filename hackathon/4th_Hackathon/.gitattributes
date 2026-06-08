@@ -1,0 +1,5 @@
+# 쉘 스크립트·gradlew은 Linux에서 실행되므로 항상 LF 강제 (CRLF면 bad interpreter)
+*.sh    text eol=lf
+gradlew text eol=lf
+# 바이너리
+*.jar   binary
