@@ -3,14 +3,6 @@
 > 구글폼·인스타DM으로 선착순을 돌려막던 소규모·인디 호스트를 위한 **공정·투명·선착순 예약 도구.**
 > 핵심 가설: *Spring의 진짜 가치는 한정 공유 자원에 대한 안전한 동시 접근 제어이며, 그 진가는 인스턴스가 여러 대인 운영 환경에서 드러난다.*
 
-## 제출 정보
-- **참가자:** albertjihyun
-- **프로젝트:** 오픈런(Openrun) — 선착순 한정 행사 예약·대기열·자동 승계 웹 서비스
-- **배포 URL:** https://preference-crm-cannon-crest.trycloudflare.com  *(Cloudflare 터널 → GCP 글로벌 LB → 멀티존 MIG 2대 / LB 직접 IP: http://8.232.231.103)*
-- **GitHub:** https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp
-- **개발 보고서(README):** https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp/blob/main/hackathon/4th_Hackathon/README.md
-- **인프라 설계서:** [ARCHITECTURE.md](ARCHITECTURE.md) · **배포 가이드:** [DEPLOY.md](DEPLOY.md)
-
 ---
 
 ## 1. 프로젝트 개요
