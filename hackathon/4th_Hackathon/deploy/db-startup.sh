@@ -39,7 +39,8 @@ rm -rf repo
 git clone "$REPO_URL" repo
 cd repo/hackathon/4th_Hackathon
 chmod +x gradlew
-./gradlew clean bootJar
+# Gradle 배포판 다운로드가 느려 실패할 수 있어 재시도 (wrapper networkTimeout=120s)
+for i in 1 2 3; do ./gradlew clean bootJar --no-daemon && break; echo "빌드 실패 — 재시도 $i/3"; sleep 15; done
 cp build/libs/openrun-*.jar /opt/openrun.jar
 
 # 3) 스키마 + 시드 1회 생성 (백그라운드로 띄워 'Started' 뜨면 종료)
