@@ -6,7 +6,7 @@
 ## 제출 정보
 - **참가자:** albertjihyun
 - **프로젝트:** 오픈런(Openrun) — 선착순 한정 행사 예약·대기열·자동 승계 웹 서비스
-- **배포 URL:** `http://<배포-LB-IP>`  *(GCP 글로벌 LB / cloudflared HTTPS — 배포 완료 후 기입)*
+- **배포 URL:** http://8.232.231.103  (GCP 글로벌 LB — 멀티존 MIG 2대로 분산) · HTTPS는 Cloudflare 터널로 제공(재배포 시 주소 변경)
 - **GitHub:** https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp
 - **개발 보고서:** 본 README · **인프라 설계서:** [ARCHITECTURE.md](ARCHITECTURE.md) · **배포 가이드:** [DEPLOY.md](DEPLOY.md)
 
