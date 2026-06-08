@@ -33,6 +33,8 @@ echo "==> [2/9] 서비스 계정 + 최소권한 IAM"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
   || gcloud iam service-accounts create openrun-sa --display-name="Openrun app + db"
 gcloud secrets add-iam-policy-binding openrun-db-pw --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor >/dev/null
+# DB VM의 cloudflared가 LB(openrun-fr) IP를 읽을 수 있도록 읽기 권한 (compute.viewer)
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" --role=roles/compute.viewer >/dev/null
 
 echo "==> [3/9] 비공개 버킷 (jar)"
 gcloud storage buckets describe "gs://$BUCKET" >/dev/null 2>&1 \
@@ -87,7 +89,8 @@ gcloud compute forwarding-rules describe openrun-fr --global >/dev/null 2>&1 \
 
 LB_IP=$(gcloud compute forwarding-rules describe openrun-fr --global --format='get(IPAddress)')
 echo ""
-echo "✅ 프로비저닝 명령 완료. DB 빌드+인스턴스 기동에 5~8분 걸립니다."
-echo "   접속:  http://$LB_IP"
-echo "   상태:  gcloud compute backend-services get-health openrun-bes --global --format='value(status.healthStatus[].healthState)'"
-echo "   DB로그: gcloud compute ssh openrun-db --zone=$ZONE --command='sudo tail -n 30 /var/log/openrun-db-startup.log'"
+echo "✅ 프로비저닝 명령 완료. DB 빌드+인스턴스 기동+터널 연결에 5~8분 걸립니다."
+echo "   접속(직접):    http://$LB_IP"
+echo "   공개 HTTPS URL: gcloud compute ssh openrun-db --zone=$ZONE --command=\"sudo journalctl -u cloudflared --no-pager | grep -oE 'https://[a-z0-9-]+\\.trycloudflare\\.com' | tail -1\""
+echo "   상태:          gcloud compute backend-services get-health openrun-bes --global --format='value(status.healthStatus[].healthState)'"
+echo "   DB로그:        gcloud compute ssh openrun-db --zone=$ZONE --command='sudo tail -n 30 /var/log/openrun-db-startup.log'"
