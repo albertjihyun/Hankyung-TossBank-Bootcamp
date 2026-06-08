@@ -30,11 +30,22 @@ gcloud secrets describe openrun-db-pw >/dev/null 2>&1 \
   || printf '%s' "$DB_PW" | gcloud secrets create openrun-db-pw --data-file=-
 
 echo "==> [2/9] 서비스 계정 + 최소권한 IAM"
-gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
-  || gcloud iam service-accounts create openrun-sa --display-name="Openrun app + db"
-gcloud secrets add-iam-policy-binding openrun-db-pw --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor >/dev/null
+if ! gcloud iam service-accounts describe "$SA" >/dev/null 2>&1; then
+  gcloud iam service-accounts create openrun-sa --display-name="Openrun app + db"
+  echo "    새 SA 전파 대기..."; sleep 15   # IAM eventual consistency: 바인딩 전 전파 대기
+fi
+# 바인딩(전파 지연으로 'does not exist' 날 수 있어 재시도)
+bind_retry() {  # $1=명령 설명, 나머지=gcloud 인자
+  local desc="$1"; shift
+  for i in 1 2 3 4 5 6; do
+    "$@" >/dev/null 2>&1 && return 0
+    echo "    ($desc 전파 대기, 재시도 $i/6)"; sleep 10
+  done
+  echo "    ($desc 최종 실패)"; return 1
+}
+bind_retry "secret 권한" gcloud secrets add-iam-policy-binding openrun-db-pw --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor
 # DB VM의 cloudflared가 LB(openrun-fr) IP를 읽을 수 있도록 읽기 권한 (compute.viewer)
-gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" --role=roles/compute.viewer >/dev/null
+bind_retry "compute.viewer" gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" --role=roles/compute.viewer
 
 echo "==> [3/9] 비공개 버킷 (jar)"
 gcloud storage buckets describe "gs://$BUCKET" >/dev/null 2>&1 \
