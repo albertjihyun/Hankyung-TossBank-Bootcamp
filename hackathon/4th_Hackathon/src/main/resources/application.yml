@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: openrun
+  datasource:
+    url: jdbc:mariadb://localhost:3306/openrun?serverTimezone=Asia/Seoul
+    username: ${DB_USER:openrun}
+    password: ${DB_PASSWORD:openrun}
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: always
+  thymeleaf:
+    cache: false
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# 잔여석 폴링 주기(초) — 상세 페이지 JS가 참조 (TECH_SPEC §0: 폴링 기본)
+openrun:
+  poll-interval-seconds: 3

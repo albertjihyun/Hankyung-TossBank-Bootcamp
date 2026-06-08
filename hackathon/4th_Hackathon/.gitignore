@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+
+# Spring Boot
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Secrets / local config (TECH_SPEC §9 — 비밀정보 커밋 금지)
+application-local.yml
+*.env
+openrun.env
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.classpath
+*.project
+.settings/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
