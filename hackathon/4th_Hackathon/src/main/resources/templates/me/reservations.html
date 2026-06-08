@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('내 예약')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<div th:replace="~{fragments/common :: flash}"></div>
+
+<main class="container">
+    <h1>내 예약 · 대기 현황</h1>
+
+    <table class="table" th:if="${not #lists.isEmpty(reservations)}">
+        <thead>
+        <tr>
+            <th>행사</th><th>상태</th><th>대기순번</th><th>신청일시</th><th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="r : ${reservations}">
+            <td><a th:href="@{/events/{id}(id=${r.event.id})}" th:text="${r.event.title}">행사</a></td>
+            <td>
+                <span class="status"
+                      th:classappend="'rstatus-' + ${r.status.name().toLowerCase()}"
+                      th:text="${r.status.label}">상태</span>
+            </td>
+            <td th:text="${r.waitingSeq != null} ? ${r.waitingSeq} : '-'">-</td>
+            <td th:text="${#temporals.format(r.createdAt, 'yyyy-MM-dd HH:mm')}">일시</td>
+            <td>
+                <form th:if="${r.status.name() != 'CANCELLED'}"
+                      th:action="@{/reservations/{id}/cancel(id=${r.id})}" method="post"
+                      onsubmit="return confirm('정말 취소하시겠어요? 대기자가 있으면 자동 승계됩니다.');">
+                    <button type="submit" class="btn btn-ghost btn-sm">취소</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+
+    <p th:if="${#lists.isEmpty(reservations)}" class="empty">
+        아직 신청한 행사가 없습니다. <a th:href="@{/}">행사 둘러보기</a>
+    </p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

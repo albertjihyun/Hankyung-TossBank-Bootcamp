@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('서버 오류')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<main class="container narrow error-page">
+    <h1>500</h1>
+    <p>일시적인 서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+    <a th:href="@{/}" class="btn btn-primary">홈으로</a>
+</main>
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('회원가입')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+
+<main class="container narrow">
+    <h1>회원가입</h1>
+
+    <form th:action="@{/signup}" th:object="${signupRequest}" method="post" class="form">
+        <div th:if="${#fields.hasGlobalErrors()}" class="alert alert-error">
+            <p th:each="err : ${#fields.globalErrors()}" th:text="${err}">오류</p>
+        </div>
+        <label>아이디
+            <input type="text" th:field="*{username}" required>
+            <small class="field-error" th:if="${#fields.hasErrors('username')}" th:errors="*{username}"></small>
+        </label>
+        <label>비밀번호
+            <input type="password" th:field="*{password}" required>
+            <small class="field-error" th:if="${#fields.hasErrors('password')}" th:errors="*{password}"></small>
+        </label>
+        <label>닉네임
+            <input type="text" th:field="*{nickname}" required>
+            <small class="field-error" th:if="${#fields.hasErrors('nickname')}" th:errors="*{nickname}"></small>
+        </label>
+        <label>역할
+            <select th:field="*{role}">
+                <option value="USER">참가자 (USER)</option>
+                <option value="HOST">주최자 (HOST)</option>
+            </select>
+            <small class="field-error" th:if="${#fields.hasErrors('role')}" th:errors="*{role}"></small>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">가입하기</button>
+    </form>
+
+    <p>이미 계정이 있으신가요? <a th:href="@{/login}">로그인</a></p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

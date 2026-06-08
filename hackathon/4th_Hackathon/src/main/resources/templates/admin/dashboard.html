@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('관리자')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+<div th:replace="~{fragments/common :: flash}"></div>
+
+<main class="container">
+    <h1>관리자 대시보드</h1>
+    <p class="muted">전체 행사 현황 및 강제 마감.</p>
+
+    <table class="table" th:if="${not #lists.isEmpty(events)}">
+        <thead>
+        <tr><th>ID</th><th>제목</th><th>호스트</th><th>카테고리</th><th>예약/정원</th><th>상태</th><th></th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="e : ${events}">
+            <td th:text="${e.id}">0</td>
+            <td><a th:href="@{/events/{id}(id=${e.id})}" th:text="${e.title}">제목</a></td>
+            <td th:text="${e.host.nickname}">호스트</td>
+            <td th:text="${e.category.label}">카테고리</td>
+            <td><b th:text="${e.reservedCount}">0</b> / <span th:text="${e.capacity}">0</span></td>
+            <td><span class="status" th:classappend="'status-' + ${e.status.name().toLowerCase()}"
+                      th:text="${e.status.label}">상태</span></td>
+            <td>
+                <form th:if="${e.status.name() != 'CLOSED'}"
+                      th:action="@{/admin/events/{id}/close(id=${e.id})}" method="post">
+                    <button type="submit" class="btn btn-ghost btn-sm">마감</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(events)}" class="empty">등록된 행사가 없습니다.</p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>

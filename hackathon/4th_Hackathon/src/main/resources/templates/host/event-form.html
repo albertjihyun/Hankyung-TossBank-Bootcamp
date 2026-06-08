@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/common :: pagehead('행사 등록')}"></head>
+<body>
+<header th:replace="~{fragments/common :: header}"></header>
+
+<main class="container narrow">
+    <h1>행사 등록</h1>
+
+    <form th:action="@{/host/events}" th:object="${eventCreateRequest}" method="post" class="form">
+        <label>제목
+            <input type="text" th:field="*{title}" required>
+            <small class="field-error" th:if="${#fields.hasErrors('title')}" th:errors="*{title}"></small>
+        </label>
+        <label>설명
+            <textarea th:field="*{description}" rows="3"></textarea>
+            <small class="field-error" th:if="${#fields.hasErrors('description')}" th:errors="*{description}"></small>
+        </label>
+        <label>카테고리
+            <select th:field="*{category}">
+                <option th:each="c : ${categories}" th:value="${c}" th:text="${c.label}">카테고리</option>
+            </select>
+            <small class="field-error" th:if="${#fields.hasErrors('category')}" th:errors="*{category}"></small>
+        </label>
+        <label>정원
+            <input type="number" th:field="*{capacity}" min="1" required>
+            <small class="field-error" th:if="${#fields.hasErrors('capacity')}" th:errors="*{capacity}"></small>
+        </label>
+        <label>오픈 시각
+            <input type="datetime-local" th:field="*{openAt}" required>
+            <small class="field-error" th:if="${#fields.hasErrors('openAt')}" th:errors="*{openAt}"></small>
+        </label>
+        <button type="submit" class="btn btn-primary btn-block">등록하기</button>
+    </form>
+    <p><a th:href="@{/host/events}">← 목록으로</a></p>
+</main>
+
+<footer th:replace="~{fragments/common :: footer}"></footer>
+</body>
+</html>
