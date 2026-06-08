@@ -133,11 +133,20 @@ gcloud compute health-checks create http openrun-hc --port=8080 --request-path=/
 
 ## 7. 부팅 스크립트 + 인스턴스 템플릿
 
-부팅 시 인스턴스가 **인증 토큰(메타데이터 서버)** 으로 비공개 버킷에서 jar를 받고, Secret Manager에서 DB 비번을 읽는다. **터미널 붙여넣기로 깨지기 쉬우니 편집기로 작성**:
+부팅 시 인스턴스가 **인증 토큰(메타데이터 서버)** 으로 비공개 버킷에서 jar를 받고, Secret Manager에서 DB 비번을 읽는다.
+
+> ✅ **정본은 리포에 버전관리됨: [`deploy/startup.sh`](deploy/startup.sh).** 리포를 클론했다면 직접 작성하지 말고 그대로 사용:
+> ```bash
+> git clone https://github.com/albertjihyun/Hankyung-TossBank-Bootcamp.git ~/repo
+> cp ~/repo/hackathon/4th_Hackathon/deploy/startup.sh ~/startup.sh
+> ```
+> 그러면 아래 손작성 단계는 건너뛰고 바로 템플릿 생성으로.
+
+(리포 없이 손으로 만들 경우) **터미널 붙여넣기는 깨지기 쉬우니 편집기로 작성**:
 ```bash
 cloudshell edit startup.sh
 ```
-→ 편집기에 아래를 붙여넣고 저장(Ctrl+S):
+→ 편집기에 아래를 붙여넣고 저장(Ctrl+S) — 내용은 [`deploy/startup.sh`](deploy/startup.sh)와 동일:
 ```bash
 #!/bin/bash
 set -e
