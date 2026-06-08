@@ -12,7 +12,8 @@
     <article class="detail" th:data-event-id="${event.id}"
              th:data-open-at="${#temporals.format(event.openAt, 'yyyy-MM-dd''T''HH:mm:ss')}">
         <div class="card-top">
-            <span class="badge" th:text="${event.category.label}">카테고리</span>
+            <span class="badge" th:classappend="'cat-' + ${event.category.name().toLowerCase()}"
+                  th:text="${event.category.label}">카테고리</span>
             <span class="status" id="ev-status"
                   th:classappend="'status-' + ${event.status.name().toLowerCase()}"
                   th:text="${event.status.label}">상태</span>

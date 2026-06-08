@@ -7,6 +7,11 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title th:text="${title} ? ${title} + ' · 오픈런' : '오픈런'">오픈런</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+        <link rel="stylesheet" as="style" crossorigin
+              href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
         <link rel="stylesheet" th:href="@{/css/style.css}">
     </th:block>
 </head>
@@ -14,7 +19,7 @@
 <!-- 공통 헤더 fragment -->
 <header th:fragment="header" class="site-header">
     <div class="container header-inner">
-        <a class="brand" th:href="@{/}">⚡ 오픈런</a>
+        <a class="brand" th:href="@{/}">🏃 오픈런</a>
         <nav class="nav">
             <a th:href="@{/}">홈</a>
             <a sec:authorize="hasRole('USER')" th:href="@{/me/reservations}">내 예약</a>
@@ -41,7 +46,7 @@
 <!-- 공통 푸터 fragment -->
 <footer th:fragment="footer" class="site-footer">
     <div class="container">
-        <small>오픈런 · 한정 자리를, 0초의 불공정 없이. — 4th Hackathon Demo</small>
+        <small>🏃 오픈런 · 한정 자리를, 0초의 불공정 없이 — 4th Hackathon Demo</small>
     </div>
 </footer>
 </body>

@@ -8,8 +8,8 @@
 
 <main class="container">
     <section class="hero">
-        <h1>지금 열리는 자리, 선착순으로 공정하게</h1>
-        <p>구글폼·DM 말고 — 실시간 잔여석을 보고, 오픈 순간 한 번에.</p>
+        <h1>오늘 가장 핫한 자리,<br><span class="pop">0초의 불공정</span> 없이 🎉</h1>
+        <p>구글폼·DM은 그만! 실시간 잔여석을 보고, 오픈하는 순간 톡 — 선착순으로 공정하게.</p>
     </section>
 
     <!-- 탭 필터 (TECH_SPEC §5 tab) -->
@@ -39,7 +39,8 @@
         <article th:each="e : ${events}" class="card"
                  th:classappend="${e.status.name() == 'CLOSED'} ? 'card-closed'">
             <div class="card-top">
-                <span class="badge" th:text="${e.category.label}">카테고리</span>
+                <span class="badge" th:classappend="'cat-' + ${e.category.name().toLowerCase()}"
+                      th:text="${e.category.label}">카테고리</span>
                 <span class="status"
                       th:classappend="'status-' + ${e.status.name().toLowerCase()}"
                       th:text="${e.status.label}">상태</span>
