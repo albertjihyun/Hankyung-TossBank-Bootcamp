@@ -1,0 +1,5 @@
+.gradle/
+build/
+*.log
+# 생성물(prepare-seed.py 결과) — 용량 큼
+seed-products.csv

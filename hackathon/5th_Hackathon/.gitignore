@@ -1,0 +1,4 @@
+# Kaggle 원본 다운로드(임시, 1GB+)
+_data/
+# 터널 로그
+*tunnel*.log

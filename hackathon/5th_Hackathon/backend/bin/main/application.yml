@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: olive-backend
+  datasource:
+    url: jdbc:h2:mem:olive;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        format_sql: false
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+  # 서버사이드 세션을 H2(JDBC)에 영속화. 데모라 메모리 DB지만 SPRING_SESSION 테이블이 실제로 생성됨.
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    timeout: 30m
+
+# JWT 설정 (데모용 시크릿 — 운영에서는 환경변수로 주입)
+jwt:
+  secret: ${JWT_SECRET:olive-demo-secret-key-please-change-in-production-0123456789abcdef}
+  access-token-validity-seconds: 1800      # 30분 (짧게 → 탈취 위험 최소화)
+  refresh-token-validity-seconds: 1209600  # 14일
+
+# 시드: scripts/prepare-seed.py 가 만든 seed-products.csv(실제 Kaggle 메타데이터)를 적재.
+# 가격/할인/재고만 시드 규칙으로 생성. 이미지는 Next.js 정적(/products/{id}.jpg).
+seed:
+  enabled: true
+  csv: seed-products.csv
