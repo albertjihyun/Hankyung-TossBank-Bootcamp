@@ -1,0 +1,6 @@
+node_modules/
+.next/
+next-env.d.ts
+.env*.local
+# 생성물(prepare-seed.py 가 복사한 Kaggle 이미지)
+public/products/
