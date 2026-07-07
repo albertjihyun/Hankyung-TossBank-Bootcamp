@@ -7,6 +7,16 @@ Scope: These rules apply to the **final-project directory only**. Ignore them fo
 - **Frontend**: Next.js (App Router, React)
 - **Backend**: Spring Boot (Gradle)
 - **Integration**: May communicate with the LLM/agent team's **FastAPI** service. Agree on the request/response schema before implementing any backend↔FastAPI interface.
+- **Monorepo caveat**: `final-project/` is a subdirectory of the parent git repo. Branching/checkout affects the **whole repo**, not just this directory — check `git status` repo-wide before switching branches.
+
+## Notion (team docs — search anchor)
+
+- When asked to find anything in Notion, start from the **🏁 최종 프로젝트** page: https://app.notion.com/p/be45ca79037b821aa87401726b7ac97d
+- Key resources under it: **📡 API 명세서** (check before implementing/changing any API), **🧩 ADR 기록** (architecture decisions), **🔧 트러블슈팅**, 기획서, 회의록, 프로젝트 일정.
+
+## Backend spec — read before implementing
+
+- Before implementing or reviewing ANY backend work, read `docs/backend/README.md` and the specs 01–06 it indexes. The specs are the source of truth: if code needs to diverge, update the spec first (decision-log style), then code.
 
 ## Git workflow — run automatically (details live in Skills)
 
@@ -46,4 +56,4 @@ Scope: These rules apply to the **final-project directory only**. Ignore them fo
 ## Run / build (update once directory layout is fixed)
 
 - Frontend: `cd frontend && npm run dev`
-- Backend: `./gradlew bootRun` (explicit `JAVA_HOME`)
+- Backend: `./gradlew bootRun` with explicit `JAVA_HOME` (Microsoft OpenJDK 21, e.g. `C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot` on this machine)

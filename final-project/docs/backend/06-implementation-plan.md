@@ -15,7 +15,7 @@ Spring Boot 3.5 + Gradle 프로젝트 생성(`backend/`), docker-compose(MySQL+R
 
 ## Phase 1. 인증 + 회원 (1일)
 
-member/guest/refresh_token 테이블, 일반 가입/로그인/로그아웃/refresh/me(A-1~A-5), JWT 필터, Role 가드, 게스트 쿠키 발급. OAuth(A-6)는 **이 단계 마지막**에 — 제공자 앱 등록이 외부 의존이라 막히면 뒤로 미루고 진행.
+member/guest/refresh_token 테이블, 일반 가입/로그인/로그아웃/refresh/me(A-1~A-5), JWT 필터, Role 가드, 게스트 쿠키 발급. (OAuth는 MVP 제외 — 2026-07-07 팀 결정)
 - **완료**: 가입→로그인→AT로 /me→만료 후 refresh→로그아웃 시나리오가 Swagger로 통과. SELLER 시드 계정으로 USER 전용 API 403 확인.
 
 ## Phase 2. 카탈로그 (1일)
@@ -46,7 +46,7 @@ S-1~S-4, 시드 데이터 최종분(02 §5 규모, LLM팀 합의 형식), user_e
 
 ## 일정 감각
 
-합계 ~7.5일. MVP까지 남은 기간과 맞물리므로 **Phase 3까지가 첫 주 목표**, Phase 5는 LLM 팀 진도와 동기화. 지연 시 자르는 순서(뒤에서부터): S-4 판매자 챗봇 → 연관 추천 → OAuth → 관리자 신고 처리(문의 처리는 유지).
+합계 ~7.5일. MVP까지 남은 기간과 맞물리므로 **Phase 3까지가 첫 주 목표**, Phase 5는 LLM 팀 진도와 동기화. 지연 시 자르는 순서(뒤에서부터): S-4 판매자 챗봇 → 연관 추천 → 관리자 신고 처리(문의 처리는 유지).
 
 ## 구현 세션(Claude)에게
 

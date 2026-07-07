@@ -13,7 +13,8 @@
 | A-3 | POST | /api/auth/logout | 🔑 | RT 삭제 |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
 | A-5 | GET | /api/auth/me | 🔑 | 내 정보(id, email, nickname, role) — FE 라우팅 가드용 |
-| A-6 | GET | /oauth2/authorization/{provider} | 🔓 | OAuth 시작(Spring 기본 경로). 성공 시 FE 콜백으로 리다이렉트 + 토큰 |
+
+- OAuth는 MVP 제외(2026-07-07 팀 결정). 고도화 도입 시 `GET /oauth2/authorization/{provider}` 추가.
 
 - A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), 약관 미동의 400.
 - A-2 실패는 계정 존재 여부 무관하게 통일 메시지(401 `AUTH_LOGIN_FAILED`) — 기능 정의 명시.
@@ -123,5 +124,3 @@
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
 - [ ] P-5 개인화 추천의 응답 형태(상품 ID 목록 vs 카드 데이터) — LLM 팀과 05 계약에서 확정
-- [ ] OAuth 제공자 1차 선정(구글 vs 카카오) — 앱 등록 선행 필요
-- [ ] 노션 API 명세서 DB에 이 문서를 등록할 때 그룹 옵션 리셋(auth/products/chat/cart/orders/reviews/seller/admin/internal)
