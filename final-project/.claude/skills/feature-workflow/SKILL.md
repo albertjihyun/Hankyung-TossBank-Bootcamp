@@ -7,6 +7,10 @@ description: Start a new feature, page, or unit of work in final-project. Use at
 
 Run this the moment a new feature/page/fix begins — without being asked.
 
+## 0. Safety check (monorepo!)
+`final-project/` lives inside the parent repo — branch switches affect the whole repo.
+- `git status` first. If there are uncommitted changes (anywhere in the repo), stop and ask the user whether to commit, stash, or abort — don't let changes ride along across a checkout.
+
 ## 1. Sync main
 ```
 git checkout main && git pull origin main
