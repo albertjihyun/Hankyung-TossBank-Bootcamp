@@ -33,10 +33,10 @@
 - 후기 자격(배송완료·아이템당 1개)의 검증 앵커가 필요 → `review.order_item_id UNIQUE`. product_id/member_id는 조회용 중복 보관(조인 절약).
 - 신고된 후기의 "숨김/삭제"(관리자)는 물리 삭제가 아니라 `review.status = VISIBLE/HIDDEN/DELETED`. 이유: 신고 처리 내역 화면이 처리된 후기를 계속 보여줘야 함.
 
-### D5. 게스트는 UUID 쿠키 + guest 테이블로 추적한다
+### D5. 게스트는 UUID 쿠키 + guest 테이블로 추적한다 (횟수 제한 없음)
 
-- 채팅 3회 제한 카운트와 가입 시 이력 승계를 위해 서버 저장 필요. `guest(id UUID, chat_count, converted_member_id)`.
-- 카운트 단위는 **질문(요청) 1회 = 1 카운트** (세션 단위 아님 — 세션 단위면 한 세션에서 무한 질문 가능).
+- **게스트 채팅 횟수 제한은 두지 않는다** (2026-07-07 팀 회의: "이 정도 loss는 감수" — 가입 전 이탈 방지 우선). 게스트는 무제한 채팅 가능하되 개인화만 미적용.
+- guest 테이블은 카운트용이 아니라 **행동 이력(user_event)의 주체 식별 + 가입 시 승계**를 위해 유지: `guest(id UUID, converted_member_id)`.
 - 가입/로그인 시 프론트가 guestId를 전달하면 `converted_member_id` 기록 + 해당 guest의 user_event를 member로 이관(UPDATE).
 
 ### D6. Refresh Token은 Redis가 아니라 DB 테이블에 저장한다
@@ -100,7 +100,6 @@ erDiagram
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | id | CHAR(36) | PK | UUID, 쿠키 값 그대로 |
-| chat_count | INT | NOT NULL DEFAULT 0 | 3 도달 시 채팅 차단 |
 | converted_member_id | BIGINT | NULL, FK(member) | 가입/로그인 승계 시 기록 |
 
 ### refresh_token

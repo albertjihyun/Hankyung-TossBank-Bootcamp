@@ -54,7 +54,7 @@
 
 ### D5. 채팅 프록시는 SSE 패스스루
 
-- FE `POST /api/chat` → BE가 게스트 카운트/세션 검증 후 FastAPI로 스트리밍 요청 → 응답 SSE 이벤트를 그대로 FE에 중계.
+- FE `POST /api/chat` → BE가 세션 검증 후 FastAPI로 스트리밍 요청 → 응답 SSE 이벤트를 그대로 FE에 중계. (게스트 횟수 제한 없음 — 2026-07-07 회의로 폐지)
 - 구현: Spring WebFlux 전면 도입 대신 **MVC + `SseEmitter` + WebClient**(FastAPI 호출용)만 사용. 이유: 나머지 API가 전부 동기 CRUD라 전면 리액티브는 과함.
 - 타임아웃: FastAPI 연결 5초 / 전체 응답 60초. 초과·오류 시 SSE로 `error` 이벤트 전송 후 종료. 재시도는 FE 버튼(자동 재시도 없음 — LLM 호출 중복 비용 방지).
 
