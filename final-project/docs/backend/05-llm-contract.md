@@ -28,22 +28,26 @@
 
 ### 1-2. 응답: SSE 스트림
 
-이벤트 타입 4종. BE는 그대로 FE에 패스스루한다.
+이벤트 타입 6종. BE는 그대로 FE에 패스스루한다.
 
 ```
-event: token      data: {"text": "유럽여행이라면 "}          // 답변 텍스트 조각 (스트리밍)
-event: products   data: {"groups": [                        // 상품 카드 (그룹핑 지원)
+event: token       data: {"text": "유럽여행이라면 "}          // 답변 텍스트 조각 (스트리밍)
+event: conditions  data: {"items": ["기념일", "호텔 레스토랑", "우아한", "원피스"]}
+                                                             // LLM이 발화에서 추출한 조건 — FE가 결과 상단에 제거 가능한 칩으로 표시
+event: products    data: {"groups": [                        // 상품 카드 (그룹핑 지원)
                     {"title": "선크림", "items": [
-                      {"productId": 1, "name": "…", "price": 12900, "imageUrl": "…", "reason": "지성 피부에 맞는 가벼운 제형"}
+                      {"productId": 1, "name": "…", "brandName": "더센트", "price": 12900, "originalPrice": 15000,
+                       "imageUrl": "…", "rating": 4.8, "reviewCount": 2847, "reason": "지성 피부에 맞는 가벼운 제형"}
                     ]}
                   ]}
-event: action     data: {"type": "CART_ADDED", "message": "무선 키보드 1개를 장바구니에 담았어요", "cartItemId": 55}
-event: done       data: {"finishReason": "stop"}
-event: error      data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 시도해주세요"}
+event: action      data: {"type": "CART_ADDED", "message": "무선 키보드 1개를 장바구니에 담았어요", "cartItemId": 55}
+event: done        data: {"finishReason": "stop"}
+event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 시도해주세요"}
 ```
 
+- `conditions`: 디자인 시안의 "조건 칩" UI 지원. **칩 X 제거 시 FE는 후속 메시지로 전달** — `message: "[조건 제거] 우아한"` 형태의 규약 문자열(같은 세션이라 LLM이 맥락 유지, 재추천 후 갱신된 conditions·products 재발행). 별도 API 없음.
 - `products.groups`: 상황 기반 추천의 "카테고리별 묶음" 요구를 지원(단일 추천은 그룹 1개). `productId`는 BE 상품 ID — 카드의 상세 이동은 FE가 `/products/{id}`로.
-- 카드에 필요한 데이터(이름/가격/이미지)는 FastAPI가 internal 검색 응답에서 그대로 채워 반환(FE가 상품별 재조회하지 않게).
+- 카드 필드(브랜드/정가/평점 포함)는 FastAPI가 internal 검색 응답(I-1)에서 그대로 채워 반환(FE가 상품별 재조회하지 않게). 카드의 찜 버튼은 FE가 M-5(찜 추가)를 직접 호출 — LLM 무관.
 - `action`: 담기 등 부수효과의 결과 통지. 실패 시 `type: "CART_ADD_FAILED"` + 사유.
 
 ### 1-3. CS/판매자 챗봇
