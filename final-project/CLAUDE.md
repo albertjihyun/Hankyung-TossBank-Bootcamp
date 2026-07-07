@@ -14,6 +14,10 @@ Scope: These rules apply to the **final-project directory only**. Ignore them fo
 - When asked to find anything in Notion, start from the **🏁 최종 프로젝트** page: https://app.notion.com/p/be45ca79037b821aa87401726b7ac97d
 - Key resources under it: **📡 API 명세서** (check before implementing/changing any API), **🧩 ADR 기록** (architecture decisions), **🔧 트러블슈팅**, 기획서, 회의록, 프로젝트 일정.
 
+## Backend spec — read before implementing
+
+- Before implementing or reviewing ANY backend work, read `docs/backend/README.md` and the specs 01–06 it indexes. The specs are the source of truth: if code needs to diverge, update the spec first (decision-log style), then code.
+
 ## Git workflow — run automatically (details live in Skills)
 
 - **Starting** a new feature/page/fix → run the **`feature-workflow`** skill (sync `main` + create a branch) *before* writing code. Never commit to `main` directly.

@@ -40,10 +40,9 @@
 
 ### D3. 인증은 JWT AT(30분) + RT(14일, DB 저장)
 
-- 일반 로그인과 OAuth 모두 최종적으로 같은 JWT를 발급한다(발급 경로만 다름).
+- 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키. 재발급: `POST /api/auth/refresh`.
 - Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열, `POST /api/chat`(게스트 허용)은 permitAll.
-- OAuth: Spring Security OAuth2 Client. 성공 핸들러에서 member upsert(이메일 기준) 후 JWT 발급 → FE 콜백 URL로 리다이렉트.
 - 게스트: `guest_id` HttpOnly 쿠키(UUID). 없으면 첫 채팅 요청 시 발급.
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
@@ -92,7 +91,7 @@ com.jarvis
 | DB | MySQL 8.x (로컬 docker-compose) | |
 | ORM | Spring Data JPA + Hibernate. 복잡 집계(판매자 지표)만 JdbcTemplate 네이티브 쿼리 허용 | QueryDSL 미도입 — 동적 쿼리가 검색 1곳뿐이라 도입 비용>효용 |
 | Redis | spring-data-redis (채팅 세션 TTL 전용) | |
-| 인증 | spring-security + oauth2-client + jjwt | |
+| 인증 | spring-security + jjwt (OAuth 제외로 oauth2-client 미도입) | |
 | 문서화 | springdoc-openapi (Swagger UI) — 04 문서와 이중화 방지 위해 코드 어노테이션은 최소, 04 문서가 원본 | |
 
 ## 5. 설정/환경변수 규약
@@ -104,7 +103,6 @@ com.jarvis
 | `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MySQL |
 | `REDIS_HOST` / `REDIS_PORT` | Redis |
 | `JWT_SECRET` | AT/RT 서명 |
-| `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | OAuth 제공자 |
 | `LLM_BASE_URL` | FastAPI 주소 |
 | `INTERNAL_TOKEN` | internal API 서비스 토큰 (FastAPI와 공유) |
 | `app.mock.shipping-minutes` 등 | mock 배송 간격 (환경변수 아님, yml 기본값 5/5) |
