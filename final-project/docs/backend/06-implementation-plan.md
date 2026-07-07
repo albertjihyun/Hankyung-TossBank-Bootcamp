@@ -36,7 +36,7 @@ review(M-1~3) + P-3 실데이터, wishlist(M-4~6), recent(M-7), address(M-8), in
 ## Phase 5. 채팅 프록시 + internal API (1.5일, LLM팀 병행 필요)
 
 세션 발급(Redis TTL), CH-1~4, SSE 패스스루, 게스트 카운트, internal I-1~I-6 + 서비스 토큰 필터. FastAPI가 아직 없으면 **mock FastAPI**(고정 응답 반환하는 로컬 스텁)로 BE 측을 먼저 완성.
-- **완료**: 스텁 기준 SSE 4종 이벤트가 FE(curl)로 중계됨. 게스트 4번째 질문 403. internal API가 토큰 없이 401, FE 경로로 접근 불가.
+- **완료**: 스텁 기준 SSE 4종 이벤트가 FE(curl)로 중계됨. internal API가 토큰 없이 401, FE 경로로 접근 불가.
 - **선행 조건**: 05 계약 v0.1을 LLM 팀과 이번 주 내 합의(OPEN 6개). 합의 전엔 스텁으로 진행.
 
 ## Phase 6. 판매자 + 시드 완성 + 통합 (1일)

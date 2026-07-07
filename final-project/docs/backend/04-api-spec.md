@@ -18,7 +18,7 @@
 
 - A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), 약관 미동의 400.
 - A-2 실패는 계정 존재 여부 무관하게 통일 메시지(401 `AUTH_LOGIN_FAILED`) — 기능 정의 명시.
-- 이메일 중복 확인은 별도 GET 대신 A-1의 409 응답으로 처리(FE가 blur 시점에 미리 확인하고 싶으면 `GET /api/auth/email-exists?email=` 추가 가능 — 선택 구현).
+- 이메일 중복 확인은 별도 기능 없이 A-1의 409 응답으로만 처리 (2026-07-07 회의 — "기능만 일단 돌아가도록").
 
 ## 2. product / category / brand
 
@@ -81,9 +81,8 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | CH-1 | POST | /api/chat/sessions | 🔓(게스트 허용) | 세션 발급(Redis TTL 10분). "새 대화" 버튼도 이걸 다시 호출 |
-| CH-2 | POST | /api/chat | 🔓(게스트 허용) | 추천 챗봇 메시지 전송, SSE 스트림 응답. 게스트: 잔여 카운트 검사·차감, 소진 시 403 `CHAT_GUEST_LIMIT` (응답에 잔여 횟수 포함) |
+| CH-2 | POST | /api/chat | 🔓(게스트 허용) | 추천 챗봇 메시지 전송, SSE 스트림 응답. 게스트도 무제한 사용(횟수 제한 폐지 — 2026-07-07 회의), 개인화만 미적용 |
 | CH-3 | POST | /api/chat/cs | 🔑+🔓 | 문의 챗봇(고객센터) 메시지. 비로그인은 일반 안내만(주문 질문 시 로그인 유도 메시지는 LLM 측 처리) |
-| CH-4 | GET | /api/chat/guest-quota | 🔓 | 게스트 잔여 횟수 조회(FE 표시용) |
 
 ## 7. seller
 
@@ -119,7 +118,7 @@
 
 ## 10. 공통 에러 코드 (초기 세트)
 
-`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `CHAT_GUEST_LIMIT` `CHAT_SESSION_EXPIRED` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
+`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `CHAT_SESSION_EXPIRED` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
 
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
