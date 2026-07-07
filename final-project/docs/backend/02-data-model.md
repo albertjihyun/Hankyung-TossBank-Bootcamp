@@ -86,13 +86,13 @@ erDiagram
 ### member
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| email | VARCHAR(255) | UNIQUE, NOT NULL | OAuth 가입자도 이메일 확보 |
-| password | VARCHAR(255) | NULL | BCrypt. OAuth 전용 계정은 NULL |
+| email | VARCHAR(255) | UNIQUE, NOT NULL | |
+| password | VARCHAR(255) | NOT NULL | BCrypt |
 | nickname | VARCHAR(50) | NOT NULL | |
 | role | VARCHAR(20) | NOT NULL | `USER` / `SELLER` / `ADMIN` |
-| provider | VARCHAR(20) | NULL | `LOCAL` / `GOOGLE`(1차 제공자 확정 시 변경) |
-| provider_id | VARCHAR(255) | NULL | UNIQUE(provider, provider_id) |
 | agreed_terms_at | DATETIME | NOT NULL | 약관 동의 시각 |
+
+- **OAuth는 MVP 제외** (2026-07-07 팀 결정). 고도화에서 도입 시 `provider`/`provider_id` 컬럼 추가 + `password` NULL 허용으로 확장 — 지금 컬럼을 미리 두지 않는 이유: 쓰지 않는 nullable 컬럼은 검증 로직만 흐리게 함(YAGNI).
 
 - SELLER/ADMIN은 시드 전용(가입 API로 생성 불가). SELLER는 brand.seller_id로 브랜드와 1:1.
 
