@@ -193,7 +193,8 @@
 
 - 클레임 전이는 스케줄러가 아니라 관리자 승인/거절 API로만 일어난다(D5).
 - 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`로 설정. 기본 5/5분.
-- 구현: Spring `@Scheduled` + 단순 UPDATE 쿼리. 인스턴스 1대 전제(분산 락 불필요 — 데모 규모 결정).
+- 구현: Spring `@Scheduled` + **조건부 UPDATE**(`WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치).
+- **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 `user_event` 적재·알림 등)를 추가할 땐 분산 락이 필수.
 
 ## 7. 구현 체크리스트 (검토자용)
 
