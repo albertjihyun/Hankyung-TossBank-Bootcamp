@@ -16,7 +16,7 @@
 - LLM의 쓰기 작업(장바구니 담기, 문의 접수)은 전부 BE의 `/internal/*` API 콜백으로만 일어난다.
 - 대화 내용은 어디에도 저장하지 않는다(기능 정의 확정). BE는 세션 ID 발급/TTL만 관리.
 
-### 1-1. 배포 형상 — 단일 서버 단계 (2026-07-08 스터디 결정, 분산 편에서 갱신 예정)
+### 1-1. 배포 형상 — 단일 서버 단계 (2026-07-08 스터디 결정. 분산 형상은 §1-2)
 
 EC2 1대 + docker-compose, 컨테이너 6개(nginx/next/spring/fastapi/mysql/redis).
 
@@ -31,6 +31,38 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - **`/internal` 3중 방어**: ① nginx가 라우팅하지 않음(경로 차단) ② spring 포트 미노출(네트워크 차단) ③ 서비스 토큰 필터(애플리케이션 검증). ①②는 네트워크 수준이라 토큰이 유출돼도 외부에선 쓸 곳이 없다.
 - MySQL 데이터는 named volume으로 컨테이너 생명주기와 분리. RDS 전환은 분산 단계에서 검토.
 - **FE base URL이 2개** (FE 팀 공유 필요): 브라우저 발 호출은 `NEXT_PUBLIC_API_URL`(도메인, nginx 경유), Next 서버 컴포넌트 발 호출은 `API_URL`(`http://spring:8080`, 내부망 직행).
+
+### 1-2. 배포 형상 — 분산 단계 (2026-07-08 스터디 결정)
+
+> §1-1(단일 서버)은 모든 계층이 단일 = 전부 SPOF다. 부하 관리·무중단 배포·failover를 위해 **무상태 계층만 복제**하고 **상태는 외부화**한다. 가르는 기준 한 단어: **상태(stateful vs stateless)**.
+
+```
+                    ┌── [AWS ALB] ──┐            ← 층 1: 인스턴스 간 분배 (인스턴스 바깥, AWS 관리형)
+        ┌───────────┼───────────────┼───────────┐
+        ▼           ▼               ▼
+  ┌──EC2-1───┐ ┌──EC2-2───┐ ┌──EC2-3───┐
+  │ nginx    │ │ nginx    │ │ nginx    │         ← 층 2: 인스턴스 안 라우팅 + 외부 차단 (§1-1 그대로)
+  │  ├ next  │ │  ├ next  │ │  ├ next  │
+  │  ├ spring│ │  ├ spring│ │  ├ spring│
+  │  └fastapi│ │  └fastapi│ │  └fastapi│
+  └──────────┘ └──────────┘ └──────────┘
+        └───────── RDS(MySQL) Multi-AZ · ElastiCache(Redis) — 공유 상태 ─────────┘
+```
+
+**D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 3대 복제. mysql·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.**
+
+**D-분산2. DB 이중화 = RDS Multi-AZ, read replica는 두지 않는다.** 이중화 이유는 읽기 부하가 아니라 failover(죽으면 전체가 죽음)다. JARVIS 트래픽의 병목은 DB가 아니라 LLM 대기(FastAPI)라 read replica의 근거가 미달. Multi-AZ는 물리 2대(서로 다른 AZ)·동기 복제·자동 승격을 엔드포인트 DNS 하나 뒤로 추상화 → 앱은 단일 URL만 보고 읽기/쓰기 분리도 없음. **부수 효과로 복제 지연·read-your-own-writes 문제를 애초에 회피**(대기 서버는 읽지 않으므로). *비용(상시 2배)상 데모 기간엔 단일 인스턴스로 두고 "프로덕션이면 Multi-AZ 토글 ON"으로 운영 가능 — 코드 영향 없음.*
+
+**D-분산3. Redis = ElastiCache primary+replica.** 자동 failover, 앱은 단일 엔드포인트. mysql과 동형.
+
+**D-분산4. 로드밸런서는 2층.** 층 1(인스턴스 간 분배)은 **반드시 인스턴스 바깥**에 있어야 한다 — 특정 EC2 안에 두면 그 EC2가 죽을 때 분배기도 같이 죽어 SPOF가 그대로 이동. AWS ALB(관리형)를 쓰면 LB 자신의 이중화를 AWS가 떠안음(nginx를 별도 EC2에 직접 두면 그 EC2가 다시 SPOF). 층 2(인스턴스 안 nginx)는 §1-1 역할 유지: next/spring/fastapi 라우팅 + spring 8080 외부 미노출. **`/internal` 3중 방어는 그대로 유지**되고 앞단에 ALB가 한 겹 더 붙는 셈(보안그룹으로 각 EC2 nginx 포트는 ALB에서 온 것만 허용).
+
+**D-분산5. 스케줄러는 분산 안전하게 — 조건부 UPDATE + Redis 분산 락.** 상세는 [01 §6](01-order-state-machine.md#6-스케줄러-명세). 다인스턴스에서 같은 잡이 중복 실행되므로 (a) 전이 쿼리는 `WHERE status=<이전>` 조건부 UPDATE(정합성 최종 방어선), (b) 잡 레벨은 Redis 분산 락(ShedLock)으로 매 틱 1대만 실행(중복 부수효과 차단). 01 §6의 "인스턴스 1대 전제" 폐기.
+
+**D-분산6. 채팅 SSE의 분산 대응.** 채팅은 SSE(장수명 HTTP 연결)라 짧은 요청을 가정한 중간 장비(ALB·nginx)와 충돌한다. 세 가지:
+- **self-pinning**: 스트림 하나는 TCP 연결 하나 = 처리 중 한 인스턴스에 자동 고정(관리 불필요). 분산 단위는 "토큰 조각"이 아니라 "스트림(요청) 전체" — LB는 요청 단위로 나눈다. **다음 턴은 아무 인스턴스로 가도 되고**(세션이 Redis에 있으므로), 따라서 **sticky session 불필요**.
+- **idle timeout**: LLM이 뜸 들이는 침묵 구간(>ALB idle timeout, 기본 60s)에 연결이 끊긴다 → 주기적 하트비트(`: ping` 주석) 전송 + ALB/nginx idle·read timeout을 넉넉히(예: 300s).
+- **버퍼링**: 인스턴스 nginx가 응답을 모았다 한 번에 넘기면 SSE의 실시간성이 죽는다(로딩만 돌다 답이 팍) → 스트리밍 경로에 `proxy_buffering off`(+ `proxy_http_version 1.1`), 또는 spring이 `X-Accel-Buffering: no` 헤더 전송. 전역이 아니라 `/api/chat` 등 스트리밍 경로에만.
 
 ## 2. 결정 로그
 
