@@ -64,6 +64,8 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - **idle timeout**: LLM이 뜸 들이는 침묵 구간(>ALB idle timeout, 기본 60s)에 연결이 끊긴다 → 주기적 하트비트(`: ping` 주석) 전송 + ALB/nginx idle·read timeout을 넉넉히(예: 300s).
 - **버퍼링**: 인스턴스 nginx가 응답을 모았다 한 번에 넘기면 SSE의 실시간성이 죽는다(로딩만 돌다 답이 팍) → 스트리밍 경로에 `proxy_buffering off`(+ `proxy_http_version 1.1`), 또는 spring이 `X-Accel-Buffering: no` 헤더 전송. 전역이 아니라 `/api/chat` 등 스트리밍 경로에만.
 
+**D-분산7. 인그레스는 ALB(공개 진입점을 인정), Cloudflare Tunnel 아님.** 기준은 *노출 제거*가 아니라 *노출 인정 + 방어*다. 진입점을 없애는(cloudflared 아웃바운드 터널) 대신, ALB의 로드밸런싱·헬스체크·failover 이득이 "공개 진입점 1개를 감수하는 비용"보다 크다고 판단 → 진입점을 없애지 않고 **nginx 443 하나로 좁히고 보안그룹으로 잠근다**. 이건 `/internal` 3중 방어(포트를 없애자가 아니라 필요한 문만 열고 나머지를 네트워크·토큰으로 좁힘)·D-분산4(관리 이득을 위해 관리형 진입점을 받아들임)와 **동일한 철학 — 문을 없애는 게 아니라 좁혀서 지킨다.** 터널은 "문을 없앤다"는 다른 철학이라, 로드밸런싱 이득을 포기하면서까지 갈아탈 근거가 미달.
+
 ## 2. 결정 로그
 
 ### D1. 패키지 구조는 도메인 우선(package-by-feature)
