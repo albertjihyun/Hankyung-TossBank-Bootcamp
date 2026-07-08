@@ -16,6 +16,22 @@
 - LLM의 쓰기 작업(장바구니 담기, 문의 접수)은 전부 BE의 `/internal/*` API 콜백으로만 일어난다.
 - 대화 내용은 어디에도 저장하지 않는다(기능 정의 확정). BE는 세션 ID 발급/TTL만 관리.
 
+### 1-1. 배포 형상 — 단일 서버 단계 (2026-07-08 스터디 결정, 분산 편에서 갱신 예정)
+
+EC2 1대 + docker-compose, 컨테이너 6개(nginx/next/spring/fastapi/mysql/redis).
+
+```
+인터넷 ──:80/443──▶ [nginx] ── /          ─▶ next:3000
+                            ── /api/**    ─▶ spring:8080
+                            ── /internal/** ─▶ 404 (라우팅하지 않음)
+docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:8000 / next(서버측) ─▶ spring:8080
+```
+
+- **외부에 publish되는 포트는 nginx의 80/443뿐.** spring/next/fastapi/mysql/redis는 내부망 `expose`만 — 배포 compose에 `ports:` publish를 적는 순간(특히 spring 8080) nginx를 우회하는 뒷문이 생긴다.
+- **`/internal` 3중 방어**: ① nginx가 라우팅하지 않음(경로 차단) ② spring 포트 미노출(네트워크 차단) ③ 서비스 토큰 필터(애플리케이션 검증). ①②는 네트워크 수준이라 토큰이 유출돼도 외부에선 쓸 곳이 없다.
+- MySQL 데이터는 named volume으로 컨테이너 생명주기와 분리. RDS 전환은 분산 단계에서 검토.
+- **FE base URL이 2개** (FE 팀 공유 필요): 브라우저 발 호출은 `NEXT_PUBLIC_API_URL`(도메인, nginx 경유), Next 서버 컴포넌트 발 호출은 `API_URL`(`http://spring:8080`, 내부망 직행).
+
 ## 2. 결정 로그
 
 ### D1. 패키지 구조는 도메인 우선(package-by-feature)
@@ -81,6 +97,8 @@ com.jarvis
 
 각 도메인 패키지 내부: `XxxController` / `XxxService` / `XxxRepository` / `dto/` / (필요시) `Xxx` 엔티티. 컨트롤러에 비즈니스 로직 금지, 엔티티를 API로 노출 금지 (CLAUDE.md).
 
+- **internal 컨트롤러는 자체 로직을 갖지 않고 도메인 서비스를 재사용한다.** 같은 행위(예: 담기)는 같은 서비스 메서드 하나로 — `/api`와 `/internal`은 신뢰 모델이 다른 입구일 뿐, 검증·처리 로직은 서비스 레이어에서 공유. (검증이 컨트롤러에 있으면 입구를 낼 때마다 복붙된다 — 01 체크리스트와 같은 맥락)
+
 ## 4. 기술 스택 & 버전
 
 | 항목 | 선택 | 근거 |
@@ -117,3 +135,5 @@ com.jarvis
 - [ ] `/internal/**`에 서비스 토큰 필터가 걸려 있고, FE 경로에서 접근 불가한가
 - [ ] FastAPI 호출에 타임아웃이 설정돼 있는가 (커넥션 5s / 응답 60s)
 - [ ] 시크릿이 코드·yml에 리터럴로 없는가
+- [ ] 배포 compose에서 nginx만 `ports:` publish이고 나머지는 `expose`인가 (spring 8080 외부 노출 = nginx 우회 뒷문)
+- [ ] internal 컨트롤러가 도메인 서비스를 재사용하는가 (로직 복제 금지)
