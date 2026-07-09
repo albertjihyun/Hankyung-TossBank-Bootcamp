@@ -8,7 +8,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, agreeTerms(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 |
+| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 (약관 동의 제외 — 02 D16) |
 | A-2 | POST | /api/auth/login | 🔓 | 일반 로그인. body: email, password, guestId? |
 | A-3 | POST | /api/auth/logout | 🔑 | RT 삭제 |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
@@ -16,7 +16,7 @@
 
 - OAuth는 MVP 제외(2026-07-07 팀 결정). 고도화 도입 시 `GET /oauth2/authorization/{provider}` 추가.
 
-- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), 약관 미동의 400.
+- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), gender(MALE/FEMALE/OTHER), birthDate(과거 날짜).
 - A-2 실패는 계정 존재 여부 무관하게 통일 메시지(401 `AUTH_LOGIN_FAILED`) — 기능 정의 명시.
 - 이메일 중복 확인은 별도 기능 없이 A-1의 409 응답으로만 처리 (2026-07-07 회의 — "기능만 일단 돌아가도록").
 
@@ -25,9 +25,9 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | P-1 | GET | /api/categories | 🔓 | 카테고리 전체 (메인 해시태그용) |
-| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 이미지 목록, 옵션 목록, 정가/판매가, summary/spec/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
+| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만 |
-| P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 ORDER_CREATED 수 → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
+| P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계 — ORDER_CREATED 이벤트는 주문 단위라 상품별 집계 불가, 02 §4) → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
 | P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서), 실패·프로필 없음 시 P-4로 fallback |
 | P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size |
 
@@ -90,7 +90,7 @@
 |---|---|---|---|---|
 | S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
-| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, spec, description, sale_price, status — 본인 브랜드 상품 아니면 403 |
+| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, status — 본인 브랜드 상품 아니면 403 |
 | S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백을 사용 — 05 문서 |
 
 ## 8. admin

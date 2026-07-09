@@ -216,9 +216,9 @@ com.jarvis
 
 **① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MySQL → envelope 응답. FastAPI 무관.
 
-**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT) → 시큐리티 필터가 JWT 검증해 userId 확정(신뢰 근원) → CartController → **CartService.addItem** 검증(상품·옵션·재고) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
+**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT) → 시큐리티 필터가 JWT 검증해 userId 확정(신뢰 근원) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고는 미모델링, 02 D8) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
 
-**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MySQL 조회(spec 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
+**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MySQL 조회(attributes 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
 
 **④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}`; 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 게스트→403 `CART_LOGIN_REQUIRED`→"로그인하면 담아드려요". 자동 재시도 없음(중복 담기 방지).
 
