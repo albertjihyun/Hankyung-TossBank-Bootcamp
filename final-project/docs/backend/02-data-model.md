@@ -119,16 +119,168 @@
 
 ## 2. ERD
 
+공통 컬럼(`created_at`, 변경 테이블의 `updated_at`)은 다이어그램에서 생략. PK는 전부 `id BIGINT AUTO_INCREMENT`(guest만 UUID).
+
 ```mermaid
 erDiagram
+    member {
+        bigint id PK
+        varchar email UK
+        varchar password "BCrypt"
+        varchar nickname
+        varchar role "USER/SELLER/ADMIN"
+        datetime agreed_terms_at
+    }
+    guest {
+        char36 id PK "UUID 쿠키값"
+        bigint converted_member_id FK "가입 승계"
+    }
+    refresh_token {
+        bigint id PK
+        bigint member_id FK
+        varchar token UK
+        datetime expires_at
+    }
+    brand {
+        bigint id PK
+        bigint seller_id FK,UK "판매자 1:1"
+        varchar name UK
+        varchar logo_url
+        text description
+    }
+    category {
+        bigint id PK
+        varchar name UK
+        json attribute_schema "속성 축(키 배열, D11)"
+    }
+    product {
+        bigint id PK
+        bigint brand_id FK
+        bigint category_id FK
+        varchar name
+        int original_price "정가"
+        int sale_price "판매가"
+        varchar summary
+        json attributes "축의 값(D7/D11)"
+        text description
+        varchar status "ON_SALE/HIDDEN"
+    }
+    product_image {
+        bigint id PK
+        bigint product_id FK
+        varchar url
+        int sort_order "0=대표"
+    }
+    product_option {
+        bigint id PK
+        bigint product_id FK
+        varchar name
+        int extra_price
+    }
+    cart_item {
+        bigint id PK
+        bigint member_id FK
+        bigint product_id FK
+        bigint option_id FK "NULL 허용"
+        int quantity
+    }
+    address {
+        bigint id PK
+        bigint member_id FK
+        varchar label
+        varchar recipient
+        varchar phone
+        varchar zip_code
+        varchar address1
+        varchar address2
+        bool is_default
+    }
+    orders {
+        bigint id PK
+        bigint member_id FK
+        varchar status "PENDING/PAID/PAYMENT_FAILED"
+        varchar payment_method
+        int total_amount "스냅샷"
+        varchar recipient "이하 배송지 스냅샷"
+        varchar phone
+        varchar zip_code
+        varchar address1
+        varchar address2
+        datetime paid_at
+    }
+    order_item {
+        bigint id PK
+        bigint order_id FK
+        bigint product_id FK "링크용"
+        varchar product_name "스냅샷"
+        varchar option_name "스냅샷"
+        int price "스냅샷"
+        int quantity
+        varchar status "01 문서 9개 상태"
+        datetime status_changed_at
+    }
+    claim {
+        bigint id PK
+        bigint order_item_id FK
+        varchar type "CANCEL/RETURN/EXCHANGE"
+        varchar status "REQUESTED/COMPLETED/REJECTED"
+        varchar reason
+        varchar reject_reason
+        bigint processed_by FK "관리자"
+        datetime processed_at
+    }
+    review {
+        bigint id PK
+        bigint order_item_id FK,UK "아이템당 1개"
+        bigint product_id FK "목록 조회용"
+        bigint member_id FK
+        tinyint rating "1~5"
+        text content
+        varchar status "VISIBLE/HIDDEN/DELETED"
+    }
+    review_report {
+        bigint id PK
+        bigint review_id FK
+        bigint reporter_id FK
+        varchar reason
+        varchar status
+        bigint processed_by
+        datetime processed_at
+    }
+    wishlist {
+        bigint id PK
+        bigint member_id FK
+        bigint product_id FK
+    }
+    inquiry {
+        bigint id PK
+        bigint member_id FK
+        text content
+        varchar status
+        text answer
+        bigint answered_by
+        datetime answered_at
+    }
+    user_event {
+        bigint id PK
+        bigint member_id FK "NULL 가능"
+        char36 guest_id FK "NULL 가능"
+        varchar event_type
+        bigint product_id
+        char36 session_id
+        json meta
+    }
+
     member ||--o{ address : has
     member ||--o{ cart_item : has
     member ||--o{ orders : places
     member ||--o{ wishlist : has
     member ||--o{ review : writes
+    member ||--o{ review_report : reports
     member ||--o{ inquiry : files
     member ||--o| brand : "owns (SELLER)"
     member ||--o{ refresh_token : has
+    member ||--o{ guest : "converted (승계)"
     guest  ||--o{ user_event : generates
     brand ||--o{ product : has
     category ||--o{ product : classifies
@@ -136,6 +288,9 @@ erDiagram
     product ||--o{ product_option : has
     product ||--o{ cart_item : in
     product ||--o{ wishlist : in
+    product ||--o{ order_item : "링크(값은 스냅샷)"
+    product ||--o{ review : "목록 조회"
+    product_option ||--o{ cart_item : selected
     orders ||--|{ order_item : contains
     order_item ||--o| claim : "claimed by"
     order_item ||--o| review : "reviewed by"
