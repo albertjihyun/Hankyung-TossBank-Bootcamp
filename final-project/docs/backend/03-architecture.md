@@ -107,10 +107,21 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - FE `POST /api/chat` → BE가 세션 검증 후 FastAPI로 스트리밍 요청 → 응답 SSE 이벤트를 그대로 FE에 중계. (게스트 횟수 제한 없음 — 2026-07-07 회의로 폐지)
 - 구현: Spring WebFlux 전면 도입 대신 **MVC + `SseEmitter` + WebClient**(FastAPI 호출용)만 사용. 이유: 나머지 API가 전부 동기 CRUD라 전면 리액티브는 과함.
 - 타임아웃: FastAPI 연결 5초 / 전체 응답 60초. 초과·오류 시 SSE로 `error` 이벤트 전송 후 종료. 재시도는 FE 버튼(자동 재시도 없음 — LLM 호출 중복 비용 방지).
+- **왜 FastAPI가 FE로 직접 안 쏘고 Spring이 중개하나**: SSE는 장수명 HTTP 연결 하나라 Spring이 DB 처리만 하고 그 소켓을 FastAPI에 넘길 방법이 없다. "직접 쏜다 = FE가 FastAPI에 직접 연결한다"가 되고, 그 순간 ① 인증 경계가 둘로 갈라지고(FastAPI가 JWT·게스트를 판별해야 함 — "신원 검증은 `/api`에서 한 번" 원칙 붕괴) ② FastAPI가 공개 진입점이 돼야 하며(내부망 `expose`만 하던 걸 외부 노출 = nginx 우회 뒷문) ③ 세션·게스트 관리(Redis, BE 소유)를 우회한다. 홉 하나(내부망 수 ms)를 더 먹는 대신 단일 진입점 경계를 지키는 판단.
 
 ### D6. user_event 적재는 Spring 이벤트 + @Async
 
 - 서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @EventListener`가 INSERT. 본 트랜잭션과 분리(로그 실패가 주문을 굴리는 트랜잭션을 깨면 안 됨).
+
+### D7. 모든 DB 접근은 Spring만 — LLM에 read-only DB 접근도 주지 않는다 (2026-07-09 팀 합의)
+
+- **선택지**: (A) DB 접근은 Spring 전용, LLM은 `/internal` 창구만 (B) LLM에 read-only DB 접근 허용(위험을 뷰·권한으로 보완).
+- **비판적 판단 — 데이터를 둘로 갈라 본다**:
+  - **주인 있는 데이터(주문·판매자 지표·PII)**: B는 위험을 넘어 **아키텍처적 모순.** 행 단위 스코핑("이 판매자는 자기 브랜드 행만")을 read-only DB로 하려면 매 쿼리에 "현재 대화자 신원"을 실어야 하는데, 쿼리 주체가 FastAPI라 결국 FastAPI의 신원 주장을 DB가 믿어야 한다 → "신뢰 근원은 JWT, FastAPI는 메아리"(05 §0-1) 원칙을 되돌림. read-only여도 **읽는 것 자체가 피해**라 "쓰기 금지"가 방어가 안 됨.
+  - **공개 데이터(상품 카탈로그·후기)**: 유출 개념이 없어 저위험. 여기선 A가 과설계라는 비판이 성립. 단 `products` 전체가 공개는 아님 — 원가·마진·HIDDEN은 사유 → 노출은 반드시 **정제된 뷰/DTO**로(`SELECT *` 아님).
+- **선택**: (A). B가 공개 데이터에서 유일하게 이기는 축은 "LLM팀 개발 속도" 하나인데, 그건 **A를 개선(엔드포인트를 굵고 유연하게 + 캐시 + 병렬 툴호출)** 으로 대부분 회수된다. 반면 B는 이중 접근 경로의 상시 감사·text2SQL 오류·공유 DB 부하라는 고정비를 남긴다.
+- **인젝션 방어는 별개로 필수** — 경계(문 6개)는 인젝션 성공 시 *피해 반경*을 가둘 뿐, 성공 *확률*을 낮추지 않는다. 역할 분담: LLM팀 = 가드레일·프롬프트 하드닝(확률↓), BE = "호출자가 이미 털렸다 가정"하고 모든 `/internal` 입력 재검증 + 신원은 JWT 메아리만 신뢰 + 사이즈 상한(봉쇄). 둘 중 하나가 다른 하나를 면제하지 않는다.
+- **트레이드오프(인정)**: "A 유지"는 "지금 그대로"가 아니라 **"A + 엔드포인트 유연화"가 세트.** 병목을 방치하면 LLM팀의 왔다갔다 불만이 정당해지고 그림자 우회를 낳는다.
 
 ## 3. 패키지 구조
 
@@ -171,3 +182,50 @@ com.jarvis
 - [ ] 시크릿이 코드·yml에 리터럴로 없는가
 - [ ] 배포 compose에서 nginx만 `ports:` publish이고 나머지는 `expose`인가 (spring 8080 외부 노출 = nginx 우회 뒷문)
 - [ ] internal 컨트롤러가 도메인 서비스를 재사용하는가 (로직 복제 금지)
+
+## 7. 요청 시퀀스
+
+요청을 두 축으로 나눈다: **누가 시작하나**(유저 직접 `/api`(JWT) vs 에이전트 경유 chat→SSE→`/internal`) × **부수효과**(읽기 vs 쓰기). 판매자는 새 패턴이 아니라 여기에 **소유권 검사(본인 브랜드인가) + 집계-only**가 한 겹 더 얹힌 형태.
+
+```
+               읽기 (조회)                     쓰기 (부수효과)
+유저 /api    ① 상품·마이페이지 조회          ② 담기·주문·클레임·후기·찜·문의
+에이전트     ③ 추천(I-1 콜백)               ④ 담기까지만(I-2 콜백+action)
+판매자       ⑤ 대시보드(S-1/2)+소유권       ⑥ 상품수정(S-3)+소유권  ⑦ 판매자챗봇(S-4→I-6)
+```
+
+- **경계(일부러 빈 칸)**: 에이전트의 쓰기 상한은 "담기까지". 주문 생성·클레임·후기는 LLM이 못 한다(05 §0-1). 고도화 시에도 초안+사용자 본인 JWT 확인으로만.
+- **핵심 비대칭**: ①②(유저)는 1왕복. ③④(에이전트)는 2왕복 중첩 — **Spring이 한 요청 안에서 호출자(FastAPI 호출)이자 피호출자(`/internal` 콜백)** 가 되고, 그동안 SSE가 열려 있다.
+- **입구는 둘, 로직은 하나**: ④의 담기가 ②와 **같은 `CartService.addItem`을 재사용**(§3). `/api`·`/internal`은 신뢰 모델만 다른 입구.
+- **판매자 불변식**: `brandId`는 항상 **서버가 계정에서 유도**(사용자·LLM이 주장 못 함), 에이전트에는 **집계된 값만** 준다(raw 접근 없음 — I-6).
+
+### 줄글 설명
+
+**① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MySQL → envelope 응답. FastAPI 무관.
+
+**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT) → 시큐리티 필터가 JWT 검증해 userId 확정(신뢰 근원) → CartController → **CartService.addItem** 검증(상품·옵션·재고) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
+
+**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MySQL 조회(spec 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
+
+**④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}`; 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 게스트→403 `CART_LOGIN_REQUIRED`→"로그인하면 담아드려요". 자동 재시도 없음(중복 담기 방지).
+
+**⑤ 판매자 조회(대시보드)** — FE `GET /api/seller/summary`(Bearer) → 시큐리티 필터가 JWT+`SELLER` 확인 → SellerController가 **토큰 memberId에서 brandId 유도**(주장받지 않음) → SellerService 집계(매출·주문수는 order_item, 조회/담김/판매수는 user_event; 복잡 집계만 JdbcTemplate) → WHERE에 brandId 박혀 남의 데이터는 쿼리 단계에서 안 나옴 → envelope. (S-2도 동형.)
+
+**⑥ 판매자 쓰기(상품수정)** — FE `PATCH /api/seller/products/{id}`(Bearer) → JWT+`SELLER` → SellerProductService가 **먼저 소유권 검사**(상품의 브랜드 == 내 brandId, 아니면 403) → UPDATE(`status=HIDDEN` 비노출 포함). ②엔 없던 소유권 스텝이 결정적.
+
+**⑦ 판매자 에이전트(챗봇)** — FE `POST /api/chat/seller`(SSE) → JWT+`SELLER`+세션 검증 후 emitter → WebClient로 FastAPI(`channel:SELLER`, **서버 유도 brandId**) → 분석에 수치 필요 시 `GET /internal/seller/{brandId}/stats` 콜백 → InternalController가 ⑤와 같은 집계 서비스로 **집계값만** 반환(raw 로그·임의 쿼리 권한 없음 → text2SQL 실패·타 판매자 접근 원천 차단) → FastAPI가 분석 답변 `token`(+차트용 구조화 데이터) 발행 → 패스스루. ※ **판매자용 구조화 이벤트(예: `stats`) 스키마는 05에 미정 — LLM 팀 합의 필요(05 §4).**
+
+## 8. SSE 성능·안정성 지형 (결정됨 vs 열림)
+
+Spring 중개(D5)의 대가는 성능·안정성. "네트워크 장비와의 충돌"은 §1-2 D-분산6에서 결정됐고, **"Spring 프로세스 내부의 자원·수명 관리"가 아직 열린 설계 숙제**다(실제 부하에서 터지는 지점).
+
+**결정됨**
+- 버퍼링(스트리밍 경로만 `proxy_buffering off`+`X-Accel-Buffering:no`), idle timeout(하트비트 `: ping`+장비 300s), 분산 라우팅(self-pinning, sticky 불필요), FastAPI 다운(SSE `error` `LLM_UNAVAILABLE`, 비채팅 정상) — 전부 D-분산6/D5.
+
+**열림 (미해결 설계 항목)**
+- **타임아웃 3개 정합**: SseEmitter 타임아웃 vs 스트림 60s(D5) vs 하트비트 간격 — 하트비트가 살아있는데 60s에 죽으면 모순. 하트비트 기준으로 재정의 필요.
+- **클라이언트 이탈 시 상류 취소**: FE가 탭 닫으면 Spring이 `onCompletion`/`onTimeout`에서 **FastAPI로 가던 WebClient 구독을 취소**해야 함 — 안 하면 아무도 안 보는데 LLM 비용이 계속 나가고 emitter가 쌓인다(성능+비용).
+- **동시 스트림 상한(최대 미확정)**: MVC+`SseEmitter`+WebClient의 스레드 모델. WebClient는 논블로킹이라 FastAPI 대기는 스레드를 안 잡지만, emitter로 밀어넣는 브리지를 잘못 짜면 연결당 스레드가 묶여 Tomcat 기본 200이 천장. 논블로킹 브리지로 풀 수 있으나 구현 난이도.
+- **느린 클라이언트/백프레셔**: FastAPI가 빨리 뱉는데 클라가 느리면 Spring 메모리에 적체 → 상한·드롭 정책 필요.
+
+> 다음 설계 세션 진입점: 동시 스트림 상한(스레드/수명 모델)부터. 여기서 정해지면 타임아웃 정합·이탈 취소가 딸려 정해진다.
