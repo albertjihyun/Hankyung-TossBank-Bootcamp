@@ -143,6 +143,14 @@
 - 자체 발생분까지 컬럼에 누적하지 않는 이유는 D9와 동일(갱신 경로 drift). 인기 정렬은 누적(base+자체), P-4 "인기 상품"은 최근 7일 트렌드(자체분만) — 용도가 다름.
 - 재고는 이 대상이 아님 — D8 유지("다 팔린다" 가정).
 
+### D19. 크롤링 리뷰는 review 행으로 적재한다 (2026-07-09)
+
+- **문제**: D18과 같은 뿌리 — 크롤링 리뷰(별점·내용)는 우리 주문이 없는데, 현행 review는 `order_item_id UNIQUE NOT NULL`이라 적재 불가. 리뷰 0개로 오픈하면 상세페이지·평점이 데모에서 죽는다.
+- **선택지**: (A) review 행으로 적재 — order_item_id/member_id NULL 허용 + author_name 추가 (B) product에 base_rating_avg/base_review_count 컬럼 (C) 크롤링 리뷰 미사용, 시드에서 가짜 회원·주문·리뷰 생성
+- **기준**: ① 상세페이지가 요구하는 건 통계 숫자만이 아니라 **리뷰 목록 원문** — (B)는 통계와 목록 숫자가 안 맞는 화면이 됨 ② 작업량 — (C)는 상품 300+개에 가짜 주문 체인까지 생성 ③ 평점 통계의 단일 소스 — (A)면 크롤링분+자체분이 한 테이블에서 자연 집계(D9 원칙 그대로).
+- **선택**: (A). `member_id IS NULL` = 크롤링 리뷰. 후기 자격 검증(D4: 배송완료·아이템당 1개)은 **우리 회원의 작성 경로에만 적용** — 크롤링 리뷰는 시드 적재 전용이고 API로는 생성 불가.
+- **트레이드오프**: NOT NULL 제약 완화로 "리뷰=검증된 구매" 불변식이 약해짐 → 감수 방법: 작성 API는 여전히 order_item 앵커 필수(서비스 검증), NULL 조합 정합(`member_id NULL ↔ author_name NOT NULL`)도 서비스 검증. UNIQUE(order_item_id)는 NULL 다중 허용이라 그대로 동작.
+
 ---
 
 ## 2. ERD
@@ -256,9 +264,10 @@ erDiagram
     }
     review {
         bigint id PK
-        bigint order_item_id FK,UK "아이템당 1개"
+        bigint order_item_id FK,UK "NULL=크롤링(D19)"
         bigint product_id FK "목록 조회용"
-        bigint member_id FK
+        bigint member_id FK "NULL=크롤링(D19)"
+        varchar author_name "크롤링 작성자명(D19)"
         tinyint rating "1~5"
         text content
         varchar status "VISIBLE/HIDDEN/DELETED"
@@ -456,9 +465,10 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ### review
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| order_item_id | BIGINT | FK(order_item), UNIQUE, NOT NULL | 아이템당 1개 (D4) |
+| order_item_id | BIGINT | FK(order_item), UNIQUE, NULL | 우리 회원 리뷰의 자격 앵커 — 아이템당 1개 (D4). 크롤링 리뷰는 NULL (D19) |
 | product_id | BIGINT | FK(product), NOT NULL | 상품 후기 목록 조회용 |
-| member_id | BIGINT | FK(member), NOT NULL | |
+| member_id | BIGINT | FK(member), NULL | 크롤링 리뷰는 NULL (D19) |
+| author_name | VARCHAR(50) | NULL | 크롤링 리뷰 작성자 표시명 — member_id NULL이면 필수(서비스 검증) |
 | rating | TINYINT | NOT NULL, 1~5 | |
 | content | TEXT | NOT NULL | |
 | status | VARCHAR(20) | NOT NULL DEFAULT 'VISIBLE' | `VISIBLE` / `HIDDEN` / `DELETED` (D4) |
@@ -518,6 +528,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ## 5. 시드 데이터 요구사항 (LLM팀 공동 안건)
 
 - 카테고리 8~12개(전 카테고리 컨셉이 보이는 폭), 브랜드 15~30개, 상품 300개 이상(추천 후보가 카테고리당 수십 개는 있어야 추천이 그럴듯함)
+- 크롤링 적재분: 상품(base_sales_count 포함, D18)과 리뷰(author_name 스냅샷, D19)는 11번가 크롤링 데이터를 사용 — 시드가 아니라 크롤링 파이프라인 산출물
 - 카테고리마다 `attribute_schema`(속성 축)를 먼저 확정하고, 그 카테고리 상품의 `attributes`는 반드시 그 축의 키로 채울 것(D11 — 시드 단계가 정합의 보장 지점)
 - 상품마다 `summary`+`attributes`를 채울 것 — LLM 추천 품질이 이 텍스트 밀도에 좌우됨
 - 옵션 상품과 무옵션 상품 혼재, 할인 상품(원가>판매가) 일부 포함
