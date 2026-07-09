@@ -115,6 +115,17 @@
 - 기능 정의의 "대화 기반 프로필 갱신 → 홈 개인화 추천"은 **데이터 소유가 LLM 팀**(05 계약 원칙: "개인화 프로필은 LLM 팀 소유"). BE는 P-5에서 FastAPI 추천 API를 호출하는 소비자일 뿐, 프로필 스키마를 갖지 않는다 — ERD에 프로필 테이블이 없는 것은 누락이 아니라 결정.
 - 저장 시점·형식은 05 §4 OPEN. 합의가 "BE DB 저장"으로 뒤집히면 `member_profile(member_id UNIQUE, preferences JSON)` 1테이블 추가로 수용(확장 경로 확보).
 
+### D14. 상품 이미지는 단일로 확정한다 (기능 정의 4번과 의도적 상이 — 2026-07-09 ERD 리뷰)
+
+- **문제**: 기능 정의 4번은 "상품 이미지(복수)"인데, 시드·크롤링 부담 대비 복수 이미지의 데모 가치를 재평가.
+- **기준**: ① 소비처 — 카드·목록·상세 전부 대표 이미지 1장으로 성립하고, 복수의 유일 소비처는 상세 이미지 슬라이더 UI뿐 ② 비용 — 상품 300+개 × 복수 이미지 수집·검수는 시드 작업의 최대 비용 축 ③ 되돌림 비용이 낮은가.
+- **선택**: 단일. `product.image_url` 컬럼으로 흡수, product_image 테이블 삭제(테이블 17개).
+- **트레이드오프**: 상세 슬라이더 불가 — 감수. 복수가 다시 필요해지면 product_image(1:N) 재도입 + image_url을 0번 행으로 옮기는 기계적 마이그레이션. ⚠️ **기능 정의 원본(노션)과 어긋남 — 팀 공유·반영 필요 안건.**
+
+### D15. 가격 컬럼은 `price`(판매가) + `original_price`(정가) (2026-07-09 ERD 리뷰)
+
+- `sale_price` → `price` 개칭. 「상품 참고」의 `price`+`list_price`와 같은 계열로 팀 어휘 통일 — "실판매가가 곧 price, 정가는 original_price" 규약 고정. 05 응답 필드도 `salePrice` → `price` 동기. 할인율은 여전히 파생 계산(저장 금지).
+
 ---
 
 ## 2. ERD
@@ -159,17 +170,12 @@ erDiagram
         bigint category_id FK
         varchar name
         int original_price "정가"
-        int sale_price "판매가"
+        int price "판매가(D15)"
+        varchar image_url "대표 1장(D14)"
         varchar summary
         json attributes "축의 값(D7/D11)"
         text description
         varchar status "ON_SALE/HIDDEN"
-    }
-    product_image {
-        bigint id PK
-        bigint product_id FK
-        varchar url
-        int sort_order "0=대표"
     }
     product_option {
         bigint id PK
@@ -284,7 +290,6 @@ erDiagram
     guest  ||--o{ user_event : generates
     brand ||--o{ product : has
     category ||--o{ product : classifies
-    product ||--o{ product_image : has
     product ||--o{ product_option : has
     product ||--o{ cart_item : in
     product ||--o{ wishlist : in
@@ -353,20 +358,14 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | category_id | BIGINT | FK(category), NOT NULL | |
 | name | VARCHAR(200) | NOT NULL | |
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
-| sale_price | INT | NOT NULL | 판매가. 할인율은 파생 계산(저장 금지) |
+| price | INT | NOT NULL | 판매가 (D15). 할인율은 파생 계산(저장 금지) |
+| image_url | VARCHAR(500) | NOT NULL | 대표 이미지 1장 (D14 — 단일 확정) |
 | summary | VARCHAR(500) | NULL | 주요 특징 요약 |
 | attributes | JSON | NULL | 카테고리 속성 축의 값 — 키 축은 `category.attribute_schema`(D11), 값은 자유 텍스트(D7). 재고 컬럼은 의도적으로 없음(D8) |
 | description | TEXT | NULL | 상세 설명 |
 | status | VARCHAR(20) | NOT NULL | `ON_SALE` / `HIDDEN` — 판매자 상세 수정·비노출용 |
 
 - 인덱스: `(category_id)`, `(brand_id)`, FULLTEXT 없음(LIKE 검색으로 시작, D7).
-
-### product_image
-| 컬럼 | 타입 | 제약 | 비고 |
-|---|---|---|---|
-| product_id | BIGINT | FK(product), NOT NULL | |
-| url | VARCHAR(500) | NOT NULL | |
-| sort_order | INT | NOT NULL DEFAULT 0 | 0번이 대표 이미지 |
 
 ### product_option
 | 컬럼 | 타입 | 제약 | 비고 |
@@ -415,7 +414,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | product_id | BIGINT | FK(product), NOT NULL | 상세 링크용 |
 | product_name | VARCHAR(200) | NOT NULL | 스냅샷 |
 | option_name | VARCHAR(100) | NULL | 스냅샷 |
-| price | INT | NOT NULL | 스냅샷: sale_price + extra_price |
+| price | INT | NOT NULL | 스냅샷: product.price + extra_price |
 | quantity | INT | NOT NULL | |
 | status | VARCHAR(30) | NOT NULL | 01 문서의 9개 상태 |
 | status_changed_at | DATETIME | NOT NULL | 스케줄러 전이 기준 시각 |
@@ -523,7 +522,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 1 로그인/회원가입 | member, refresh_token, guest(가입 시 승계 D5) |
 | 2 메인(홈) | category(해시태그), 개인화 추천=FastAPI(D13) + 인기 상품=user_event·order_item 집계, 예시 칩=정적 |
 | 3 챗봇(검색) | 대화=Redis 세션(비영속, 03) — 테이블 없음(의도), user_event(CHAT_QUERY), attributes 2단 검색(D7·D11), 챗봇 담기=cart_item |
-| 4 상품 상세 | product, product_image, product_option, review(평점 통계는 파생 D9), 연관 추천=05 OPEN(BE 규칙 기반이면 category+집계로 충분) |
+| 4 상품 상세 | product(이미지=image_url 단일, D14), product_option, review(평점 통계는 파생 D9), 연관 추천=05 OPEN(BE 규칙 기반이면 category+집계로 충분) |
 | 5 브랜드 홈 | brand, product(정렬은 집계 파생 D9) |
 | 6 장바구니 | cart_item(현재가 표시 — 스냅샷 없음, 의도) |
 | 7 결제 | orders(배송지·금액 스냅샷 D1, 상태 01 §2-1), order_item(01 §2-2), 모의 결제(01 D7) |
