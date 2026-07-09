@@ -37,19 +37,21 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 > §1-1(단일 서버)은 모든 계층이 단일 = 전부 SPOF다. 부하 관리·무중단 배포·failover를 위해 **무상태 계층만 복제**하고 **상태는 외부화**한다. 가르는 기준 한 단어: **상태(stateful vs stateless)**.
 
 ```
-                    ┌── [AWS ALB] ──┐            ← 층 1: 인스턴스 간 분배 (인스턴스 바깥, AWS 관리형)
-        ┌───────────┼───────────────┼───────────┐
-        ▼           ▼               ▼
-  ┌──EC2-1───┐ ┌──EC2-2───┐ ┌──EC2-3───┐         ← 앱 티어 A: nginx+next+spring (사용자 트래픽)
-  │ nginx    │ │ nginx    │ │ nginx    │            층 2: 인스턴스 안 라우팅 + 외부 차단 (§1-1 그대로)
-  │  ├ next  │ │  ├ next  │ │  ├ next  │
-  │  └ spring│ │  └ spring│ │  └ spring│
-  └────┬─────┘ └────┬─────┘ └────┬─────┘
-       └──── [내부 LB] ⇄ spring↔fastapi (SSE 요청 / internal 콜백) · 인터넷 비노출 ────┘
-              ▼             ▼
-        ┌─fastapi─┐   ┌─fastapi─┐                  ← 앱 티어 B: fastapi (LLM 워크로드, 독립 스케일) — D-분산8
-        └─────────┘   └─────────┘
-        └───────── RDS(MySQL) Multi-AZ · ElastiCache(Redis) — 공유 상태 ─────────┘
+                 ┌── [AWS ALB] ──┐               ← 층 1: 인스턴스 간 분배 (인스턴스 바깥, AWS 관리형)
+        ┌────────┴────────┐
+        ▼                 ▼
+  ┌──EC2-1────┐     ┌──EC2-2────┐                 ← 앱 티어 A: nginx+next+spring (무상태 복제)
+  │ nginx     │     │ nginx     │                    층 2: 인스턴스 안 라우팅 + 외부 차단 (§1-1 그대로)
+  │  ├ next   │     │  ├ next   │
+  │  └ spring │     │  └ spring │
+  └─────┬─────┘     └─────┬─────┘
+        └────────┬────────┘         ← spring이 두 방향으로 나감 (둘 다 주체는 spring)
+        ▼                 ▼
+ ┌ RDS · ElastiCache ┐   [내부 LB] ─▶ ┌ fastapi ×N ┐   ← 앱 티어 B: LLM 워크로드
+ │ 공유 상태          │               │ 독립 스케일   │      (인터넷 비노출) — D-분산8
+ │ (오직 spring 접근) │               └──────┬──────┘
+ └───────────────────┘                      └─▶ /internal 콜백은 spring으로만 (DB엔 직접 안 붙음, D7)
+        Multi-AZ / primary+replica            spring ⇄ fastapi = SSE 요청 / internal 콜백
 ```
 
 > 위 그림은 **분산/프로덕션 목표 형상**. 데모/단일 서버 단계(§1-1)에선 fastapi를 별도 티어로 빼지 않고 compose 한 박스에 co-location — 과분리 금지(D-분산8).
