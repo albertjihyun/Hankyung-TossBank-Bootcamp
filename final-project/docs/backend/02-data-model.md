@@ -126,6 +126,23 @@
 
 - `sale_price` → `price` 개칭. 「상품 참고」의 `price`+`list_price`와 같은 계열로 팀 어휘 통일 — "실판매가가 곧 price, 정가는 original_price" 규약 고정. 05 응답 필드도 `salePrice` → `price` 동기. 할인율은 여전히 파생 계산(저장 금지).
 
+### D16. member: 약관 동의 시각 제거, 성별·출생일 추가 (2026-07-09 개정)
+
+- 약관 동의는 MVP 범위에서 제외(팀 결정) — `agreed_terms_at` 삭제, A-1의 agreeTerms 필드·검증도 제거. 재도입 시 컬럼 복원 + 가입 폼 체크박스만 되살리면 됨.
+- `gender`(MALE/FEMALE/OTHER), `birth_date` 추가 — 가입 폼 필수 수집(팀 결정). 당장의 소비처는 시드·데모 페르소나와 판매자 고객 분석 축이고, 고도화에서 인구통계 하이브리드 추천 후보.
+
+### D17. refresh_token은 원문이 아니라 해시로 저장한다 (MVP부터)
+
+- 원문 저장은 DB 유출 = 전 활성 세션 탈취와 동치라 MVP여도 하지 않는다(팀 결정). `token` → `token_hash` = SHA-256 hex, CHAR(64) UNIQUE.
+- 흐름: 발급 시 원문은 클라이언트 응답으로만 나가고 서버는 해시만 INSERT → 재발급/로그아웃 시 제출된 토큰을 해시해 조회. 비용은 요청당 해시 1회 — 무시 가능. (D6의 "저장 위치=DB" 결정은 유지, 저장 형태만 강화)
+
+### D18. 크롤링 베이스라인 수치는 스냅샷 컬럼으로 저장한다 (2026-07-09)
+
+- **문제**: 초기 데이터를 11번가 크롤링으로 적재한다(팀 확정). 누적 판매량처럼 **우리 DB에 원본 거래가 존재하지 않는 수치**가 생김. "파생값 저장 금지" 원칙은 원본에서 재계산 가능함이 전제인데, 크롤링 누적치는 재계산이 불가능한 외부 사실.
+- **선택**: `product.base_sales_count`(크롤링 시점 누적 판매량, 시드 이후 불변). **표시·정렬용 판매량 = base_sales_count + 자체 판매분(order_item 집계, 조회 시 합산)**. D1 스냅샷과 같은 논리(과거 사실의 기록)라 파생값 금지와 충돌하지 않음.
+- 자체 발생분까지 컬럼에 누적하지 않는 이유는 D9와 동일(갱신 경로 drift). 인기 정렬은 누적(base+자체), P-4 "인기 상품"은 최근 7일 트렌드(자체분만) — 용도가 다름.
+- 재고는 이 대상이 아님 — D8 유지("다 팔린다" 가정).
+
 ---
 
 ## 2. ERD
@@ -140,7 +157,8 @@ erDiagram
         varchar password "BCrypt"
         varchar nickname
         varchar role "USER/SELLER/ADMIN"
-        datetime agreed_terms_at
+        varchar gender "MALE/FEMALE/OTHER(D16)"
+        date birth_date "D16"
     }
     guest {
         char36 id PK "UUID 쿠키값"
@@ -149,7 +167,7 @@ erDiagram
     refresh_token {
         bigint id PK
         bigint member_id FK
-        varchar token UK
+        char64 token_hash UK "SHA-256(D17)"
         datetime expires_at
     }
     brand {
@@ -172,6 +190,7 @@ erDiagram
         int original_price "정가"
         int price "판매가(D15)"
         varchar image_url "대표 1장(D14)"
+        int base_sales_count "크롤링 누적판매량(D18)"
         varchar summary
         json attributes "축의 값(D7/D11)"
         text description
@@ -316,7 +335,8 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | password | VARCHAR(255) | NOT NULL | BCrypt |
 | nickname | VARCHAR(50) | NOT NULL | |
 | role | VARCHAR(20) | NOT NULL | `USER` / `SELLER` / `ADMIN` |
-| agreed_terms_at | DATETIME | NOT NULL | 약관 동의 시각 |
+| gender | VARCHAR(10) | NOT NULL | `MALE` / `FEMALE` / `OTHER` (D16) |
+| birth_date | DATE | NOT NULL | 가입 시 수집 (D16) |
 
 - **OAuth는 MVP 제외** (2026-07-07 팀 결정). 고도화에서 도입 시 `provider`/`provider_id` 컬럼 추가 + `password` NULL 허용으로 확장 — 지금 컬럼을 미리 두지 않는 이유: 쓰지 않는 nullable 컬럼은 검증 로직만 흐리게 함(YAGNI).
 
@@ -332,7 +352,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 컬럼 | 타입 | 제약 |
 |---|---|---|
 | member_id | BIGINT | FK(member), NOT NULL |
-| token | VARCHAR(512) | UNIQUE, NOT NULL |
+| token_hash | CHAR(64) | UNIQUE, NOT NULL — SHA-256 hex (D17, 원문 저장 금지) |
 | expires_at | DATETIME | NOT NULL |
 
 ### brand
@@ -360,6 +380,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
 | price | INT | NOT NULL | 판매가 (D15). 할인율은 파생 계산(저장 금지) |
 | image_url | VARCHAR(500) | NOT NULL | 대표 이미지 1장 (D14 — 단일 확정) |
+| base_sales_count | INT | NOT NULL DEFAULT 0 | 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계 |
 | summary | VARCHAR(500) | NULL | 주요 특징 요약 |
 | attributes | JSON | NULL | 카테고리 속성 축의 값 — 키 축은 `category.attribute_schema`(D11), 값은 자유 텍스트(D7). 재고 컬럼은 의도적으로 없음(D8) |
 | description | TEXT | NULL | 상세 설명 |

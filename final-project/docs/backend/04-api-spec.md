@@ -8,7 +8,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, agreeTerms(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 |
+| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 (약관 동의 제외 — 02 D16) |
 | A-2 | POST | /api/auth/login | 🔓 | 일반 로그인. body: email, password, guestId? |
 | A-3 | POST | /api/auth/logout | 🔑 | RT 삭제 |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
@@ -16,7 +16,7 @@
 
 - OAuth는 MVP 제외(2026-07-07 팀 결정). 고도화 도입 시 `GET /oauth2/authorization/{provider}` 추가.
 
-- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), 약관 미동의 400.
+- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), gender(MALE/FEMALE/OTHER), birthDate(과거 날짜).
 - A-2 실패는 계정 존재 여부 무관하게 통일 메시지(401 `AUTH_LOGIN_FAILED`) — 기능 정의 명시.
 - 이메일 중복 확인은 별도 기능 없이 A-1의 409 응답으로만 처리 (2026-07-07 회의 — "기능만 일단 돌아가도록").
 
