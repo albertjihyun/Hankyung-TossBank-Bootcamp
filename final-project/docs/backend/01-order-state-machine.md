@@ -66,6 +66,14 @@
 - **선택**: (A). 실패 재현은 결제 수단의 "테스트: 결제 실패" 옵션으로(랜덤 실패는 데모를 망침).
 - **트레이드오프**: 실제 결제 UX(인증창)의 리얼함 포기. 결제 판정을 `PaymentService` 인터페이스 뒤에 격리해, 고도화 때 토스페이먼츠 테스트 모드 구현체로 교체 가능하게 해서 최소화.
 
+### D8. 구매확정(CONFIRMED) 상태를 도입한다 (피그마 검토 — 2026-07-09)
+
+- **문제**: 주문 내역 시안에 "구매확정" 뱃지가 존재. 또한 현행 그래프는 DELIVERED에서 반품·교환이 영원히 가능해 실제 커머스와 다름.
+- **선택지**: (A) 상태 없이 시간 규칙(배송완료 N일 후 반품 버튼만 숨김) (B) `CONFIRMED` 상태 추가
+- **기준**: 뱃지로 보여줄 상태 문자열이 필요(A는 표시 불가) + 반품 기한 마감·(고도화)정산/알림의 앵커.
+- **선택**: (B). `DELIVERED`에서 스케줄러가 확정 대기 시간(`app.mock.confirm-minutes`, 기본 10분) 경과 시 자동 전이. 사용자 수동 "구매확정" 버튼은 시안에 없어 미도입(고도화 후보). CONFIRMED는 **종결** — 반품·교환 불가, **후기는 가능**(최종 수령 상태이므로).
+- **트레이드오프**: 반품·교환 시연은 DELIVERED 후 확정 전이 전에 해야 함 → 간격이 설정값이라 리허설 때 조정. 확정 전 반품 신청(`RETURN_REQUESTED`)된 아이템은 상태가 이미 바뀌어 조건부 UPDATE에서 자연 제외됨.
+
 ### D6. 상태는 이력 테이블 없이 현재 값만 저장한다
 
 - **문제**: 상태 변경 이력(언제 SHIPPING이 됐나)을 별도 테이블로 남길지.
@@ -91,8 +99,8 @@
 ### 2-2. OrderItem.status (이행 + 클레임 수준)
 
 ```
-                          (스케줄러 5분)        (스케줄러 5분)
-   [결제 성공] ─▶ ORDERED ────────────▶ SHIPPING ────────────▶ DELIVERED
+                          (스케줄러 5분)        (스케줄러 5분)              (스케줄러 10분, D8)
+   [결제 성공] ─▶ ORDERED ────────────▶ SHIPPING ────────────▶ DELIVERED ────────────▶ CONFIRMED
                     │                                            │
                     │ 취소 신청                                    │ 반품 신청          │ 교환 신청
                     ▼                                            ▼                  ▼
@@ -102,6 +110,7 @@
                 CANCELLED                                    RETURNED           EXCHANGED
 
    ※ 관리자 거절 시: CANCEL_REQUESTED → ORDERED, RETURN/EXCHANGE_REQUESTED → DELIVERED (신청 전 상태 복귀, 재신청 가능)
+   ※ 구매확정(CONFIRMED) 후에는 반품·교환 불가, 후기는 가능 (D8)
 ```
 
 | 상태 | 의미 | 종결 상태? |
@@ -109,6 +118,7 @@
 | `ORDERED` | 결제 완료, 배송 전 | ✕ |
 | `SHIPPING` | 배송 중 | ✕ |
 | `DELIVERED` | 배송 완료 | ✕ (클레임/후기의 출발점) |
+| `CONFIRMED` | 구매확정 — 반품·교환 마감 (D8) | ✔ |
 | `CANCEL_REQUESTED` | 취소 신청 접수 | ✕ |
 | `CANCELLED` | 취소 완료 | ✔ |
 | `RETURN_REQUESTED` | 반품 신청 접수 | ✕ |
@@ -122,6 +132,7 @@
 |---|---|---|
 | `ORDERED` | `SHIPPING` | 스케줄러 |
 | `SHIPPING` | `DELIVERED` | 스케줄러 |
+| `DELIVERED` | `CONFIRMED` | 스케줄러 (확정 대기 경과, D8) |
 | `ORDERED` | `CANCEL_REQUESTED` | 사용자 취소 신청 |
 | `DELIVERED` | `RETURN_REQUESTED` | 사용자 반품 신청 |
 | `DELIVERED` | `EXCHANGE_REQUESTED` | 사용자 교환 신청 |
@@ -146,8 +157,9 @@
 | `*_REQUESTED` | ✕ | ✕ | ✕ | ✕ |
 | `CANCELLED` / `RETURNED` | ✕ | ✕ | ✕ | ✕ |
 | `EXCHANGED` | ✕ | ✕ | ✕ | ✔ |
+| `CONFIRMED` | ✕ | ✕ | ✕ | ✔ |
 
-- 후기 작성 조건 = `DELIVERED` 또는 `EXCHANGED` + **해당 OrderItem으로 작성한 후기가 아직 없음** (아이템당 후기 1개).
+- 후기 작성 조건 = `DELIVERED` / `EXCHANGED` / `CONFIRMED` + **해당 OrderItem으로 작성한 후기가 아직 없음** (아이템당 후기 1개).
 - `EXCHANGED`에서 후기 허용 이유: 교환 완료 = 상품을 최종 수령한 상태이므로.
 - 이 매트릭스는 프론트 버튼 노출 규칙이자 백엔드 검증 규칙이다. **프론트가 숨겨도 백엔드는 반드시 재검증한다** (LLM 콜백 등 다른 경로로 같은 API가 호출되기 때문).
 
@@ -161,10 +173,11 @@
 1. `Order.status == PENDING` → "결제 대기"
 2. `Order.status == PAYMENT_FAILED` → "결제 실패"
 3. 아이템 중 `*_REQUESTED` 존재 → "취소/반품/교환 처리중"
-4. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`EXCHANGED`) → "처리 완료"
-5. 아이템 중 `ORDERED` 존재 → "배송 준비중"
-6. 아이템 중 `SHIPPING` 존재 → "배송중"
-7. 그 외(전부 `DELIVERED` 또는 종결 혼합) → "배송 완료"
+4. 아이템 전부 `CONFIRMED` → "구매확정" (D8)
+5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`EXCHANGED`/`CONFIRMED` 혼합) → "처리 완료"
+6. 아이템 중 `ORDERED` 존재 → "배송 준비중"
+7. 아이템 중 `SHIPPING` 존재 → "배송중"
+8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → "배송 완료"
 
 문의 챗봇의 주문 상태 콜백도 이 파생 규칙의 결과 + 아이템별 상태 목록을 함께 반환한다(LLM이 "키보드는 배송중이고 마우스는 반품 처리중이에요"라고 답할 수 있게).
 
@@ -189,10 +202,10 @@
 
 | 잡 | 주기 | 동작 |
 |---|---|---|
-| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED` |
+| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED`. `DELIVERED` 중 10분 경과 → `CONFIRMED` (D8 — 반품/교환 신청 중인 아이템은 상태가 `*_REQUESTED`라 WHERE에서 자연 제외) |
 
 - 클레임 전이는 스케줄러가 아니라 관리자 승인/거절 API로만 일어난다(D5).
-- 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`로 설정. 기본 5/5분.
+- 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`, `app.mock.confirm-minutes`로 설정. 기본 5/5/10분.
 - 구현: Spring `@Scheduled` + **조건부 UPDATE**(`WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치).
 - **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 `user_event` 적재·알림 등)를 추가할 땐 분산 락이 필수.
 
