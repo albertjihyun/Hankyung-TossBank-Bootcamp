@@ -68,9 +68,9 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 공통: `X-Internal-Token` 필수. 응답은 BE 공통 envelope. 타임아웃 권장 3s. **여기 없는 쓰기 작업은 존재하지 않는다** (주문 생성·클레임·후기는 LLM이 못 함 — 결제 자동화 범위는 "담기까지").
 
 ### I-1. 상품 검색 `GET /internal/products/search`
-- query: `keyword?`(상품명+summary+spec LIKE), `categoryName?`, `minPrice?`, `maxPrice?`, `brandName?`, `size`(기본 10, 최대 30)
-- 응답 item: `productId, name, salePrice, originalPrice, imageUrl, categoryName, brandName, summary, spec(JSON), rating, reviewCount, options[]`
-- spec까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7).
+- query: `keyword?`(상품명+summary+attributes LIKE), `categoryName?`, `minPrice?`, `maxPrice?`, `brandName?`, `size`(기본 10, 최대 30)
+- 응답 item: `productId, name, salePrice, originalPrice, imageUrl, categoryName, brandName, summary, attributes(JSON), rating, reviewCount, options[]`
+- attributes까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7). 카테고리별 속성 축의 정의는 `category.attribute_schema`(02 D11) — 시드 데이터와 LLM 프롬프트가 같은 축을 공유한다.
 
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
 - body: `{ "userId": 123, "productId": 1, "optionId": null, "quantity": 1 }`
