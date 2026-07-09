@@ -86,7 +86,7 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 - statusText는 한국어 표시 문자열(예: "배송중") — LLM이 그대로 인용.
 
 ### I-5. 문의 접수 `POST /internal/inquiries`
-- body: `{ "userId": 123, "content": "챗봇이 요약한 문의 내용" }` — 게스트 403(문의는 로그인 필요, 기능 정의 9번).
+- body: `{ "userId": 123, "title": "LLM이 요약 생성한 제목", "content": "챗봇이 정리한 문의 내용" }` — 게스트 403(문의는 로그인 필요, 기능 정의 9번). title·content 모두 LLM 생성(02 D23).
 - 문의 단일 채널 원칙: 이 API가 문의 생성의 유일한 경로.
 
 ### I-6. 판매자 집계 `GET /internal/seller/{brandId}/stats?from=&to=&groupBy=day|product`
