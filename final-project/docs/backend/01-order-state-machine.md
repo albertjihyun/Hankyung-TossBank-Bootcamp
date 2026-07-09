@@ -11,7 +11,7 @@
 - 마이페이지 주문 내역: **주문 건별 배송 상태 값 표시**, 후기 작성(**배송완료 상태의 주문 상품만**), 환불/반품/교환 신청
 - 마이페이지 취소·반품·교환 내역: **신청 건 목록 및 처리 상태 조회**
 - 문의 챗봇: "내 주문 어떻게 됐어?" → **주문 상태 값 기반 답변** (상태 문자열이 곧 LLM 콜백 응답)
-- 관리자 페이지: **클레임(취소/반품/교환) 승인/거절 처리** (2026-07-07 팀 결정 — 기능 정의 11번에 반영됨)
+- 클레임 처리 진행: MVP는 **스케줄러 자동 승인**(D10). 관리자 페이지는 MVP 전체 제외(2026-07-09 팀 결정) — 수동 승인/거절은 고도화
 
 ---
 
@@ -50,7 +50,7 @@
 - **선택**: 결제 완료 시 아이템 `ORDERED` → 스케줄러가 **5분 후 `SHIPPING`**, **다시 5분 후 `DELIVERED`** 로 자동 전이. 간격은 `app.mock-delivery.*` 설정값으로 조정 가능(데모 리허설 때 짧게 줄일 수 있게).
 - **트레이드오프**: 실제 물류와 무관한 가짜 상태. 데모 목적상 충분하며, 시연 중 "방금 산 상품을 바로 반품"이 가능하도록 간격을 설정으로 뺐다.
 
-### D5. 클레임은 관리자 페이지에서 승인/거절로 처리한다 (자동 완료 아님)
+### ~~D5. 클레임은 관리자 페이지에서 승인/거절로 처리한다~~ (2026-07-09 관리자 MVP 제외 결정으로 폐기 → D10)
 
 - **문제**: 반품 신청 후 "처리 상태 조회"를 보여주려면 누군가 상태를 진행시켜야 한다.
 - **선택지**: (A) 스케줄러 자동 승인 (B) 관리자 페이지에서 수동 승인/거절
@@ -81,6 +81,20 @@
 - **선택**: `OrderItem.status` 현재 값 + `status_changed_at` 타임스탬프 1개만. 이력 테이블 없음.
 - **트레이드오프**: 과거 시점 추적 불가. 필요해지는 순간(타임라인 UI 추가 등) `order_item_status_history` 테이블을 추가하면 되고, 그 전까지는 YAGNI.
 
+### D9. 결제 전 아이템 상태 `PENDING`을 도입한다 (2026-07-09 설계 재검토)
+
+- **문제**: 주문은 `PENDING`으로 먼저 생성되고(D3) 아이템 스냅샷도 그때 만들어지는데, OrderItem.status의 정의가 "[결제 성공] → ORDERED"부터 시작해 **결제 전 아이템의 상태 값이 미정의**였다. 구현자가 생성 시점에 ORDERED를 넣으면 스케줄러(§6)는 orders.status를 보지 않으므로 미결제 주문이 배송된다.
+- **선택지**: (A) 아이템을 결제 성공 시에만 생성 (B) 스케줄러 쿼리에 `orders.status='PAID'` 조인 추가 (C) 아이템 상태에 결제 전 `PENDING` 추가
+- **기준**: D3의 재시도 UX — 실패 주문의 상세 표시와 재결제가 아이템 스냅샷을 요구하므로 (A)는 D3와 충돌. (B)는 동작하지만 "ORDERED인데 결제 전"이라는 거짓 상태가 남고, ORDERED를 믿는 모든 코드(클레임 검증 등)에 보이지 않는 조인 조건이 전염된다.
+- **선택**: (C). 아이템은 주문과 함께 `PENDING`으로 생성 → 결제 성공 시(Order `PAID`와 같은 트랜잭션) 전 아이템 `ORDERED` 전이. **PENDING 아이템은 어떤 액션(클레임·후기)도 불가, 스케줄러 대상 아님.**
+- **트레이드오프**: 상태 1개 증가(총 11개). Order.status의 PENDING과 의미가 겹치지만, 아이템 상태만 보고 판단하는 코드(스케줄러·액션 매트릭스)가 자기완결적이 되는 이득이 더 크다.
+
+### D10. 클레임은 스케줄러가 자동 승인한다 (D5 폐기 — 관리자 페이지 MVP 제외, 2026-07-09)
+
+- **문제**: 관리자 페이지가 MVP에서 전부 빠지면서(팀 결정) D5의 수동 승인/거절 주체가 사라졌다. "취소·반품·교환 내역의 처리 상태 조회"는 여전히 MVP 요구라 누군가 상태를 진행시켜야 한다.
+- **선택**: 배송 mock(D4)과 같은 패턴 — 스케줄러가 `*_REQUESTED` 상태로 `app.mock.claim-approve-minutes`(기본 5분) 경과한 클레임을 자동 승인(완료 전이). **거절 플로우는 MVP에서 발생하지 않는다**(관리자와 함께 고도화 — claim 스키마의 `REJECTED`/`reject_reason`은 유지, 자동 승인 시 `processed_by`는 NULL).
+- **트레이드오프**: "신청 → 처리중 → 완료" 사이클은 시연되지만 거절·반려 시나리오는 불가. 관리자 API(04 §8, 고도화)를 붙이는 순간 자동 승인 잡만 끄면 수동 처리로 자연 전환.
+
 ---
 
 ## 2. 상태 정의
@@ -99,22 +113,24 @@
 ### 2-2. OrderItem.status (이행 + 클레임 수준)
 
 ```
-                          (스케줄러 5분)        (스케줄러 5분)              (스케줄러 10분, D8)
-   [결제 성공] ─▶ ORDERED ────────────▶ SHIPPING ────────────▶ DELIVERED ────────────▶ CONFIRMED
-                    │                                            │
-                    │ 취소 신청                                    │ 반품 신청          │ 교환 신청
-                    ▼                                            ▼                  ▼
-             CANCEL_REQUESTED                            RETURN_REQUESTED   EXCHANGE_REQUESTED
-                    │ 관리자 승인                                  │ 관리자 승인         │ 관리자 승인
-                    ▼                                            ▼                  ▼
-                CANCELLED                                    RETURNED           EXCHANGED
+                 (결제 성공, D9)        (스케줄러 5분)        (스케줄러 5분)              (스케줄러 10분, D8)
+   [주문 생성] ─▶ PENDING ─▶ ORDERED ────────────▶ SHIPPING ────────────▶ DELIVERED ────────────▶ CONFIRMED
+                               │                                            │
+                               │ 취소 신청                                    │ 반품 신청          │ 교환 신청
+                               ▼                                            ▼                  ▼
+                        CANCEL_REQUESTED                            RETURN_REQUESTED   EXCHANGE_REQUESTED
+                               │ 자동 승인(D10)                               │ 자동 승인           │ 자동 승인
+                               ▼                                            ▼                  ▼
+                           CANCELLED                                    RETURNED           EXCHANGED
 
-   ※ 관리자 거절 시: CANCEL_REQUESTED → ORDERED, RETURN/EXCHANGE_REQUESTED → DELIVERED (신청 전 상태 복귀, 재신청 가능)
+   ※ 결제 실패 시 아이템은 PENDING으로 잔존(재결제 성공 시 ORDERED 전이 — D9)
+   ※ 거절(신청 전 상태 복귀·재신청)은 관리자 페이지와 함께 고도화(D10) — 스키마의 REJECTED는 유지
    ※ 구매확정(CONFIRMED) 후에는 반품·교환 불가, 후기는 가능 (D8)
 ```
 
 | 상태 | 의미 | 종결 상태? |
 |---|---|---|
+| `PENDING` | 주문 생성됨, 결제 전 — 결제 실패 시 이 상태로 잔존 (D9) | ✕ |
 | `ORDERED` | 결제 완료, 배송 전 | ✕ |
 | `SHIPPING` | 배송 중 | ✕ |
 | `DELIVERED` | 배송 완료 | ✕ (클레임/후기의 출발점) |
@@ -130,18 +146,19 @@
 
 | From | To | 트리거 |
 |---|---|---|
+| `PENDING` | `ORDERED` | 결제 성공 — Order `PAID` 전이와 같은 트랜잭션 (D9). 최초 결제(O-1)와 재결제(O-2) 공통 |
 | `ORDERED` | `SHIPPING` | 스케줄러 |
 | `SHIPPING` | `DELIVERED` | 스케줄러 |
 | `DELIVERED` | `CONFIRMED` | 스케줄러 (확정 대기 경과, D8) |
 | `ORDERED` | `CANCEL_REQUESTED` | 사용자 취소 신청 |
 | `DELIVERED` | `RETURN_REQUESTED` | 사용자 반품 신청 |
 | `DELIVERED` | `EXCHANGE_REQUESTED` | 사용자 교환 신청 |
-| `CANCEL_REQUESTED` | `CANCELLED` | 관리자 승인 |
-| `RETURN_REQUESTED` | `RETURNED` | 관리자 승인 |
-| `EXCHANGE_REQUESTED` | `EXCHANGED` | 관리자 승인 |
-| `CANCEL_REQUESTED` | `ORDERED` | 관리자 거절 (신청 전 상태 복귀) |
-| `RETURN_REQUESTED` | `DELIVERED` | 관리자 거절 |
-| `EXCHANGE_REQUESTED` | `DELIVERED` | 관리자 거절 |
+| `CANCEL_REQUESTED` | `CANCELLED` | 자동 승인 스케줄러 (D10 — 고도화: 관리자 승인) |
+| `RETURN_REQUESTED` | `RETURNED` | 자동 승인 스케줄러 (D10) |
+| `EXCHANGE_REQUESTED` | `EXCHANGED` | 자동 승인 스케줄러 (D10) |
+| `CANCEL_REQUESTED` | `ORDERED` | (고도화) 관리자 거절 — 신청 전 상태 복귀. MVP 미노출 |
+| `RETURN_REQUESTED` | `DELIVERED` | (고도화) 관리자 거절 |
+| `EXCHANGE_REQUESTED` | `DELIVERED` | (고도화) 관리자 거절 |
 
 주의: `SHIPPING` 상태에서는 취소도 반품도 불가(배송 중 공백 구간). 의도된 규칙 — 실제 커머스와 동일하며, 데모에선 5분만 기다리면 DELIVERED가 된다.
 
@@ -151,6 +168,7 @@
 
 | OrderItem 상태 | 취소 신청 | 반품 신청 | 교환 신청 | 후기 작성 |
 |---|---|---|---|---|
+| `PENDING` | ✕ | ✕ | ✕ | ✕ |
 | `ORDERED` | ✔ | ✕ | ✕ | ✕ |
 | `SHIPPING` | ✕ | ✕ | ✕ | ✕ |
 | `DELIVERED` | ✕ | ✔ | ✔ | ✔ |
@@ -159,6 +177,7 @@
 | `EXCHANGED` | ✕ | ✕ | ✕ | ✔ |
 | `CONFIRMED` | ✕ | ✕ | ✕ | ✔ |
 
+- `PENDING`(결제 전) 아이템은 취소 대상도 아니다 — 결제 전 이탈은 클레임이 아니라 주문 방치(D3의 쓰레기 주문)로 처리.
 - 후기 작성 조건 = `DELIVERED` / `EXCHANGED` / `CONFIRMED` + **해당 OrderItem으로 작성한 후기가 아직 없음** (아이템당 후기 1개).
 - `EXCHANGED`에서 후기 허용 이유: 교환 완료 = 상품을 최종 수령한 상태이므로.
 - 이 매트릭스는 프론트 버튼 노출 규칙이자 백엔드 검증 규칙이다. **프론트가 숨겨도 백엔드는 반드시 재검증한다** (LLM 콜백 등 다른 경로로 같은 API가 호출되기 때문).
@@ -189,10 +208,10 @@
 
 `claim` 테이블 (상세 스키마는 02 데이터 모델 문서):
 - `type`: `CANCEL` / `RETURN` / `EXCHANGE`
-- `status`: `REQUESTED` / `COMPLETED` / `REJECTED` — OrderItem.status와 항상 같은 트랜잭션에서 동기 전이. 거절 시 아이템은 신청 전 상태로 복귀
-- `reason`: 신청 사유 텍스트 (선택 입력), `reject_reason`: 거절 사유 (거절 시 필수)
-- `processed_by` / `processed_at`: 처리한 관리자 id와 시각
-- `order_item_id`: 대상 아이템. 아이템당 `REQUESTED` 상태 클레임 최대 1개 — 거절 건은 재신청 가능해야 하므로 DB unique가 아니라 서비스 레이어에서 검증
+- `status`: `REQUESTED` / `COMPLETED` / `REJECTED` — OrderItem.status와 항상 같은 트랜잭션에서 동기 전이. `REJECTED`는 고도화(관리자) 전용 — MVP는 자동 승인만(D10)
+- `reason`: 신청 사유 텍스트 (선택 입력), `reject_reason`: 거절 사유 (고도화 — 거절 시 필수)
+- `processed_by` / `processed_at`: 처리 주체와 시각 — 자동 승인은 `processed_by` NULL (D10)
+- `order_item_id`: 대상 아이템. 아이템당 `REQUESTED` 상태 클레임 최대 1개 — 거절 건은 재신청 가능해야 하므로(고도화) DB unique가 아니라 서비스 레이어에서 검증. **경합 방어**: 신청 시 아이템 전이를 조건부 UPDATE(`WHERE status=<신청 가능 상태>`)로 수행 — 동시 신청 중 한쪽만 성공하게(§6과 같은 패턴)
 
 환불 금액 = 해당 OrderItem의 (스냅샷 가격 × 수량). 모의 결제라 실제 환불 처리는 없고 표시용.
 
@@ -202,21 +221,23 @@
 
 | 잡 | 주기 | 동작 |
 |---|---|---|
-| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED`. `DELIVERED` 중 10분 경과 → `CONFIRMED` (D8 — 반품/교환 신청 중인 아이템은 상태가 `*_REQUESTED`라 WHERE에서 자연 제외) |
+| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED`. `DELIVERED` 중 10분 경과 → `CONFIRMED` (D8 — 반품/교환 신청 중인 아이템은 상태가 `*_REQUESTED`라 WHERE에서 자연 제외). **`PENDING`(결제 전) 아이템은 대상 아님(D9)** — 출발 상태가 `ORDERED`뿐이라 자연 제외 |
+| 클레임 자동 승인 | 1분마다 | `*_REQUESTED` 중 신청 후 `claim-approve-minutes` 경과 → 완료 상태(`CANCELLED`/`RETURNED`/`EXCHANGED`) 전이 + claim `COMPLETED` — 같은 트랜잭션 (D10) |
 
-- 클레임 전이는 스케줄러가 아니라 관리자 승인/거절 API로만 일어난다(D5).
-- 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`, `app.mock.confirm-minutes`로 설정. 기본 5/5/10분.
-- 구현: Spring `@Scheduled` + **조건부 UPDATE**(`WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치).
+- 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`, `app.mock.confirm-minutes`, `app.mock.claim-approve-minutes`로 설정. 기본 5/5/10/5분.
+- 구현: Spring `@Scheduled` + **조건부 UPDATE**(`SET status=<다음 상태>, status_changed_at=NOW() WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치). **SET 절의 `status_changed_at=NOW()` 갱신은 필수** — 빠뜨리면 옛 타임스탬프 기준으로 다음 틱에 연쇄 전이돼(ORDERED→SHIPPING→DELIVERED가 2분 만에) mock 간격이 무의미해진다.
 - **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 `user_event` 적재·알림 등)를 추가할 땐 분산 락이 필수.
 
 ## 7. 구현 체크리스트 (검토자용)
 
 - [ ] 전이 표(§2-3)에 없는 상태 변경 요청이 400으로 거부되는가
 - [ ] 액션 매트릭스(§3)가 서비스 레이어에서 검증되는가 (컨트롤러/프론트 아님)
-- [ ] 후기 작성이 DELIVERED/EXCHANGED + 미작성 아이템에서만 되는가
-- [ ] 클레임 신청 시 claim 레코드 생성과 아이템 상태 전이가 한 트랜잭션인가
-- [ ] 클레임 승인/거절이 ADMIN 권한으로만 가능한가, 거절 시 아이템이 신청 전 상태로 복귀하고 재신청 가능한가
+- [ ] 후기 작성이 DELIVERED/EXCHANGED/CONFIRMED + 미작성 아이템에서만 되는가 (D8)
+- [ ] `PENDING`(결제 전) 아이템이 스케줄러·클레임·후기 대상에서 전부 제외되는가 (D9)
+- [ ] 클레임 신청 시 claim 레코드 생성과 아이템 상태 전이가 한 트랜잭션인가 (아이템 전이는 조건부 UPDATE — §5)
+- [ ] 클레임 자동 승인이 신청 N분 후 일어나고, claim.status와 아이템 상태가 같은 트랜잭션에서 전이되는가 (D10)
 - [ ] 결제 판정이 PaymentService 인터페이스 뒤에 격리돼 있는가 (실 PG 교체 대비)
-- [ ] 결제 실패 주문에서 재시도가 되는가 (PENDING/FAILED → 재결제 → PAID)
+- [ ] 결제 실패 주문에서 재시도가 되는가 (PENDING/FAILED → 재결제 → PAID + 아이템 ORDERED 전이)
+- [ ] 스케줄러 UPDATE가 `status_changed_at`을 함께 갱신하는가 (§6 — 연쇄 전이 방지)
 - [ ] 대표 상태(§4)가 DB에 저장되지 않고 계산되는가
 - [ ] 스케줄러 간격이 설정값으로 조정되는가

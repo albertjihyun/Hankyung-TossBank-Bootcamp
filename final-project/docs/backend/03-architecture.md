@@ -104,9 +104,9 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 ### D3. 인증은 JWT AT(30분) + RT(14일, DB 저장)
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
-- AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키. 재발급: `POST /api/auth/refresh`.
+- AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
 - Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열, `POST /api/chat`(게스트 허용)은 permitAll.
-- 게스트: `guest_id` HttpOnly 쿠키(UUID). 없으면 첫 채팅 요청 시 발급.
+- 게스트: `guest_id` HttpOnly 쿠키(UUID). 없으면 첫 채팅 요청 시 발급. **채팅 이전 게스트 행동(PRODUCT_VIEW 등)은 미추적** — 게스트 여정이 채팅에서 시작한다는 전제로 감수(2026-07-09 확인).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
 
@@ -122,9 +122,9 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - 타임아웃: FastAPI 연결 5초 / 전체 응답 60초. 초과·오류 시 SSE로 `error` 이벤트 전송 후 종료. 재시도는 FE 버튼(자동 재시도 없음 — LLM 호출 중복 비용 방지).
 - **왜 FastAPI가 FE로 직접 안 쏘고 Spring이 중개하나**: SSE는 장수명 HTTP 연결 하나라 Spring이 DB 처리만 하고 그 소켓을 FastAPI에 넘길 방법이 없다. "직접 쏜다 = FE가 FastAPI에 직접 연결한다"가 되고, 그 순간 ① 인증 경계가 둘로 갈라지고(FastAPI가 JWT·게스트를 판별해야 함 — "신원 검증은 `/api`에서 한 번" 원칙 붕괴) ② FastAPI가 공개 진입점이 돼야 하며(내부망 `expose`만 하던 걸 외부 노출 = nginx 우회 뒷문) ③ 세션·게스트 관리(Redis, BE 소유)를 우회한다. 홉 하나(내부망 수 ms)를 더 먹는 대신 단일 진입점 경계를 지키는 판단.
 
-### D6. user_event 적재는 Spring 이벤트 + @Async
+### D6. user_event 적재는 Spring 이벤트 + @Async + AFTER_COMMIT
 
-- 서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @EventListener`가 INSERT. 본 트랜잭션과 분리(로그 실패가 주문을 굴리는 트랜잭션을 깨면 안 됨).
+- 서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @TransactionalEventListener(phase = AFTER_COMMIT)`가 INSERT. 본 트랜잭션과 **양방향** 분리: 로그 실패가 주문 트랜잭션을 못 깨고(@Async), 롤백된 트랜잭션의 유령 이벤트도 안 남는다(AFTER_COMMIT). 일반 `@EventListener`는 발행 즉시 실행돼 주문이 롤백돼도 `ORDER_CREATED`가 적재됨 — 판매자 지표가 조용히 오염되므로 금지 (2026-07-09 설계 재검토).
 
 ### D7. 모든 DB 접근은 Spring만 — LLM에 read-only DB 접근도 주지 않는다 (2026-07-09 팀 합의)
 
@@ -148,7 +148,7 @@ com.jarvis
 ├── member    ├── brand     ├── category  ├── product
 ├── cart      ├── order     ├── claim     ├── review
 ├── wishlist  ├── address   ├── inquiry
-├── chat      # 채팅 프록시(세션, 게스트 카운트, SSE)
+├── chat      # 채팅 프록시(세션, SSE)
 ├── internal  # /internal/* 컨트롤러 (LLM 콜백 전용)
 └── seller    # 판매자 지표 조회
 ```
@@ -167,6 +167,7 @@ com.jarvis
 | DB | MySQL 8.x (로컬 docker-compose) | |
 | ORM | Spring Data JPA + Hibernate. 복잡 집계(판매자 지표)만 JdbcTemplate 네이티브 쿼리 허용 | QueryDSL 미도입 — 동적 쿼리가 검색 1곳뿐이라 도입 비용>효용 |
 | Redis | spring-data-redis (채팅 세션 TTL 전용) | |
+| 분산 락 | ShedLock (Redis 기반) — 스케줄러 틱당 1대만 실행 (01 §6, D-분산5) | 단일 인스턴스에서도 무해 |
 | 인증 | spring-security + jjwt (OAuth 제외로 oauth2-client 미도입) | |
 | 문서화 | springdoc-openapi (Swagger UI) — 04 문서와 이중화 방지 위해 코드 어노테이션은 최소, 04 문서가 원본 | |
 
@@ -181,9 +182,12 @@ com.jarvis
 | `JWT_SECRET` | AT/RT 서명 |
 | `LLM_BASE_URL` | FastAPI 주소 |
 | `INTERNAL_TOKEN` | internal API 서비스 토큰 (FastAPI와 공유) |
-| `app.mock.shipping-minutes` 등 | mock 배송 간격 (환경변수 아님, yml 기본값 5/5) |
+| `app.mock.shipping-minutes` 등 | mock 전이 간격 (환경변수 아님, yml 기본값 shipping/delivery/confirm/claim-approve = 5/5/10/5분 — 01 §6) |
 
 `.gitignore`에 `application-local.yml`, `.env` 포함 확인. 어떤 시크릿도 커밋 금지.
+
+- **타임존**: JVM과 MySQL 세션 모두 `Asia/Seoul` 고정 — orderNo 날짜 파생(02 D24)·mock 간격 계산·시연 중 시각 표시가 전부 이 기준.
+- **CORS**: 배포는 nginx 동일 오리진이라 불필요. 로컬 개발(FE 3000 → BE 8080 직행)만 local 프로파일에서 `http://localhost:3000` 허용.
 
 ## 6. 공통 규약 요약 (구현 세션 체크용)
 

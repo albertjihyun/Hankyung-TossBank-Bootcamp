@@ -283,7 +283,7 @@ erDiagram
         varchar option_name "스냅샷"
         int price "스냅샷"
         int quantity
-        varchar status "01 문서 9개 상태"
+        varchar status "01 문서 11개 상태"
         datetime status_changed_at
     }
     claim {
@@ -361,7 +361,7 @@ erDiagram
     product ||--o{ review : "목록 조회"
     product_option ||--o{ cart_item : selected
     orders ||--|{ order_item : contains
-    order_item ||--o| claim : "claimed by"
+    order_item ||--o{ claim : "재신청 시 1:N"
     order_item ||--o| review : "reviewed by"
     review ||--o{ review_report : reported
     member ||--o{ user_event : generates
@@ -486,7 +486,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | option_name | VARCHAR(100) | NULL | 스냅샷 |
 | price | INT | NOT NULL | 스냅샷: product.price + extra_price |
 | quantity | INT | NOT NULL | |
-| status | VARCHAR(30) | NOT NULL | 01 문서의 10개 상태 (구매확정 CONFIRMED 포함 — 01 D8) |
+| status | VARCHAR(30) | NOT NULL | 01 문서의 11개 상태 (결제 전 `PENDING` — 01 D9, 구매확정 `CONFIRMED` — 01 D8) |
 | status_changed_at | DATETIME | NOT NULL | 스케줄러 전이 기준 시각 |
 
 - 인덱스: `(status, status_changed_at)` — 배송 전이 스케줄러 스캔용.
@@ -494,12 +494,12 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ### claim
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| order_item_id | BIGINT | FK(order_item), NOT NULL | REQUESTED 1개 제한은 서비스 검증 |
+| order_item_id | BIGINT | FK(order_item), NOT NULL | REQUESTED 1개 제한은 서비스 검증. 재신청(고도화) 시 아이템당 N행 — ERD도 1:N |
 | type | VARCHAR(20) | NOT NULL | `CANCEL` / `RETURN` / `EXCHANGE` |
-| status | VARCHAR(20) | NOT NULL | `REQUESTED` / `COMPLETED` / `REJECTED` |
+| status | VARCHAR(20) | NOT NULL | `REQUESTED` / `COMPLETED` / `REJECTED` — REJECTED는 고도화 전용 (01 D10) |
 | reason | VARCHAR(500) | NULL | 신청 사유 |
-| reject_reason | VARCHAR(500) | NULL | 거절 시 필수 |
-| processed_by | BIGINT | FK(member), NULL | 처리 관리자 |
+| reject_reason | VARCHAR(500) | NULL | 거절 시 필수 (고도화) |
+| processed_by | BIGINT | FK(member), NULL | 처리 관리자 — MVP 자동 승인은 NULL (01 D10) |
 | processed_at | DATETIME | NULL | |
 
 ### review
@@ -552,7 +552,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | meta | JSON | NULL | 타입별 부가정보 |
 
 - 인덱스: `(member_id, event_type, created_at)` — 최근 본 상품(D3), `(product_id, event_type, created_at)` — 판매자 지표.
-- 이 테이블은 UPDATE/DELETE 없음(append-only).
+- 이 테이블은 append-only — **단일 예외**: 게스트→회원 승계 시 해당 guest 행들의 `member_id`를 채우는 UPDATE 1회(D5). 그 외 UPDATE/DELETE 없음.
 
 ## 4. user_event 이벤트 타입 (퍼널 정의)
 
@@ -570,6 +570,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 
 - 카테고리: 대분류 8개 내외(메인 해시태그) + 소분류 40~80개(D20 — 브랜드홈 필터·attribute_schema의 단위), 브랜드 15~30개, 상품 300개 이상(추천 후보가 소분류당 수십 개는 있어야 추천이 그럴듯함)
 - 크롤링 적재분: 상품(base_sales_count 포함, D18)과 리뷰(author_name 스냅샷, D19)는 11번가 크롤링 데이터를 사용 — 시드가 아니라 크롤링 파이프라인 산출물
+- **크롤링 이미지는 원본 URL 핫링크 금지** — 파이프라인에서 자체 저장소로 내려받아 webp 변환 후 `image_url`은 자체 경로로(2026-07-09 확정). 발표 당일 외부 CDN 차단·URL 만료로 전 상품 이미지가 깨지는 리스크 제거
 - 카테고리마다 `attribute_schema`(속성 축)를 먼저 확정하고, 그 카테고리 상품의 `attributes`는 반드시 그 축의 키로 채울 것(D11 — 시드 단계가 정합의 보장 지점)
 - 상품마다 `summary`+`attributes`를 채울 것 — LLM 추천 품질이 이 텍스트 밀도에 좌우됨
 - 옵션 상품과 무옵션 상품 혼재, 할인 상품(원가>판매가) 일부 포함
@@ -602,6 +603,6 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 8 마이페이지 | orders·order_item(주문 내역), claim(취소·반품·교환), user_event(최근 본 상품 D3), wishlist(찜), address(배송지), inquiry(문의 내역) |
 | 9 문의 챗봇 | inquiry(접수), 주문 상태 답변=01 §4 파생 규칙(저장 안 함) |
 | 10 판매자 페이지 | brand.seller_id(권한 유도), 지표=order_item·user_event 집계, 상품 수정=product(S-3) |
-| (11 관리자 — MVP 제외) | 스키마는 이미 수용: claim·review_report·inquiry의 처리 상태/처리자 컬럼 — 관리자 API만 고도화로 미룸 |
+| (11 관리자 — MVP 제외) | 스키마는 이미 수용: claim·review_report·inquiry의 처리 상태/처리자 컬럼 — 관리자 API는 고도화. 클레임 완료는 01 D10 자동 승인이 대신하고, 문의 답변·신고 처리는 MVP에서 일어나지 않음(데모 필요분은 시드) |
 
 프로필·세션·재고·평점컬럼이 ERD에 **없는 것**은 각각 D13·D12·D8·D9의 결정임 — 누락으로 오인하지 말 것.
