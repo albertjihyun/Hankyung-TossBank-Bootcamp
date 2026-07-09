@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, agreeTerms(true 필수), agreePrivacy(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 (02 D16·D21) |
 | A-2 | POST | /api/auth/login | 🔓 | 일반 로그인. body: email, password, guestId? |
-| A-3 | POST | /api/auth/logout | 🔑 | RT 삭제 |
+| A-3 | POST | /api/auth/logout | 🔓(RT쿠키) | RT 삭제 + 쿠키 만료. AT가 만료돼도 로그아웃은 가능해야 하므로 RT 쿠키 기준(없어도 성공 응답) |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
 | A-5 | GET | /api/auth/me | 🔑 | 내 정보(id, email, nickname, role) — FE 라우팅 가드용 |
 
@@ -28,7 +28,7 @@
 | P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만 |
 | P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계 — ORDER_CREATED 이벤트는 주문 단위라 상품별 집계 불가, 02 §4) → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
-| P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서), 실패·프로필 없음 시 P-4로 fallback |
+| P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서). **타임아웃 연결 2s/응답 3s**(채팅용 60s와 별도 — 메인 렌더 블로킹 방지), 실패·타임아웃·프로필 없음 시 P-4로 fallback |
 | P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size |
 
 - P-2의 평점 통계는 review 테이블 실시간 집계(파생값 저장 금지).
@@ -43,19 +43,20 @@
 | C-3 | PATCH | /api/cart/items/{id} | 🔑 | 수량 변경. body: quantity(≥1) |
 | C-4 | DELETE | /api/cart/items/{id} | 🔑 | 삭제 (복수 삭제는 FE에서 반복 호출 — 데모 규모) |
 
-- 옵션 있는 상품에 optionId 누락 → 400 `CART_OPTION_REQUIRED`. 본인 아이템 아니면 403.
+- 옵션 있는 상품에 optionId 누락 → 400 `CART_OPTION_REQUIRED`. 본인 아이템 아니면 403. quantity는 1~99(합산 결과 포함 — INT 오버플로·비정상 입력 방지, I-2 동일).
 
 ## 4. order / claim
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: cartItemIds[], addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성 → 스냅샷 복사 → mock 결제 판정 → PAID(장바구니 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
-| O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만 |
+| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: cartItemIds[], addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성(아이템도 `PENDING` — 01 D9) → 스냅샷 복사 → mock 결제 판정 → PAID(아이템 `ORDERED` 전이·장바구니 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
+| O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만. 성공 시 부수효과는 O-1의 PAID와 동일(아이템 `ORDERED` 전이·ORDER_CREATED 적재·장바구니에 같은 상품+옵션 행이 남아 있으면 삭제) |
 | O-3 | GET | /api/orders | 🔑 | 내 주문 목록: 대표 상태(01 §4), 아이템 요약. query: page, size |
 | O-4 | GET | /api/orders/{id} | 🔑 | 주문 상세: 아이템별 상태, 배송지 스냅샷, 금액, 아이템별 가능 액션(canCancel/canReturn/canExchange/canReview — 01 §3 매트릭스를 서버가 계산해 내려줌) |
 | O-5 | POST | /api/order-items/{id}/claims | 🔑 | 클레임 신청. body: type(CANCEL\|RETURN\|EXCHANGE), reason? — 01 매트릭스 위반 시 400 `CLAIM_NOT_ALLOWED`, 활성 클레임 존재 시 409 |
 | O-6 | GET | /api/claims | 🔑 | 내 취소·반품·교환 내역. query: page, size |
 
+- O-1 검증: 대상 상품 전부 `status=ON_SALE`(HIDDEN 포함 시 400), 수량 아이템당 1~99, 금액은 서버가 스냅샷 가격으로 재계산(클라이언트가 보낸 금액은 신뢰하지 않음 — body에 금액 필드 자체가 없음).
 - O-4가 가능 액션을 내려주는 이유: 상태 매트릭스 판단을 FE에 중복 구현하지 않기 위해(단일 진실은 서버). FE는 boolean만 보고 버튼 노출.
 - 표시용 주문번호 `orderNo`는 저장하지 않고 파생: `"ORD-" + created_at(yyyyMMdd) + "-" + id` (02 D24). O-3/O-4 응답에 포함.
 - O-1에서 결제까지 한 API로 묶은 이유: 모의 결제라 "생성→별도 결제 승인" 2단계로 나눌 외부 경계가 없음. 실 PG 전환 시(01 D7) 이 API를 생성/승인으로 쪼개는 게 교체 지점.
@@ -64,7 +65,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/EXCHANGED+미작성) 위반 400 `REVIEW_NOT_ALLOWED` |
+| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/EXCHANGED/CONFIRMED + 미작성, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED` |
 | M-2 | GET | /api/reviews/me | 🔑 | 내가 쓴 후기 목록 |
 | M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409 |
 | M-4 | GET | /api/wishlist | 🔑 | 찜 목록 |
@@ -89,12 +90,14 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to |
+| S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(EXCHANGED·처리중 포함) — I-6도 동일 |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
 | S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, status — 본인 브랜드 상품 아니면 403 |
 | S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백을 사용 — 05 문서 |
 
-## 8. admin
+## 8. admin — ⚠️ 전부 고도화 (MVP 아님)
+
+> 2026-07-09 팀 결정: 관리자 페이지는 MVP에서 전체 제외. 클레임 완료는 자동 승인 스케줄러가 대신하고(01 D10), 문의 답변·신고 처리는 MVP 기간에 일어나지 않는다(데모에 필요한 답변 완료 건은 시드로). 아래 표는 고도화 시 구현할 명세로 유지.
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
@@ -124,3 +127,4 @@
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
 - [ ] P-5 개인화 추천의 응답 형태(상품 ID 목록 vs 카드 데이터) — LLM 팀과 05 계약에서 확정
+- [ ] 상품 상세 "바로 구매" 지원 여부 — 현재 O-1은 cartItemIds[]만 받아 장바구니 경유가 유일한 주문 경로. 피그마에 바로구매 버튼이 있으면 O-1에 items 직접 지정 확장 필요 — FE·기획 확인

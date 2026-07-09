@@ -69,11 +69,12 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 
 ### I-1. 상품 검색 `GET /internal/products/search`
 - query: `keyword?`(상품명+summary+attributes LIKE), `categoryName?`, `minPrice?`, `maxPrice?`, `brandName?`, `size`(기본 10, 최대 30)
+- `categoryName` 해석(02 D20 — 2단 계층): **대분류명이면 하위 소분류 전체를 포함해 검색**, 소분류명이면 해당 소분류만. 메인 해시태그가 대분류(#패션)라 LLM이 대분류명을 보내는 게 기본 경로 — 대분류 지정이 0건이 되는 일이 없어야 한다
 - 응답 item: `productId, name, price, originalPrice, imageUrl, categoryName, brandName, summary, attributes(JSON), rating, reviewCount, options[]` (price=판매가 — 02 D15)
 - attributes까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7). 카테고리별 속성 축의 정의는 `category.attribute_schema`(02 D11) — 시드 데이터와 LLM 프롬프트가 같은 축을 공유한다.
 
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
-- body: `{ "userId": 123, "productId": 1, "optionId": null, "quantity": 1 }`
+- body: `{ "userId": 123, "productId": 1, "optionId": null, "quantity": 1 }` — quantity 1~99 (04 §3과 동일 검증: 입구가 달라도 같은 CartService)
 - 게스트(userId null) 요청은 403 `CART_LOGIN_REQUIRED` — LLM은 이를 받으면 "로그인하면 담아드릴게요"로 답변.
 - 옵션 필요한데 optionId 없으면 400 `CART_OPTION_REQUIRED` + options 목록 반환 → LLM이 "어떤 색상으로 담을까요?"로 되물음.
 - 성공 응답에 cartItemId — action 이벤트에 사용. `CART_ADD(via: chat)` 이벤트는 BE가 적재.
@@ -100,6 +101,7 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 | FastAPI→BE 콜백 타임아웃 | 3s (콜백 실패 시 LLM은 해당 기능 없이 답변 지속) |
 | 재시도 | 양방향 자동 재시도 없음(중복 담기·중복 과금 방지). 실패는 사용자에게 노출하고 수동 재시도 |
 | 게스트 제한 | 없음 — 횟수 제한 폐지(2026-07-07 회의). 게스트는 개인화 없이 응답 |
+| 남용 방어(rate limit) | **FastAPI(LLM팀) 소유로 제안** — 세션/IP당 분당 N건 스로틀. 게스트 무제한 정책은 정상 사용자 대상이고, 스크립트성 남용은 실 LLM 비용이 나가는 공격면이라 별개(2026-07-09). 기준치는 OPEN |
 | 장애 시 | FastAPI 다운 → BE가 SSE error 이벤트(`LLM_UNAVAILABLE`) 반환. 상품 조회 등 비채팅 기능은 정상 동작 |
 
 ## 4. OPEN — LLM 팀 합의 필요 목록
@@ -107,6 +109,7 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 - [ ] **프로필 추출 저장 시점** (세션 만료 시? 매 N턴?) — 기능 정의에도 미확정으로 표시됨
 - [ ] 세션 만료 통지 방식 (BE→DELETE 호출 vs FastAPI 자체 TTL)
 - [ ] 카테고리 진입을 message 관성으로 갈지 전용 필드로 갈지
-- [ ] P-5 개인화 추천(메인) API: `GET {LLM_BASE_URL}/recommendations?userId=` 형태 제안 — 응답이 상품 ID 목록이면 BE가 카드 데이터 조립
+- [ ] P-5 개인화 추천(메인) API: `GET {LLM_BASE_URL}/recommendations?userId=` 형태 제안 — 응답이 상품 ID 목록이면 BE가 카드 데이터 조립. BE 측 타임아웃 연결 2s/응답 3s(04 P-5 — 메인 렌더 블로킹 방지, 초과 시 인기 상품 fallback)
+- [ ] 채팅 남용 방어(rate limit)의 소유와 기준치 — BE 제안: FastAPI 측 세션/IP당 분당 N건 스로틀(§3). 필요 시 BE가 `/api/chat` 앞단 보조 스로틀 추가 가능
 - [ ] 상세페이지 연관 추천 2종(함께 구매/대체)의 소스: LLM 생성 vs BE 규칙 기반(같은 카테고리 인기순) — MVP는 BE 규칙 기반 제안
 - [ ] SSE 이벤트 스키마 필드명 최종 확정
