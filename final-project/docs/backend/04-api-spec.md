@@ -8,7 +8,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 (약관 동의 제외 — 02 D16) |
+| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, agreeTerms(true 필수), agreePrivacy(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계 (02 D16·D21) |
 | A-2 | POST | /api/auth/login | 🔓 | 일반 로그인. body: email, password, guestId? |
 | A-3 | POST | /api/auth/logout | 🔑 | RT 삭제 |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
@@ -16,7 +16,7 @@
 
 - OAuth는 MVP 제외(2026-07-07 팀 결정). 고도화 도입 시 `GET /oauth2/authorization/{provider}` 추가.
 
-- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), gender(MALE/FEMALE/OTHER), birthDate(과거 날짜).
+- A-1 검증: 이메일 형식/중복(409 `MEMBER_EMAIL_DUPLICATE`), 비밀번호 규칙(8자+, 영문+숫자), gender(MALE/FEMALE), birthDate(과거 날짜), 약관 2건 미동의 400.
 - A-2 실패는 계정 존재 여부 무관하게 통일 메시지(401 `AUTH_LOGIN_FAILED`) — 기능 정의 명시.
 - 이메일 중복 확인은 별도 기능 없이 A-1의 409 응답으로만 처리 (2026-07-07 회의 — "기능만 일단 돌아가도록").
 
@@ -24,7 +24,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| P-1 | GET | /api/categories | 🔓 | 카테고리 전체 (메인 해시태그용) |
+| P-1 | GET | /api/categories | 🔓 | 카테고리 트리(대분류+소분류, 02 D20). 메인 해시태그는 대분류만 사용 |
 | P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만 |
 | P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계 — ORDER_CREATED 이벤트는 주문 단위라 상품별 집계 불가, 02 §4) → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
@@ -49,7 +49,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: cartItemIds[], addressId 또는 address 직접 입력, paymentMethod — 처리: PENDING 생성 → 스냅샷 복사 → mock 결제 판정 → PAID(장바구니 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, status |
+| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: cartItemIds[], addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성 → 스냅샷 복사 → mock 결제 판정 → PAID(장바구니 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
 | O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만 |
 | O-3 | GET | /api/orders | 🔑 | 내 주문 목록: 대표 상태(01 §4), 아이템 요약. query: page, size |
 | O-4 | GET | /api/orders/{id} | 🔑 | 주문 상세: 아이템별 상태, 배송지 스냅샷, 금액, 아이템별 가능 액션(canCancel/canReturn/canExchange/canReview — 01 §3 매트릭스를 서버가 계산해 내려줌) |
@@ -57,6 +57,7 @@
 | O-6 | GET | /api/claims | 🔑 | 내 취소·반품·교환 내역. query: page, size |
 
 - O-4가 가능 액션을 내려주는 이유: 상태 매트릭스 판단을 FE에 중복 구현하지 않기 위해(단일 진실은 서버). FE는 boolean만 보고 버튼 노출.
+- 표시용 주문번호 `orderNo`는 저장하지 않고 파생: `"ORD-" + created_at(yyyyMMdd) + "-" + id` (02 D24). O-3/O-4 응답에 포함.
 - O-1에서 결제까지 한 API로 묶은 이유: 모의 결제라 "생성→별도 결제 승인" 2단계로 나눌 외부 경계가 없음. 실 PG 전환 시(01 D7) 이 API를 생성/승인으로 쪼개는 게 교체 지점.
 
 ## 5. mypage (review / wishlist / recent / address / inquiry)
@@ -71,7 +72,7 @@
 | M-6 | DELETE | /api/wishlist/{productId} | 🔑 | 찜 해제 |
 | M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (user_event 기반, 중복 제거 최신 20개) |
 | M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션) |
-| M-9 | GET | /api/inquiries/me | 🔑 | 내 문의 내역(읽기 전용): 내용, 상태, 답변 |
+| M-9 | GET | /api/inquiries/me | 🔑 | 내 문의 내역(읽기 전용): 제목(02 D23), 내용, 상태, 답변 |
 | M-10 | PATCH | /api/members/me | 🔑 | 프로필 수정: nickname |
 
 - 문의 "접수"는 사용자 API가 없다 — 문의 챗봇(LLM)이 ⚙ internal 콜백으로만 생성(문의 단일 채널 원칙, 05 문서).
