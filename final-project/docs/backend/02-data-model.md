@@ -79,7 +79,7 @@
 - **선택**: (A) 유지. 「상품 참고」의 전제(수만 상품 + 필드 단위 필터·정렬 UI)가 우리 MVP에 없음 — 참고 문서와 다르게 가는 근거를 남긴다.
 - **트레이드오프**: 상품 목록 조회마다 집계 조인 비용 → 페이지네이션(≤30)으로 상수 규모 유지. 병목이 실측되면 그때 컬럼 추가 + backfill 1쿼리로 전환(전환 비용 낮음).
 
-### D10. 카테고리는 flat 1단을 유지한다 (2026-07-09)
+### D10. ~~카테고리는 flat 1단을 유지한다~~ (2026-07-09 피그마 검토로 폐기 → D20)
 
 - **문제**: 「상품 참고」의 `category_no`는 "중분류/소분류"를 가리킴(계층 전제). 현행 category는 name만 있는 flat.
 - **선택지**: (A) flat 유지 (B) `parent_id` 자기참조 계층
@@ -151,6 +151,36 @@
 - **선택**: (A). `member_id IS NULL` = 크롤링 리뷰. 후기 자격 검증(D4: 배송완료·아이템당 1개)은 **우리 회원의 작성 경로에만 적용** — 크롤링 리뷰는 시드 적재 전용이고 API로는 생성 불가.
 - **트레이드오프**: NOT NULL 제약 완화로 "리뷰=검증된 구매" 불변식이 약해짐 → 감수 방법: 작성 API는 여전히 order_item 앵커 필수(서비스 검증), NULL 조합 정합(`member_id NULL ↔ author_name NOT NULL`)도 서비스 검증. UNIQUE(order_item_id)는 NULL 다중 허용이라 그대로 동작.
 
+### D20. 카테고리는 2단 계층으로 개정한다 (D10 폐기 — 피그마 검토 2026-07-09)
+
+- **문제**: 브랜드홈 시안의 필터가 소분류(원피스/스커트/니트/재킷…)를 요구하고, 메인 해시태그는 대분류(#패션/#디지털…) 8개다. flat 1단(D10)으로는 두 입도를 동시에 만족할 수 없다.
+- **선택지**: (A) 소분류만 category로 두고 대분류는 `group VARCHAR` 라벨 (B) `parent_id` 자기참조 2단 고정 (C) attributes의 "품목" 키로 브랜드홈 필터
+- **기준**: ① 대분류가 독립 엔티티인가 — 메인 해시태그로서 아이콘·노출 순서를 가짐 → 행이어야 자연스러움 ② 쿼리 비용 — 2단 고정이면 조인 1번, 재귀 없음 ③ attribute_schema의 주인은 소분류(원피스와 팬츠의 축이 다름) ④ (C)는 서버 미검증 JSON이라 필터 신뢰도 부족.
+- **선택**: (B). 규약: **product.category_id는 소분류(leaf)만 참조**, attribute_schema도 소분류에만. 메인 해시태그 = `parent_id IS NULL` 조회. 크롤링 소스(11번가)의 중/소분류 구조를 그대로 매핑(D10의 "평탄화" 폐기).
+- **트레이드오프**: 3단 이상은 재설계 필요 — 화면 요구가 2단 고정이라 감수. 시드 규모 증가: 대분류 8 + 소분류 40~80 (§5 갱신).
+
+### D21. 약관 동의 2건 복원 — D16 부분 개정 (피그마 검토 2026-07-09)
+
+- 회원가입 시안의 **[필수] 이용약관 + [필수] 개인정보처리방침** 2건이 팀 확정 — D16의 "약관 제거"를 되돌린다. 증빙은 건별 저장: `agreed_terms_at`, `agreed_privacy_at` (둘 다 NOT NULL). A-1 body·검증 복원.
+- `gender`는 시안대로 `MALE`/`FEMALE` 2값 확정(OTHER 제거).
+
+### D22. 배송 요청사항은 주문 스냅샷에 저장한다 (피그마 검토 2026-07-09)
+
+- 결제 화면의 배송 요청사항(문 앞에/경비실/부재 시 연락/직접 입력)은 배송지의 속성이 아니라 **그 주문 1회성 지시** → address가 아니라 `orders.delivery_request VARCHAR(200) NULL`. O-1 body에 `deliveryRequest?` 추가.
+
+### D23. inquiry에 title 추가 — 제목·내용은 LLM이 생성 (피그마 검토 2026-07-09)
+
+- 문의 내역 목록이 제목을 표시한다. 접수 채널이 문의 챗봇 단일(I-5)이므로 **제목은 LLM이 문의 내용을 요약해 생성**해서 content와 함께 전달. `inquiry.title VARCHAR(200) NOT NULL`, I-5 body에 title 추가(05 동기). 상태 흐름(PENDING/IN_PROGRESS/DONE)은 그대로.
+
+### D24. 표시용 주문번호는 저장하지 않고 파생한다 — `ORD-{yyyyMMdd}-{id}` (2026-07-09)
+
+- **문제**: 시안의 `ORD-20250601` 형식은 날짜만으로는 유일하지 않다(같은 날 다건·사용자 간 중복). 별도 채번(무작위) 컬럼 vs 파생.
+- **기준**: ① 유일성 ② 주문 조회 API가 전부 인증 기반이라 주문번호로 리소스에 접근하지 않음 → 추측 곤란성 요구 낮음 ③ 컬럼·채번기 없이 가능한가.
+- **선택**: 파생 — 응답에서 `orderNo = "ORD-" + created_at(yyyyMMdd) + "-" + id`. 유일성은 id가 보장, 날짜는 가독용. 같은 날 여러 주문도 id가 달라 충돌 없음.
+- **트레이드오프**: id 노출로 누적 주문량 추정 가능(데모에서 무의미). 실서비스화 시 무작위 채번 UNIQUE 컬럼으로 교체 — orderNo는 표시 계약이라 FE 무변경.
+
+> **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
+
 ---
 
 ## 2. ERD
@@ -165,8 +195,10 @@ erDiagram
         varchar password "BCrypt"
         varchar nickname
         varchar role "USER/SELLER/ADMIN"
-        varchar gender "MALE/FEMALE/OTHER(D16)"
+        varchar gender "MALE/FEMALE(D21)"
         date birth_date "D16"
+        datetime agreed_terms_at "D21"
+        datetime agreed_privacy_at "D21"
     }
     guest {
         char36 id PK "UUID 쿠키값"
@@ -187,8 +219,9 @@ erDiagram
     }
     category {
         bigint id PK
+        bigint parent_id FK "NULL=대분류(D20)"
         varchar name UK
-        json attribute_schema "속성 축(키 배열, D11)"
+        json attribute_schema "소분류 전용 속성 축(D11)"
     }
     product {
         bigint id PK
@@ -239,6 +272,7 @@ erDiagram
         varchar zip_code
         varchar address1
         varchar address2
+        varchar delivery_request "배송 요청사항(D22)"
         datetime paid_at
     }
     order_item {
@@ -289,6 +323,7 @@ erDiagram
     inquiry {
         bigint id PK
         bigint member_id FK
+        varchar title "LLM 생성(D23)"
         text content
         varchar status
         text answer
@@ -317,7 +352,8 @@ erDiagram
     member ||--o{ guest : "converted (승계)"
     guest  ||--o{ user_event : generates
     brand ||--o{ product : has
-    category ||--o{ product : classifies
+    category ||--o{ category : "대분류>소분류(D20)"
+    category ||--o{ product : "소분류가 classifies"
     product ||--o{ product_option : has
     product ||--o{ cart_item : in
     product ||--o{ wishlist : in
@@ -344,8 +380,10 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | password | VARCHAR(255) | NOT NULL | BCrypt |
 | nickname | VARCHAR(50) | NOT NULL | |
 | role | VARCHAR(20) | NOT NULL | `USER` / `SELLER` / `ADMIN` |
-| gender | VARCHAR(10) | NOT NULL | `MALE` / `FEMALE` / `OTHER` (D16) |
+| gender | VARCHAR(10) | NOT NULL | `MALE` / `FEMALE` (D16·D21 — OTHER 제거) |
 | birth_date | DATE | NOT NULL | 가입 시 수집 (D16) |
+| agreed_terms_at | DATETIME | NOT NULL | 이용약관 동의 시각 (D21 복원) |
+| agreed_privacy_at | DATETIME | NOT NULL | 개인정보처리방침 동의 시각 (D21) |
 
 - **OAuth는 MVP 제외** (2026-07-07 팀 결정). 고도화에서 도입 시 `provider`/`provider_id` 컬럼 추가 + `password` NULL 허용으로 확장 — 지금 컬럼을 미리 두지 않는 이유: 쓰지 않는 nullable 컬럼은 검증 로직만 흐리게 함(YAGNI).
 
@@ -375,16 +413,17 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ### category
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| name | VARCHAR(50) | UNIQUE, NOT NULL | 메인 해시태그 = 이 테이블 전체 조회 |
-| attribute_schema | JSON | NULL | 이 카테고리 상품의 속성 축(키 배열, 예: `["소재","색상","사이즈"]`) — D11. 서버 검증 없음(soft), 시드 생성·판매자 수정 폼·LLM 프롬프트가 소비 |
+| parent_id | BIGINT | FK(category), NULL | NULL=대분류, 값 있음=소분류 — 2단 고정 (D20) |
+| name | VARCHAR(50) | UNIQUE, NOT NULL | 메인 해시태그 = `parent_id IS NULL` 조회 |
+| attribute_schema | JSON | NULL | 소분류 전용 — 속성 축(키 배열, 예: `["소재","색상","사이즈"]`) — D11. 서버 검증 없음(soft), 시드 생성·판매자 수정 폼·LLM 프롬프트가 소비 |
 
-- flat 1단 유지(D10) — 계층 필요 시 `parent_id` 추가로 확장.
+- 2단 계층(D20): 브랜드홈 필터=해당 브랜드 상품의 소분류, 메인 해시태그=대분류. product는 소분류만 참조.
 
 ### product
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | brand_id | BIGINT | FK(brand), NOT NULL | |
-| category_id | BIGINT | FK(category), NOT NULL | |
+| category_id | BIGINT | FK(category), NOT NULL | 소분류(leaf)만 참조 (D20) |
 | name | VARCHAR(200) | NOT NULL | |
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
 | price | INT | NOT NULL | 판매가 (D15). 할인율은 파생 계산(저장 금지) |
@@ -435,6 +474,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | payment_method | VARCHAR(30) | NOT NULL | `MOCK_CARD` / `MOCK_FAIL` 등 |
 | total_amount | INT | NOT NULL | 주문 시점 합계 스냅샷 (D1) |
 | recipient / phone / zip_code / address1 / address2 | 주소와 동일 | NOT NULL(address2 제외) | 배송지 스냅샷 — address FK 아님(주소 수정·삭제돼도 주문 보존) |
+| delivery_request | VARCHAR(200) | NULL | 배송 요청사항 — 주문 1회성 지시 (D22) |
 | paid_at | DATETIME | NULL | |
 
 ### order_item
@@ -446,7 +486,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | option_name | VARCHAR(100) | NULL | 스냅샷 |
 | price | INT | NOT NULL | 스냅샷: product.price + extra_price |
 | quantity | INT | NOT NULL | |
-| status | VARCHAR(30) | NOT NULL | 01 문서의 9개 상태 |
+| status | VARCHAR(30) | NOT NULL | 01 문서의 10개 상태 (구매확정 CONFIRMED 포함 — 01 D8) |
 | status_changed_at | DATETIME | NOT NULL | 스케줄러 전이 기준 시각 |
 
 - 인덱스: `(status, status_changed_at)` — 배송 전이 스케줄러 스캔용.
@@ -495,6 +535,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | member_id | BIGINT | FK(member), NOT NULL | 접수는 로그인 사용자만(기능 정의 9번) |
+| title | VARCHAR(200) | NOT NULL | LLM이 요약 생성한 제목 (D23) |
 | content | TEXT | NOT NULL | 챗봇이 정리한 문의 내용 |
 | status | VARCHAR(20) | NOT NULL DEFAULT 'PENDING' | `PENDING` / `IN_PROGRESS` / `DONE` |
 | answer | TEXT | NULL | 관리자 답변 |
@@ -527,7 +568,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 
 ## 5. 시드 데이터 요구사항 (LLM팀 공동 안건)
 
-- 카테고리 8~12개(전 카테고리 컨셉이 보이는 폭), 브랜드 15~30개, 상품 300개 이상(추천 후보가 카테고리당 수십 개는 있어야 추천이 그럴듯함)
+- 카테고리: 대분류 8개 내외(메인 해시태그) + 소분류 40~80개(D20 — 브랜드홈 필터·attribute_schema의 단위), 브랜드 15~30개, 상품 300개 이상(추천 후보가 소분류당 수십 개는 있어야 추천이 그럴듯함)
 - 크롤링 적재분: 상품(base_sales_count 포함, D18)과 리뷰(author_name 스냅샷, D19)는 11번가 크롤링 데이터를 사용 — 시드가 아니라 크롤링 파이프라인 산출물
 - 카테고리마다 `attribute_schema`(속성 축)를 먼저 확정하고, 그 카테고리 상품의 `attributes`는 반드시 그 축의 키로 채울 것(D11 — 시드 단계가 정합의 보장 지점)
 - 상품마다 `summary`+`attributes`를 채울 것 — LLM 추천 품질이 이 텍스트 밀도에 좌우됨
@@ -555,7 +596,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 2 메인(홈) | category(해시태그), 개인화 추천=FastAPI(D13) + 인기 상품=user_event·order_item 집계, 예시 칩=정적 |
 | 3 챗봇(검색) | 대화=Redis 세션(비영속, 03) — 테이블 없음(의도), user_event(CHAT_QUERY), attributes 2단 검색(D7·D11), 챗봇 담기=cart_item |
 | 4 상품 상세 | product(이미지=image_url 단일, D14), product_option, review(평점 통계는 파생 D9), 연관 추천=05 OPEN(BE 규칙 기반이면 category+집계로 충분) |
-| 5 브랜드 홈 | brand, product(정렬은 집계 파생 D9) |
+| 5 브랜드 홈 | brand, product(정렬은 집계 파생 D9), category 소분류 필터(D20) |
 | 6 장바구니 | cart_item(현재가 표시 — 스냅샷 없음, 의도) |
 | 7 결제 | orders(배송지·금액 스냅샷 D1, 상태 01 §2-1), order_item(01 §2-2), 모의 결제(01 D7) |
 | 8 마이페이지 | orders·order_item(주문 내역), claim(취소·반품·교환), user_event(최근 본 상품 D3), wishlist(찜), address(배송지), inquiry(문의 내역) |
