@@ -40,16 +40,21 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
                     ┌── [AWS ALB] ──┐            ← 층 1: 인스턴스 간 분배 (인스턴스 바깥, AWS 관리형)
         ┌───────────┼───────────────┼───────────┐
         ▼           ▼               ▼
-  ┌──EC2-1───┐ ┌──EC2-2───┐ ┌──EC2-3───┐
-  │ nginx    │ │ nginx    │ │ nginx    │         ← 층 2: 인스턴스 안 라우팅 + 외부 차단 (§1-1 그대로)
+  ┌──EC2-1───┐ ┌──EC2-2───┐ ┌──EC2-3───┐         ← 앱 티어 A: nginx+next+spring (사용자 트래픽)
+  │ nginx    │ │ nginx    │ │ nginx    │            층 2: 인스턴스 안 라우팅 + 외부 차단 (§1-1 그대로)
   │  ├ next  │ │  ├ next  │ │  ├ next  │
-  │  ├ spring│ │  ├ spring│ │  ├ spring│
-  │  └fastapi│ │  └fastapi│ │  └fastapi│
-  └──────────┘ └──────────┘ └──────────┘
+  │  └ spring│ │  └ spring│ │  └ spring│
+  └────┬─────┘ └────┬─────┘ └────┬─────┘
+       └──── [내부 LB] ⇄ spring↔fastapi (SSE 요청 / internal 콜백) · 인터넷 비노출 ────┘
+              ▼             ▼
+        ┌─fastapi─┐   ┌─fastapi─┐                  ← 앱 티어 B: fastapi (LLM 워크로드, 독립 스케일) — D-분산8
+        └─────────┘   └─────────┘
         └───────── RDS(MySQL) Multi-AZ · ElastiCache(Redis) — 공유 상태 ─────────┘
 ```
 
-**D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 3대 복제. mysql·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.**
+> 위 그림은 **분산/프로덕션 목표 형상**. 데모/단일 서버 단계(§1-1)에선 fastapi를 별도 티어로 빼지 않고 compose 한 박스에 co-location — 과분리 금지(D-분산8).
+
+**D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 복제. mysql·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.** (단, fastapi는 같은 무상태여도 스케일 신호·소유 팀이 달라 next·spring과 한 덩어리로 묶지 않고 별도 티어로 뺀다 — D-분산8.)
 
 **D-분산2. DB 이중화 = RDS Multi-AZ, read replica는 두지 않는다.** 이중화 이유는 읽기 부하가 아니라 failover(죽으면 전체가 죽음)다. JARVIS 트래픽의 병목은 DB가 아니라 LLM 대기(FastAPI)라 read replica의 근거가 미달. Multi-AZ는 물리 2대(서로 다른 AZ)·동기 복제·자동 승격을 엔드포인트 DNS 하나 뒤로 추상화 → 앱은 단일 URL만 보고 읽기/쓰기 분리도 없음. **부수 효과로 복제 지연·read-your-own-writes 문제를 애초에 회피**(대기 서버는 읽지 않으므로). *비용(상시 2배)상 데모 기간엔 단일 인스턴스로 두고 "프로덕션이면 Multi-AZ 토글 ON"으로 운영 가능 — 코드 영향 없음.*
 
@@ -65,6 +70,11 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - **버퍼링**: 인스턴스 nginx가 응답을 모았다 한 번에 넘기면 SSE의 실시간성이 죽는다(로딩만 돌다 답이 팍) → 스트리밍 경로에 `proxy_buffering off`(+ `proxy_http_version 1.1`), 또는 spring이 `X-Accel-Buffering: no` 헤더 전송. 전역이 아니라 `/api/chat` 등 스트리밍 경로에만.
 
 **D-분산7. 인그레스는 ALB(공개 진입점을 인정), Cloudflare Tunnel 아님.** 기준은 *노출 제거*가 아니라 *노출 인정 + 방어*다. 진입점을 없애는(cloudflared 아웃바운드 터널) 대신, ALB의 로드밸런싱·헬스체크·failover 이득이 "공개 진입점 1개를 감수하는 비용"보다 크다고 판단 → 진입점을 없애지 않고 **nginx 443 하나로 좁히고 보안그룹으로 잠근다**. 이건 `/internal` 3중 방어(포트를 없애자가 아니라 필요한 문만 열고 나머지를 네트워크·토큰으로 좁힘)·D-분산4(관리 이득을 위해 관리형 진입점을 받아들임)와 **동일한 철학 — 문을 없애는 게 아니라 좁혀서 지킨다.** 터널은 "문을 없앤다"는 다른 철학이라, 로드밸런싱 이득을 포기하면서까지 갈아탈 근거가 미달.
+
+**D-분산8. fastapi는 분산 단계에서 별도 티어로 분리 — next·spring과 co-location 안 함.** D-분산1이 셋을 "무상태니까 한 덩어리 복제"로 묶었으나 **무상태 ≠ 같은 스케일 단위.** 상태 축에 **스케일 신호 + 소유 팀** 축을 하나 더 얹어 fastapi만 뺀다.
+- **근거**: ① 스케일 신호가 다름 — fastapi는 LLM 대기(길고 느림), spring은 짧은 CRUD → 채팅이 몰리면 fastapi만 늘리고 싶다(묶여 있으면 셋 다 늘어 낭비). ② 자원 모양이 다름 — 임베딩·벡터·GPU 가능성, 동시성·메모리 프로파일이 spring과 상이. ③ 팀·배포 주기가 다름 — LLM팀 소유·다른 런타임, 독립 배포. ④ 장애·자원 격리 — fastapi hang/누수가 같은 박스의 CRUD를 굶기면 안 됨.
+- **유지되는 것**: fastapi 티어는 **여전히 인터넷 비노출**(보안그룹으로 spring 티어에서 온 것만 허용). spring↔fastapi(SSE 요청)·fastapi→spring(`/internal` 콜백)이 박스 안 localhost가 아니라 티어 간 네트워크를 타므로 → fastapi 앞 **내부 LB** + spring 콜백용 안정 내부 엔드포인트가 붙는다. **단일 진입점·`/internal` 3중 방어는 불변.**
+- **단계·비용**: 데모/단일 서버(§1-1)는 compose 한 박스 co-location으로 유지(여기까지 티어 분리는 과분리). 분산/프로덕션에서만 분리. **코드 변경 아님** — spring은 `LLM_BASE_URL`로 fastapi를 부르니 그 값을 내부 LB 주소로 바꾸면 끝(D-분산2의 Multi-AZ 토글처럼 나중으로 미뤄도 싼 결정).
 
 ## 2. 결정 로그
 
