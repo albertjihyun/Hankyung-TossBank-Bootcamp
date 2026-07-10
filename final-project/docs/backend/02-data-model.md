@@ -220,7 +220,8 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 - **스키마**: cart_item에 `guest_id CHAR(36) FK(guest) NULL` 추가, `member_id` NULL 허용. **둘 중 정확히 하나만 NOT NULL** — user_event와 같은 XOR 패턴(서비스 검증). UNIQUE는 2개: `(member_id, product_id, option_id)` / `(guest_id, product_id, option_id)`.
 - **승계 병합**: 가입/로그인 시(A-1/A-2의 guestId) 게스트 cart_item을 member로 병합 — member 장바구니에 동일 상품+옵션이 이미 있으면 **수량 합산(상한 99 클램프)** 후 게스트 행 삭제, 없으면 소유자만 변경. user_event 승계(D5)와 같은 트랜잭션.
 - **결제는 불변**: orders.member_id NOT NULL 유지 — 게스트 주문 없음. 게스트가 결제를 누르면 FE가 로그인 유도, 로그인하면 병합 승계로 장바구니가 그대로 따라온다. **결제 관련 ERD 변경 없음.**
-- **파급**: 04 C-1~C-4 게스트 허용, 05 I-2 게스트 담기 성공(403 유도 폐기), guest 쿠키 발급 트리거 확대(03 D3 — 첫 채팅 또는 첫 담기).
+- **파급**: 04 C-1~C-4 게스트 허용, 05 I-2 게스트 담기 성공(403 유도 폐기), guest 쿠키 발급 트리거 확대(03 D3 — 첫 채팅 또는 첫 담기, 발급 시 guest 행 INSERT 동반).
+- **트레이드오프**: 비인증 쓰기 표면 증가 — guest 1명의 행 수는 UNIQUE(guest_id, product, option)로 유계이고, 새 guest 남발로 인한 행 누적은 데모 규모에서 감수(정리 배치는 고도화).
 
 > **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
 
@@ -571,7 +572,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | reporter_id | BIGINT | FK(member), NOT NULL | UNIQUE(review_id, reporter_id) — 중복 신고 방지 |
 | reason | VARCHAR(500) | NOT NULL | |
 | status | VARCHAR(20) | NOT NULL DEFAULT 'PENDING' | `PENDING` / `IN_PROGRESS` / `DONE` |
-| processed_by / processed_at | BIGINT / DATETIME | NULL | |
+| processed_by / processed_at | BIGINT FK(member) / DATETIME | NULL | claim.processed_by와 동일 규약 |
 
 ### wishlist
 | 컬럼 | 타입 | 제약 |
@@ -588,13 +589,13 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | content | TEXT | NOT NULL | 챗봇이 정리한 문의 내용 |
 | status | VARCHAR(20) | NOT NULL DEFAULT 'PENDING' | `PENDING` / `IN_PROGRESS` / `DONE` |
 | answer | TEXT | NULL | 관리자 답변 |
-| answered_by / answered_at | BIGINT / DATETIME | NULL | |
+| answered_by / answered_at | BIGINT FK(member) / DATETIME | NULL | 답변 관리자 (고도화) |
 
 ### user_event
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | member_id | BIGINT | FK(member), NULL | 로그인 사용자 |
-| guest_id | CHAR(36) | NULL | 비로그인. member/guest 중 하나는 NOT NULL(서비스 검증) |
+| guest_id | CHAR(36) | FK(guest), NULL | 비로그인. member/guest 중 하나는 NOT NULL(서비스 검증) |
 | event_type | VARCHAR(30) | NOT NULL | §4 이벤트 타입 |
 | product_id | BIGINT | NULL | 상품 관련 이벤트만 |
 | session_id | CHAR(36) | NULL | 채팅 이벤트만 |
