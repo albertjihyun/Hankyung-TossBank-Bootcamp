@@ -179,6 +179,40 @@
 - **선택**: 파생 — 응답에서 `orderNo = "ORD-" + created_at(yyyyMMdd) + "-" + id`. 유일성은 id가 보장, 날짜는 가독용. 같은 날 여러 주문도 id가 달라 충돌 없음.
 - **트레이드오프**: id 노출로 누적 주문량 추정 가능(데모에서 무의미). 실서비스화 시 무작위 채번 UNIQUE 컬럼으로 교체 — orderNo는 표시 계약이라 FE 무변경.
 
+### D25. brand.seller_id는 NULL을 허용한다 (ERD 정합 검토 — 2026-07-10)
+
+- **문제**: 시드 계획(§5)은 브랜드 15~30개에 판매자 계정 2~3개만 연결하는데 `seller_id NOT NULL` — 크롤링 브랜드 전부에 회원이 있어야 INSERT 가능(시드 블로커).
+- **선택지**: (A) 브랜드마다 더미 SELLER 회원 생성 (B) NULL 허용
+- **기준**: (A)는 member의 NOT NULL 컬럼(약관 동의 시각·성별·출생일)을 가입한 적 없는 가짜 인물로 채워 회원 데이터의 의미를 오염시킨다. (B)는 "아직 입점 판매자가 연결되지 않은 브랜드"라는 도메인 사실 그대로.
+- **선택**: (B). MySQL UNIQUE는 NULL 다중 허용이라 "판매자 1명 = 브랜드 1개" 제약은 유지. 판매자 플로우는 member→brand 방향 유도(03 §7)라 영향 없음 — 주인 없는 브랜드는 대시보드 주인이 없는 게 맞다.
+
+### D26. FK가 못 막는 교차 정합 4건은 서비스 검증으로 강제한다 (ERD 정합 검토 — 2026-07-10)
+
+FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참조하는가"는 못 본다. 아래 4건은 서비스 레이어가 유일한 방어선 — 구현 필수(§6 체크리스트 반영):
+
+1. **옵션↔상품 소속**: cart 담기·주문 스냅샷 생성 시 `option.product_id == productId` 검증 — 위반 400 `CART_OPTION_INVALID`. 안 하면 남의 상품 옵션 이름·추가금이 주문에 박힌다.
+2. **leaf 카테고리(D20)**: 상품 등록·수정·시드 적재 시 category가 `parent_id IS NOT NULL`(소분류)인지 검증.
+3. **review 중복 컬럼 유도(D4)**: `product_id`/`member_id`는 body로 받지 않고 서버가 order_item(→orders)에서 유도해 채운다 — 클라이언트 주장 금지.
+4. **주문 합계 불변식**: `orders.total_amount == Σ(order_item.price × quantity)` — 서버 계산으로만 기록. total_amount는 엄밀히는 재계산 가능한 값이지만 결제 금액의 권위 컬럼으로 유지(파생값 금지 원칙의 기록된 예외).
+
+### D27. category.name 전역 UNIQUE는 유지한다 — 동명 소분류는 시드 명명으로 회피 (2026-07-10)
+
+- **문제**: 2단 계층(D20)에서 전역 UNIQUE면 대분류가 달라도 동명 소분류("패션>니트" vs "남성>니트")가 불가. `UNIQUE(parent_id, name)`으로 바꾸면 해소되지만, I-1 `categoryName`(이름만으로 카테고리를 해석하는 LLM 계약)이 모호해진다.
+- **선택**: 전역 UNIQUE 유지. 크롤링 매핑에서 이름 충돌 시 시드 단계에서 대분류를 접두해 개칭("남성 니트"). LLM 계약의 해석 단순함 > 분류 체계 표현력(소분류 40~80개 규모에서 충분).
+
+### D28. 판매가는 정가를 넘을 수 없다 — S-3에 original_price 편집 추가 (2026-07-10)
+
+- **문제**: S-3가 price만 수정 가능해 가격 인상 시 `price > original_price`가 강제됨 — 할인율 파생이 음수, 취소선 정가 표기가 붕괴.
+- **선택**: `price ≤ original_price` 서비스 검증(같으면 FE는 할인 미표기) + S-3 편집 필드에 original_price 포함 — 가격 인상은 정가와 함께 올린다. 표시 계약(할인율·취소선)의 전제가 항상 성립.
+
+### D29. 삭제 정책 전수 확정 (ERD 정합 검토 — 2026-07-10)
+
+- **MVP의 DELETE는 4경로뿐** — cart_item(본인·결제 차감)/wishlist/address/refresh_token. 전부 인바운드 FK 없는 잎 테이블이라 ON DELETE RESTRICT 전면과 충돌 없음. 나머지는 소프트 삭제(review.status, product.HIDDEN)거나 삭제 개념 없음.
+- **본인 후기는 등록만**(팀 결정): 수정·삭제 API 없음, 자기 후기 신고 차단(400 `REVIEW_SELF_REPORT`). 소프트 삭제 구조상 "삭제 후 재작성"은 어차피 UNIQUE(order_item_id) 점유로 불가.
+- **기본 배송지 삭제**: 다른 배송지가 있을 때만 허용 — 삭제 시 **등록순 가장 오래된 주소를 자동 기본 승격**(같은 트랜잭션). 유일한 배송지는 삭제 불가(400).
+- **의도적 제외(고도화 후보)**: 클레임 철회(claim.status 값 추가로 수용), 회원 탈퇴(soft delete 경로), 최근 본 상품 개별 삭제(**기능 없음 확인 — 2026-07-10**). 마지막 건은 user_event append-only 원칙과 충돌하는 유일한 잠재 삭제 기능이었으나 부재 확인으로 종결 — 고도화에서 도입하려면 append-only 재설계가 선행 조건.
+- 상품 등록 API는 MVP 제외지만 **스키마는 등록을 전제로 완결** — brand_id는 계정 유도, category는 leaf 선택, attributes 폼은 attribute_schema(D11) 기반. 등록 도입 시 스키마 변경 없음, 신규 요소는 이미지 업로드 스토리지(인프라)뿐.
+
 > **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
 
 ---
@@ -212,7 +246,7 @@ erDiagram
     }
     brand {
         bigint id PK
-        bigint seller_id FK,UK "판매자 1:1"
+        bigint seller_id FK,UK "판매자 1:1, NULL=크롤링(D25)"
         varchar name UK
         varchar logo_url
         text description
@@ -405,7 +439,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ### brand
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| seller_id | BIGINT | FK(member), UNIQUE, NOT NULL | 판매자 1명 = 브랜드 1개 |
+| seller_id | BIGINT | FK(member), UNIQUE, NULL | 판매자 1명 = 브랜드 1개. NULL = 주인 없는 브랜드(크롤링 적재분, D25) — UNIQUE는 NULL 다중 허용이라 제약 유지 |
 | name | VARCHAR(100) | UNIQUE, NOT NULL | |
 | logo_url | VARCHAR(500) | NULL | |
 | description | TEXT | NULL | |
@@ -426,7 +460,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | category_id | BIGINT | FK(category), NOT NULL | 소분류(leaf)만 참조 (D20) |
 | name | VARCHAR(200) | NOT NULL | |
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
-| price | INT | NOT NULL | 판매가 (D15). 할인율은 파생 계산(저장 금지) |
+| price | INT | NOT NULL | 판매가 (D15). `price ≤ original_price` 서비스 검증(D28). 할인율은 파생 계산(저장 금지) |
 | image_url | VARCHAR(500) | NOT NULL | 대표 이미지 1장 (D14 — 단일 확정) |
 | base_sales_count | INT | NOT NULL DEFAULT 0 | 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계 |
 | summary | VARCHAR(500) | NULL | 주요 특징 요약 |
@@ -452,6 +486,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | quantity | INT | NOT NULL, CHECK > 0 | |
 
 - UNIQUE(member_id, product_id, option_id) — 같은 상품+옵션 재담기는 수량 증가로 처리.
+- option_id는 반드시 해당 product의 옵션이어야 함 — FK로는 강제 불가, 서비스 검증(D26 ①).
 - **MySQL 주의**: UNIQUE 인덱스는 NULL을 중복 허용하므로 option_id=NULL(무옵션 상품)엔 이 제약이 걸리지 않는다 → 서비스 레이어의 "조회 후 수량 증가" upsert가 실질 방어선. 동시 요청으로 중복 행이 생겨도 기능상 무해(목록에 2행 표시)라 감수 — 스키마로 막으려면 option_id NOT NULL + 센티널(0)이 필요한데 FK 무결성을 깨는 비용이 더 큼.
 - 가격은 저장하지 않는다(장바구니는 현재가 표시 — 스냅샷은 주문 시점에만).
 
@@ -464,7 +499,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | phone | VARCHAR(20) | NOT NULL | |
 | zip_code | VARCHAR(10) | NOT NULL | |
 | address1 / address2 | VARCHAR(255) / VARCHAR(255) | NOT NULL / NULL | |
-| is_default | BOOLEAN | NOT NULL DEFAULT false | 회원당 1개 — 서비스 레이어에서 보장 |
+| is_default | BOOLEAN | NOT NULL DEFAULT false | 회원당 1개 — 서비스 레이어에서 보장. 기본 배송지 삭제 규칙은 D29(등록순 자동 승격, 유일 배송지 삭제 불가) |
 
 ### orders  (`order`는 SQL 예약어라 복수형)
 | 컬럼 | 타입 | 제약 | 비고 |
@@ -472,7 +507,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | member_id | BIGINT | FK(member), NOT NULL | |
 | status | VARCHAR(20) | NOT NULL | `PENDING` / `PAID` / `PAYMENT_FAILED` (01 문서) |
 | payment_method | VARCHAR(30) | NOT NULL | `MOCK_CARD` / `MOCK_FAIL` 등 |
-| total_amount | INT | NOT NULL | 주문 시점 합계 스냅샷 (D1) |
+| total_amount | INT | NOT NULL | 주문 시점 합계 스냅샷 (D1) — 항상 `Σ(order_item.price × quantity)`와 일치, 서버 계산으로만 기록 (D26 ④) |
 | recipient / phone / zip_code / address1 / address2 | 주소와 동일 | NOT NULL(address2 제외) | 배송지 스냅샷 — address FK 아님(주소 수정·삭제돼도 주문 보존) |
 | delivery_request | VARCHAR(200) | NULL | 배송 요청사항 — 주문 1회성 지시 (D22) |
 | paid_at | DATETIME | NULL | |
@@ -572,6 +607,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 - 크롤링 적재분: 상품(base_sales_count 포함, D18)과 리뷰(author_name 스냅샷, D19)는 11번가 크롤링 데이터를 사용 — 시드가 아니라 크롤링 파이프라인 산출물
 - **크롤링 이미지는 원본 URL 핫링크 금지** — 파이프라인에서 자체 저장소로 내려받아 webp 변환 후 `image_url`은 자체 경로로(2026-07-09 확정). 발표 당일 외부 CDN 차단·URL 만료로 전 상품 이미지가 깨지는 리스크 제거
 - 카테고리마다 `attribute_schema`(속성 축)를 먼저 확정하고, 그 카테고리 상품의 `attributes`는 반드시 그 축의 키로 채울 것(D11 — 시드 단계가 정합의 보장 지점)
+- 소분류 이름이 대분류 간 충돌하면 대분류를 접두해 개칭("남성 니트") — category.name 전역 UNIQUE 유지(D27). 상품은 반드시 소분류(leaf)에만 연결(D26 ②)
 - 상품마다 `summary`+`attributes`를 채울 것 — LLM 추천 품질이 이 텍스트 밀도에 좌우됨
 - 옵션 상품과 무옵션 상품 혼재, 할인 상품(원가>판매가) 일부 포함
 - 판매자 계정 2~3개는 특정 브랜드에 연결하고, 그 브랜드 상품에 user_event 더미를 깔아 판매자 대시보드가 첫 시연부터 그럴듯하게 보이게
@@ -586,6 +622,11 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 - [ ] guest → member 승계 시 user_event의 member_id가 채워지는가
 - [ ] 시드 상품의 attributes 키가 소속 category.attribute_schema와 일치하는가 (D11)
 - [ ] 재고·품절을 전제한 코드가 없는가 — 판매 중지는 product.status=HIDDEN뿐 (D8)
+- [ ] 담기·주문 생성 시 옵션이 해당 상품 소속인지 검증하는가 (D26 ①)
+- [ ] product.category_id가 소분류(leaf)만 참조하는지 시드·수정 경로에서 검증하는가 (D26 ②)
+- [ ] review의 product_id/member_id가 body가 아니라 서버 유도로 채워지는가 (D26 ③)
+- [ ] total_amount가 서버 계산 Σ(price×quantity)와 일치하는가 (D26 ④)
+- [ ] price ≤ original_price가 시드·S-3 양쪽에서 검증되는가 (D28)
 
 ## 7. 기능 커버리지 매트릭스 (2026-07-09 전체 검토 결과)
 
