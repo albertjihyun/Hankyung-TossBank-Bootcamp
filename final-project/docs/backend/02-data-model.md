@@ -38,7 +38,7 @@
 
 - **게스트 채팅 횟수 제한은 두지 않는다** (2026-07-07 팀 회의: "이 정도 loss는 감수" — 가입 전 이탈 방지 우선). 게스트는 무제한 채팅 가능하되 개인화만 미적용.
 - guest 테이블은 카운트용이 아니라 **행동 이력(user_event)의 주체 식별 + 가입 시 승계**를 위해 유지: `guest(id UUID, converted_member_id)`.
-- 가입/로그인 시 프론트가 guestId를 전달하면 `converted_member_id` 기록 + 해당 guest의 user_event를 member로 이관(UPDATE).
+- 가입/로그인 시 프론트가 guestId를 전달하면 `converted_member_id` 기록 + 해당 guest의 user_event를 member로 이관(UPDATE) + **장바구니 병합**(D30 — 같은 트랜잭션).
 
 ### D6. Refresh Token은 Redis가 아니라 DB 테이블에 저장한다
 
@@ -157,7 +157,8 @@
 - **선택지**: (A) 소분류만 category로 두고 대분류는 `group VARCHAR` 라벨 (B) `parent_id` 자기참조 2단 고정 (C) attributes의 "품목" 키로 브랜드홈 필터
 - **기준**: ① 대분류가 독립 엔티티인가 — 메인 해시태그로서 아이콘·노출 순서를 가짐 → 행이어야 자연스러움 ② 쿼리 비용 — 2단 고정이면 조인 1번, 재귀 없음 ③ attribute_schema의 주인은 소분류(원피스와 팬츠의 축이 다름) ④ (C)는 서버 미검증 JSON이라 필터 신뢰도 부족.
 - **선택**: (B). 규약: **product.category_id는 소분류(leaf)만 참조**, attribute_schema도 소분류에만. 메인 해시태그 = `parent_id IS NULL` 조회. 크롤링 소스(11번가)의 중/소분류 구조를 그대로 매핑(D10의 "평탄화" 폐기).
-- **트레이드오프**: 3단 이상은 재설계 필요 — 화면 요구가 2단 고정이라 감수. 시드 규모 증가: 대분류 8 + 소분류 40~80 (§5 갱신).
+- **트레이드오프**: 시드 규모 증가 — 대분류 8 + 소분류 40~80 (§5 갱신).
+- **확장 노트 (2026-07-10 정정)**: "3단 이상은 재설계"는 부정확 — parent_id 자기참조(인접 리스트)는 깊이 무관이라 **스키마는 이미 N단을 수용**한다. "대분류/소분류"는 라벨일 뿐이고 시스템의 앵커는 트리 **위치** 둘뿐: **뿌리**(`parent_id IS NULL`) = 메인 해시태그, **잎** = 상품 연결 + attribute_schema 소유. 따라서 중간 단(중분류) 삽입은 스키마·앵커 변경 없이 가능. 단이 늘 때 실제로 바뀌는 건 두 가지 — ① I-1의 "하위 전체 포함" 검색이 조인 1번에서 재귀(recursive CTE)로 ② 브랜드홈 필터를 어느 단에 걸지(UI 결정). MVP는 화면이 2단만 소비하므로 2단 규약 유지.
 
 ### D21. 약관 동의 2건 복원 — D16 부분 개정 (피그마 검토 2026-07-09)
 
@@ -212,6 +213,14 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 - **기본 배송지 삭제**: 다른 배송지가 있을 때만 허용 — 삭제 시 **등록순 가장 오래된 주소를 자동 기본 승격**(같은 트랜잭션). 유일한 배송지는 삭제 불가(400).
 - **의도적 제외(고도화 후보)**: 클레임 철회(claim.status 값 추가로 수용), 회원 탈퇴(soft delete 경로), 최근 본 상품 개별 삭제(**기능 없음 확인 — 2026-07-10**). 마지막 건은 user_event append-only 원칙과 충돌하는 유일한 잠재 삭제 기능이었으나 부재 확인으로 종결 — 고도화에서 도입하려면 append-only 재설계가 선행 조건.
 - 상품 등록 API는 MVP 제외지만 **스키마는 등록을 전제로 완결** — brand_id는 계정 유도, category는 leaf 선택, attributes 폼은 attribute_schema(D11) 기반. 등록 도입 시 스키마 변경 없음, 신규 요소는 이미지 업로드 스토리지(인프라)뿐.
+
+### D30. 게스트도 장바구니에 담을 수 있다 (팀 결정 2026-07-10 — "담기=로그인 필요" 폐기)
+
+- **결정**: 기존엔 담기부터 로그인 필수(챗봇의 "로그인하면 담아드려요"가 가입 유도 장치). 팀 합의로 **게스트 담기 허용, 로그인 유도 지점을 결제(O-1)로 이동** — 담기 마찰을 줄여 퍼널을 넓히고, 유도는 구매 의사가 확정된 시점에 건다.
+- **스키마**: cart_item에 `guest_id CHAR(36) FK(guest) NULL` 추가, `member_id` NULL 허용. **둘 중 정확히 하나만 NOT NULL** — user_event와 같은 XOR 패턴(서비스 검증). UNIQUE는 2개: `(member_id, product_id, option_id)` / `(guest_id, product_id, option_id)`.
+- **승계 병합**: 가입/로그인 시(A-1/A-2의 guestId) 게스트 cart_item을 member로 병합 — member 장바구니에 동일 상품+옵션이 이미 있으면 **수량 합산(상한 99 클램프)** 후 게스트 행 삭제, 없으면 소유자만 변경. user_event 승계(D5)와 같은 트랜잭션.
+- **결제는 불변**: orders.member_id NOT NULL 유지 — 게스트 주문 없음. 게스트가 결제를 누르면 FE가 로그인 유도, 로그인하면 병합 승계로 장바구니가 그대로 따라온다. **결제 관련 ERD 변경 없음.**
+- **파급**: 04 C-1~C-4 게스트 허용, 05 I-2 게스트 담기 성공(403 유도 폐기), guest 쿠키 발급 트리거 확대(03 D3 — 첫 채팅 또는 첫 담기).
 
 > **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
 
@@ -279,7 +288,8 @@ erDiagram
     }
     cart_item {
         bigint id PK
-        bigint member_id FK
+        bigint member_id FK "NULL=게스트(D30)"
+        char36 guest_id FK "게스트 장바구니(D30)"
         bigint product_id FK
         bigint option_id FK "NULL 허용"
         int quantity
@@ -385,6 +395,7 @@ erDiagram
     member ||--o{ refresh_token : has
     member ||--o{ guest : "converted (승계)"
     guest  ||--o{ user_event : generates
+    guest  ||--o{ cart_item : "has (D30)"
     brand ||--o{ product : has
     category ||--o{ category : "대분류>소분류(D20)"
     category ||--o{ product : "소분류가 classifies"
@@ -480,15 +491,18 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 ### cart_item
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| member_id | BIGINT | FK(member), NOT NULL | 게스트 장바구니 없음(담기는 로그인 필요) |
+| member_id | BIGINT | FK(member), NULL | 로그인 사용자. 게스트면 NULL — member/guest 중 정확히 하나(서비스 검증, D30) |
+| guest_id | CHAR(36) | FK(guest), NULL | 게스트 장바구니 (D30) |
 | product_id | BIGINT | FK(product), NOT NULL | |
 | option_id | BIGINT | FK(product_option), NULL | 옵션 없는 상품은 NULL |
 | quantity | INT | NOT NULL, CHECK > 0 | |
 
-- UNIQUE(member_id, product_id, option_id) — 같은 상품+옵션 재담기는 수량 증가로 처리.
+- UNIQUE(member_id, product_id, option_id) + UNIQUE(guest_id, product_id, option_id) — 같은 상품+옵션 재담기는 수량 증가로 처리.
 - option_id는 반드시 해당 product의 옵션이어야 함 — FK로는 강제 불가, 서비스 검증(D26 ①).
 - **MySQL 주의**: UNIQUE 인덱스는 NULL을 중복 허용하므로 option_id=NULL(무옵션 상품)엔 이 제약이 걸리지 않는다 → 서비스 레이어의 "조회 후 수량 증가" upsert가 실질 방어선. 동시 요청으로 중복 행이 생겨도 기능상 무해(목록에 2행 표시)라 감수 — 스키마로 막으려면 option_id NOT NULL + 센티널(0)이 필요한데 FK 무결성을 깨는 비용이 더 큼.
 - 가격은 저장하지 않는다(장바구니는 현재가 표시 — 스냅샷은 주문 시점에만).
+- **cart 헤더 테이블은 두지 않는다** — 장바구니는 주체(회원/게스트)당 암묵 1개고 자체 속성이 없어, 헤더를 만들면 컬럼이 소유자 id뿐인 1:1 테이블(조인 비용만 추가)이 된다. "장바구니 = 그 주체의 cart_item 집합". 다중/공유 장바구니가 생기면 cart 헤더 + cart_id 컬럼 추가로 확장.
+- 게스트 장바구니는 guest_id로 지원(D30) — 로그인 유도는 담기가 아니라 **결제 시점**, 가입/로그인 시 병합 승계.
 
 ### address
 | 컬럼 | 타입 | 제약 | 비고 |
@@ -620,6 +634,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 - [ ] 할인율·평점 평균·주문 대표 상태를 저장하는 컬럼이 어디에도 없는가
 - [ ] user_event 적재가 요청 응답을 막지 않는가 (@Async 또는 이벤트 리스너)
 - [ ] guest → member 승계 시 user_event의 member_id가 채워지는가
+- [ ] guest → member 승계 시 cart_item이 병합되는가 (D30 — 동일 상품+옵션 수량 합산·상한 99, user_event 승계와 같은 트랜잭션)
 - [ ] 시드 상품의 attributes 키가 소속 category.attribute_schema와 일치하는가 (D11)
 - [ ] 재고·품절을 전제한 코드가 없는가 — 판매 중지는 product.status=HIDDEN뿐 (D8)
 - [ ] 담기·주문 생성 시 옵션이 해당 상품 소속인지 검증하는가 (D26 ①)
@@ -639,7 +654,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 3 챗봇(검색) | 대화=Redis 세션(비영속, 03) — 테이블 없음(의도), user_event(CHAT_QUERY), attributes 2단 검색(D7·D11), 챗봇 담기=cart_item |
 | 4 상품 상세 | product(이미지=image_url 단일, D14), product_option, review(평점 통계는 파생 D9), 연관 추천=05 OPEN(BE 규칙 기반이면 category+집계로 충분) |
 | 5 브랜드 홈 | brand, product(정렬은 집계 파생 D9), category 소분류 필터(D20) |
-| 6 장바구니 | cart_item(현재가 표시 — 스냅샷 없음, 의도) |
+| 6 장바구니 | cart_item(현재가 표시 — 스냅샷 없음, 의도. 게스트 담기 지원 — D30, 가입 시 병합 승계) |
 | 7 결제 | orders(배송지·금액 스냅샷 D1, 상태 01 §2-1), order_item(01 §2-2), 모의 결제(01 D7) |
 | 8 마이페이지 | orders·order_item(주문 내역), claim(취소·반품·교환), user_event(최근 본 상품 D3), wishlist(찜), address(배송지), inquiry(문의 내역) |
 | 9 문의 챗봇 | inquiry(접수), 주문 상태 답변=01 §4 파생 규칙(저장 안 함) |
