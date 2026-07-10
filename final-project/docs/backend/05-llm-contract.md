@@ -74,8 +74,8 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 - attributes까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7). 카테고리별 속성 축의 정의는 `category.attribute_schema`(02 D11) — 시드 데이터와 LLM 프롬프트가 같은 축을 공유한다.
 
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
-- body: `{ "userId": 123, "productId": 1, "optionId": null, "quantity": 1 }` — quantity 1~99 (04 §3과 동일 검증: 입구가 달라도 같은 CartService)
-- 게스트(userId null) 요청은 403 `CART_LOGIN_REQUIRED` — LLM은 이를 받으면 "로그인하면 담아드릴게요"로 답변.
+- body: `{ "userId": 123, "guestId": null, "productId": 1, "optionId": null, "quantity": 1 }` — userId/guestId 중 하나(채팅 요청의 메아리). quantity 1~99 (04 §3과 동일 검증: 입구가 달라도 같은 CartService)
+- **게스트(userId null)도 guestId로 담기 성공** (02 D30 — 2026-07-10 개정, 기존 403 유도 폐기). 로그인 유도는 결제 시점의 FE 몫 — LLM은 "장바구니에 담았어요. 주문하실 땐 로그인이 필요해요" 정도로만 안내.
 - 옵션 필요한데 optionId 없으면 400 `CART_OPTION_REQUIRED` + options 목록 반환 → LLM이 "어떤 색상으로 담을까요?"로 되물음.
 - 성공 응답에 cartItemId — action 이벤트에 사용. `CART_ADD(via: chat)` 이벤트는 BE가 적재.
 
