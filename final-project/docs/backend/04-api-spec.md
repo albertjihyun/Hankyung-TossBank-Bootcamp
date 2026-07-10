@@ -38,12 +38,12 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| C-1 | GET | /api/cart | 🔑 | 내 장바구니: 아이템(상품 요약, 옵션, 수량, 현재가), 합계는 FE 계산 아님 — data에 totalOriginal/totalSale/discount 포함 |
+| C-1 | GET | /api/cart | 🔑 | 내 장바구니: 아이템(상품 요약, 옵션, 수량, 현재가), 합계는 FE 계산 아님 — data에 totalOriginal/totalSale/discount 포함. HIDDEN 상품 아이템은 목록에 유지하되 `purchasable=false`로 표시(합계에서 제외) — 주문 시도는 O-1이 400 |
 | C-2 | POST | /api/cart/items | 🔑 | 담기. body: productId, optionId?, quantity — 동일 상품+옵션 존재 시 수량 합산. CART_ADD(manual) 이벤트 |
 | C-3 | PATCH | /api/cart/items/{id} | 🔑 | 수량 변경. body: quantity(≥1) |
 | C-4 | DELETE | /api/cart/items/{id} | 🔑 | 삭제 (복수 삭제는 FE에서 반복 호출 — 데모 규모) |
 
-- 옵션 있는 상품에 optionId 누락 → 400 `CART_OPTION_REQUIRED`. 본인 아이템 아니면 403. quantity는 1~99(합산 결과 포함 — INT 오버플로·비정상 입력 방지, I-2 동일).
+- 옵션 있는 상품에 optionId 누락 → 400 `CART_OPTION_REQUIRED`. optionId가 해당 상품의 옵션이 아니면 400 `CART_OPTION_INVALID`(02 D26 ①). 본인 아이템 아니면 403. quantity는 1~99(합산 결과 포함 — INT 오버플로·비정상 입력 방지, I-2 동일).
 
 ## 4. order / claim
 
@@ -67,16 +67,17 @@
 |---|---|---|---|---|
 | M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/EXCHANGED/CONFIRMED + 미작성, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED` |
 | M-2 | GET | /api/reviews/me | 🔑 | 내가 쓴 후기 목록 |
-| M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409 |
+| M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409, 자기 후기 신고 400 `REVIEW_SELF_REPORT`(02 D29) |
 | M-4 | GET | /api/wishlist | 🔑 | 찜 목록 |
 | M-5 | POST | /api/wishlist | 🔑 | 찜 추가. body: productId — 중복 409. WISHLIST_ADD 이벤트 |
 | M-6 | DELETE | /api/wishlist/{productId} | 🔑 | 찜 해제 |
 | M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (user_event 기반, 중복 제거 최신 20개) |
-| M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션) |
+| M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션). 삭제: 기본 배송지는 다른 배송지가 있을 때만 가능 — 등록순 가장 오래된 주소 자동 승격(같은 트랜잭션), 유일한 배송지는 삭제 불가 400 `ADDRESS_LAST_UNDELETABLE`(02 D29) |
 | M-9 | GET | /api/inquiries/me | 🔑 | 내 문의 내역(읽기 전용): 제목(02 D23), 내용, 상태, 답변 |
 | M-10 | PATCH | /api/members/me | 🔑 | 프로필 수정: nickname |
 
 - 문의 "접수"는 사용자 API가 없다 — 문의 챗봇(LLM)이 ⚙ internal 콜백으로만 생성(문의 단일 채널 원칙, 05 문서).
+- 후기는 **등록만** — 본인 후기 수정·삭제 API 없음(02 D29, MVP 팀 결정).
 
 ## 6. chat (프록시 — 상세는 05 문서)
 
@@ -92,7 +93,7 @@
 |---|---|---|---|---|
 | S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(EXCHANGED·처리중 포함) — I-6도 동일 |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
-| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, status — 본인 브랜드 상품 아니면 403 |
+| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, original_price, status — 검증 `price ≤ original_price`(02 D28), 본인 브랜드 상품 아니면 403 |
 | S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백을 사용 — 05 문서 |
 
 ## 8. admin — ⚠️ 전부 고도화 (MVP 아님)
@@ -122,9 +123,10 @@
 
 ## 10. 공통 에러 코드 (초기 세트)
 
-`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `CHAT_SESSION_EXPIRED` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
+`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
 
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
 - [ ] P-5 개인화 추천의 응답 형태(상품 ID 목록 vs 카드 데이터) — LLM 팀과 05 계약에서 확정
 - [ ] 상품 상세 "바로 구매" 지원 여부 — 현재 O-1은 cartItemIds[]만 받아 장바구니 경유가 유일한 주문 경로. 피그마에 바로구매 버튼이 있으면 O-1에 items 직접 지정 확장 필요 — FE·기획 확인
+- [x] ~~최근 본 상품 "개별 삭제(X)" 여부~~ — 기능 없음 확인(2026-07-10, 02 D29 종결)
