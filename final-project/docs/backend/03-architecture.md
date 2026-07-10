@@ -105,8 +105,8 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
-- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열, `POST /api/chat`(게스트 허용)은 permitAll.
-- 게스트: `guest_id` HttpOnly 쿠키(UUID). 없으면 첫 채팅 요청 시 발급. **채팅 이전 게스트 행동(PRODUCT_VIEW 등)은 미추적** — 게스트 여정이 채팅에서 시작한다는 전제로 감수(2026-07-09 확인).
+- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열, `POST /api/chat`, `/api/cart/**`(게스트 쿠키 허용 — 02 D30)는 permitAll.
+- 게스트: `guest_id` HttpOnly 쿠키(UUID). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급. **쿠키 발급 전 게스트 행동(PRODUCT_VIEW 등)은 미추적** — 감수(2026-07-09 확인).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
 
@@ -213,7 +213,7 @@ com.jarvis
 
 - **경계(일부러 빈 칸)**: 에이전트의 쓰기 상한은 "담기까지". 주문 생성·클레임·후기는 LLM이 못 한다(05 §0-1). 고도화 시에도 초안+사용자 본인 JWT 확인으로만.
 - **핵심 비대칭**: ①②(유저)는 1왕복. ③④(에이전트)는 2왕복 중첩 — **Spring이 한 요청 안에서 호출자(FastAPI 호출)이자 피호출자(`/internal` 콜백)** 가 되고, 그동안 SSE가 열려 있다.
-- **입구는 둘, 로직은 하나**: ④의 담기가 ②와 **같은 `CartService.addItem`을 재사용**(§3). `/api`·`/internal`은 신뢰 모델만 다른 입구.
+- **입구는 둘, 로직은 하나**: ④의 담기가 ②와 **같은 `CartService.addItem`을 재사용**(§3). `/api`·`/internal`은 신뢰 모델만 다른 입구. 담기 주체는 회원(JWT의 userId) 또는 게스트(guest_id 쿠키/메아리 — 02 D30).
 - **판매자 불변식**: `brandId`는 항상 **서버가 계정에서 유도**(사용자·LLM이 주장 못 함), 에이전트에는 **집계된 값만** 준다(raw 접근 없음 — I-6).
 
 ### 줄글 설명
@@ -224,7 +224,7 @@ com.jarvis
 
 **③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MySQL 조회(attributes 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
 
-**④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}`; 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 게스트→403 `CART_LOGIN_REQUIRED`→"로그인하면 담아드려요". 자동 재시도 없음(중복 담기 방지).
+**④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}` (게스트도 guestId로 담기 성공 — 02 D30, 로그인 유도는 결제 시점); 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 그 외 검증 실패→사유 안내. 자동 재시도 없음(중복 담기 방지).
 
 **⑤ 판매자 조회(대시보드)** — FE `GET /api/seller/summary`(Bearer) → 시큐리티 필터가 JWT+`SELLER` 확인 → SellerController가 **토큰 memberId에서 brandId 유도**(주장받지 않음) → SellerService 집계(매출·주문수는 order_item, 조회/담김/판매수는 user_event; 복잡 집계만 JdbcTemplate) → WHERE에 brandId 박혀 남의 데이터는 쿼리 단계에서 안 나옴 → envelope. (S-2도 동형.)
 
