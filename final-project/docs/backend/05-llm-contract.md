@@ -35,7 +35,7 @@
 
 ### 1-2. 응답: SSE 스트림
 
-이벤트 타입 6종. BE는 그대로 FE에 패스스루한다.
+이벤트 타입 7종. BE는 그대로 FE에 패스스루한다.
 
 ```
 event: token       data: {"text": "유럽여행이라면 "}          // 답변 텍스트 조각 (스트리밍)
@@ -48,6 +48,9 @@ event: products    data: {"groups": [                        // 상품 카드 (�
                     ]}
                   ]}
 event: action      data: {"type": "CART_ADDED", "message": "무선 키보드 1개를 장바구니에 담았어요", "cartItemId": 55}
+event: draft       data: {"productId": 3, "changes": [{"field": "description", "before": "…", "after": "…"}]}
+                                                             // SELLER 전용 — 상세 수정 초안. FE가 diff 카드 + [적용] 버튼 렌더
+
 event: done        data: {"finishReason": "stop"}
 event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 시도해주세요"}
 ```
@@ -61,7 +64,13 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 
 - 같은 `/chat` 엔드포인트에 `channel: "CS"` / `"SELLER"`. 분기는 FastAPI 내부(프롬프트·툴셋 차이).
 - CS: 비로그인(userId null)이면 일반 안내만, 주문 질문엔 로그인 유도 문구로 답변.
-- SELLER: BE가 요청에 `brandId` 추가로 전달(판매자 인증 후). 분석 질문은 I-6 집계 콜백 사용.
+- SELLER: BE가 요청에 `brandId` 추가로 전달 — **JWT 검증 후 BE가 DB에서 도출한 값이며, 클라이언트(FE)가 보낸 brandId는 무시한다.** 분석 질문은 I-6 집계 콜백 사용.
+- SELLER 상세페이지 수정 — **초안 + 판매자 확인 패턴 (0-1 검토 순서 ①의 적용 사례)**:
+  1. LLM이 I-7로 현재 상품 상세를 읽고 수정안 생성 → `draft` 이벤트로 before/after 반환
+  2. FE가 채팅 스트림 안에 diff 카드 + [적용]/[취소] 버튼 렌더
+  3. 판매자가 적용 클릭 → **FE가 판매자 본인 JWT로 S-3 PATCH 호출** (04). LLM 경로에 쓰기 문 없음
+  - 확인은 LLM 밖 채널(버튼+JWT)로만 인정. **채팅 발화("그냥 수정해줘")는 동의로 인정하지 않는다** — 동의 판정이 LLM 안으로 들어가는 순간 리뷰·문의 등 고객 텍스트를 통한 간접 인젝션이 동의를 위조할 수 있다. 인젝션이 성공해도 피해는 "이상한 초안이 보인다"에서 끝나는 구조가 핵심.
+  - 반영 성공 발화는 FE 몫: S-3 성공 후 FE가 시스템 메시지 표시. LLM은 "수정했어요"라고 말하지 않는다(프롬프트 가드레일 — §4).
 
 ## 2. 콜백: FastAPI → BE `/internal/*`
 
@@ -93,6 +102,11 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 ### I-6. 판매자 집계 `GET /internal/seller/{brandId}/stats?from=&to=&groupBy=day|product`
 - 응답: 매출/주문수/조회수/담김수/판매수 시계열 또는 상품별. **LLM에 raw 로그를 주지 않고 집계만 준다** — text2SQL류의 실패 모드(잘못된 쿼리, 타 판매자 데이터 접근)를 계약 수준에서 차단.
 
+### I-7. 판매자 상품 상세 `GET /internal/seller/{brandId}/products/{productId}`
+- 응답: I-1 item 필드 + `description`, `status`. 상세 수정 초안 생성용 읽기 전용 — **쓰기 문은 신설하지 않는다** (적용은 판매자 JWT로 S-3).
+- `product.brand_id ≠ brandId`면 403 — S-3과 동일한 소유권 검증을 internal에서도 반복(productId는 LLM이 채우는 값이라 신뢰 불가).
+- `brandId`는 LLM 툴 인자가 아니라 **FastAPI가 세션 컨텍스트에서 코드로 주입**해야 한다(§4 합의 항목).
+
 ## 3. 비기능 규약
 
 | 항목 | 값 |
@@ -112,4 +126,6 @@ event: error       data: {"code": "LLM_TIMEOUT", "message": "잠시 후 다시 �
 - [ ] P-5 개인화 추천(메인) API: `GET {LLM_BASE_URL}/recommendations?userId=` 형태 제안 — 응답이 상품 ID 목록이면 BE가 카드 데이터 조립. BE 측 타임아웃 연결 2s/응답 3s(04 P-5 — 메인 렌더 블로킹 방지, 초과 시 인기 상품 fallback)
 - [ ] 채팅 남용 방어(rate limit)의 소유와 기준치 — BE 제안: FastAPI 측 세션/IP당 분당 N건 스로틀(§3). 필요 시 BE가 `/api/chat` 앞단 보조 스로틀 추가 가능
 - [ ] 상세페이지 연관 추천 2종(함께 구매/대체)의 소스: LLM 생성 vs BE 규칙 기반(같은 카테고리 인기순) — MVP는 BE 규칙 기반 제안
-- [ ] SSE 이벤트 스키마 필드명 최종 확정
+- [ ] SSE 이벤트 스키마 필드명 최종 확정 (`draft` 이벤트 포함)
+- [ ] **SELLER 툴 바인딩**: `brandId`(및 신원 필드 전부)는 LLM이 채우는 툴 파라미터로 노출 금지 — FastAPI 프레임워크 코드가 세션 컨텍스트에서 주입. 인젝션으로 타 브랜드 id를 넣는 경로 차단
+- [ ] **SELLER 프롬프트 가드레일**: ① "직접 반영했어요" 류 발화 금지(쓰기 툴이 없는데 성공 환각 시 판매자가 적용 버튼을 안 누름) ② 직접 반영 요구엔 "확인 후 적용 버튼으로 즉시 반영" 안내
