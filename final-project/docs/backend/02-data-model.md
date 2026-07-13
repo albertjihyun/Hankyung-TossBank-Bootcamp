@@ -656,7 +656,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 | 4 상품 상세 | product(이미지=image_url 단일, D14), product_option, review(평점 통계는 파생 D9), 연관 추천=05 OPEN(BE 규칙 기반이면 category+집계로 충분) |
 | 5 브랜드 홈 | brand, product(정렬은 집계 파생 D9), category 소분류 필터(D20) |
 | 6 장바구니 | cart_item(현재가 표시 — 스냅샷 없음, 의도. 게스트 담기 지원 — D30, 가입 시 병합 승계) |
-| 7 결제 | orders(배송지·금액 스냅샷 D1, 상태 01 §2-1), order_item(01 §2-2), 모의 결제(01 D7) |
+| 7 결제 | orders(배송지·금액 스냅샷 D1, 상태 01 §2-1), order_item(01 §2-2), 모의 결제(01 D7). 장바구니 결제·바로 구매 둘 다 O-1(cartItemIds[] 또는 items[]) — 스냅샷이라 스키마 공통 |
 | 8 마이페이지 | orders·order_item(주문 내역), claim(취소·반품·교환), user_event(최근 본 상품 D3), wishlist(찜), address(배송지), inquiry(문의 내역) |
 | 9 문의 챗봇 | inquiry(접수), 주문 상태 답변=01 §4 파생 규칙(저장 안 함) |
 | 10 판매자 페이지 | brand.seller_id(권한 유도), 지표=order_item·user_event 집계, 상품 수정=product(S-3) |
