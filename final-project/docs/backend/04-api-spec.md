@@ -51,14 +51,18 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: cartItemIds[], addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성(아이템도 `PENDING` — 01 D9) → 스냅샷 복사 → mock 결제 판정 → PAID(아이템 `ORDERED` 전이·장바구니 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
+| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: **source = cartItemIds[] 또는 items[]{productId, optionId?, quantity} 중 정확히 하나** (장바구니 경유 vs 바로 구매 — 둘 다/둘 다 없음 400), addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성(아이템도 `PENDING` — 01 D9) → 스냅샷 복사 → mock 결제 판정 → PAID(아이템 `ORDERED` 전이·장바구니 경유분만 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
 | O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만. 성공 시 부수효과는 O-1의 PAID와 동일(아이템 `ORDERED` 전이·ORDER_CREATED 적재·장바구니에 같은 상품+옵션 행이 남아 있으면 삭제) |
 | O-3 | GET | /api/orders | 🔑 | 내 주문 목록: 대표 상태(01 §4), 아이템 요약. query: page, size |
 | O-4 | GET | /api/orders/{id} | 🔑 | 주문 상세: 아이템별 상태, 배송지 스냅샷, 금액, 아이템별 가능 액션(canCancel/canReturn/canExchange/canReview — 01 §3 매트릭스를 서버가 계산해 내려줌) |
 | O-5 | POST | /api/order-items/{id}/claims | 🔑 | 클레임 신청. body: type(CANCEL\|RETURN\|EXCHANGE), reason? — 01 매트릭스 위반 시 400 `CLAIM_NOT_ALLOWED`, 활성 클레임 존재 시 409 |
 | O-6 | GET | /api/claims | 🔑 | 내 취소·반품·교환 내역. query: page, size |
 
-- O-1 검증: 대상 상품 전부 `status=ON_SALE`(HIDDEN 포함 시 400), 수량 아이템당 1~99, 금액은 서버가 스냅샷 가격으로 재계산(클라이언트가 보낸 금액은 신뢰하지 않음 — body에 금액 필드 자체가 없음).
+- **바로 구매(items[] 경로)**: 상품 상세의 "바로 구매"는 장바구니를 거치지 않는다 — FE가 `items[]`로 O-1 직접 호출(주문서 화면은 장바구니 결제와 동일, 단일 상품만 프리필). 두 경로는 라인아이템 **출처만 다르고**(cart_item 조회 vs body), 이후 스냅샷 복사·검증·결제·상태 전이는 **같은 서비스 코드로 수렴**. 스키마 무변경 — order/order_item이 스냅샷이라 cart_item에 의존하지 않는다(02 D1의 배당금).
+  - 바로 구매는 **장바구니 미접촉**: 담지도, PAID 시 차감하지도 않음(차감은 cartItemIds[] 경유분 한정).
+  - 게스트는 바로 구매도 **로그인 필수**(orders.member_id NOT NULL — 02 D30 일관). 게스트가 "바로 구매" 클릭 시 FE 로그인 유도.
+  - **O-2 재결제는 무변경**: 실패 주문은 이미 order_item이 스냅샷돼 있어(01 D9) 출처와 무관하게 동일 재결제. 바로 구매 실패분도 그대로 재시도됨.
+- O-1 검증(두 경로 공통): 대상 상품 전부 `status=ON_SALE`(HIDDEN 포함 시 400), optionId가 해당 상품 옵션인지(02 D26 ①, items[] 경로도 동일), 수량 아이템당 1~99, 금액은 서버가 스냅샷 가격으로 재계산(클라이언트가 보낸 금액은 신뢰하지 않음 — body에 금액 필드 자체가 없음).
 - O-4가 가능 액션을 내려주는 이유: 상태 매트릭스 판단을 FE에 중복 구현하지 않기 위해(단일 진실은 서버). FE는 boolean만 보고 버튼 노출.
 - 표시용 주문번호 `orderNo`는 저장하지 않고 파생: `"ORD-" + created_at(yyyyMMdd) + "-" + id` (02 D24). O-3/O-4 응답에 포함.
 - O-1에서 결제까지 한 API로 묶은 이유: 모의 결제라 "생성→별도 결제 승인" 2단계로 나눌 외부 경계가 없음. 실 PG 전환 시(01 D7) 이 API를 생성/승인으로 쪼개는 게 교체 지점.
@@ -130,5 +134,5 @@
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
 - [ ] P-5 개인화 추천의 응답 형태(상품 ID 목록 vs 카드 데이터) — LLM 팀과 05 계약에서 확정
-- [ ] 상품 상세 "바로 구매" 지원 여부 — 현재 O-1은 cartItemIds[]만 받아 장바구니 경유가 유일한 주문 경로. 피그마에 바로구매 버튼이 있으면 O-1에 items 직접 지정 확장 필요 — FE·기획 확인
+- [x] ~~상품 상세 "바로 구매" 지원 여부~~ — **있음 확인(2026-07-10)**. O-1 body에 items[] 경로 추가로 반영(§4), 스키마 변경 없음
 - [x] ~~최근 본 상품 "개별 삭제(X)" 여부~~ — 기능 없음 확인(2026-07-10, 02 D29 종결)
