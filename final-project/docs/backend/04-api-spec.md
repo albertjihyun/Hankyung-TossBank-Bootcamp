@@ -99,8 +99,8 @@
 |---|---|---|---|---|
 | S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(EXCHANGED·처리중 포함) — I-6도 동일 |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
-| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, original_price, status — 검증 `price ≤ original_price`(02 D28), 본인 브랜드 상품 아니면 403 |
-| S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백을 사용 — 05 문서 |
+| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, original_price, status — 검증 `price ≤ original_price`(02 D28), 본인 브랜드 상품 아니면 403. description은 서버측 sanitize(LLM 초안 포함 모든 입력 — XSS 차단). 에이전트 초안(05 draft 이벤트)의 "적용"도 FE가 이 API를 판매자 JWT로 호출 |
+| S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). brandId는 JWT 검증 후 BE가 DB에서 도출(클라이언트 전송 값 무시). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백 사용, 상세 수정은 초안(draft)+판매자 확인 — 05 §1-3 |
 
 ## 8. admin — ⚠️ 전부 고도화 (MVP 아님)
 
@@ -126,6 +126,7 @@
 | I-4 | GET | /internal/members/{id}/orders/status | 주문 상태 요약 (문의 챗봇용) |
 | I-5 | POST | /internal/inquiries | 문의 접수 |
 | I-6 | GET | /internal/seller/{brandId}/stats | 판매자 집계 (판매자 에이전트용) |
+| I-7 | GET | /internal/seller/{brandId}/products/{productId} | 판매자 상품 상세 (수정 초안 생성용 읽기 전용 — 소유권 403, 쓰기 문 없음) |
 
 ## 10. 공통 에러 코드 (초기 세트)
 
