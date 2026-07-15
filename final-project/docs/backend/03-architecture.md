@@ -122,6 +122,13 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 - 타임아웃: FastAPI 연결 5초 / 전체 응답 60초. 초과·오류 시 SSE로 `error` 이벤트 전송 후 종료. 재시도는 FE 버튼(자동 재시도 없음 — LLM 호출 중복 비용 방지).
 - **왜 FastAPI가 FE로 직접 안 쏘고 Spring이 중개하나**: SSE는 장수명 HTTP 연결 하나라 Spring이 DB 처리만 하고 그 소켓을 FastAPI에 넘길 방법이 없다. "직접 쏜다 = FE가 FastAPI에 직접 연결한다"가 되고, 그 순간 ① 인증 경계가 둘로 갈라지고(FastAPI가 JWT·게스트를 판별해야 함 — "신원 검증은 `/api`에서 한 번" 원칙 붕괴) ② FastAPI가 공개 진입점이 돼야 하며(내부망 `expose`만 하던 걸 외부 노출 = nginx 우회 뒷문) ③ 세션·게스트 관리(Redis, BE 소유)를 우회한다. 홉 하나(내부망 수 ms)를 더 먹는 대신 단일 진입점 경계를 지키는 판단.
 
+> **[결정 2026-07-15] D5 방향 전환 — SSE는 FastAPI 직결(티켓 핸드오프)로 간다.** 위 "Spring 패스스루"는 대규모 트래픽에서 Spring이 스트림당 소켓 2개(FE↔Spring, Spring↔FastAPI)를 릴레이하는 비용이 병목이 되므로, **목표 설계**를 FE가 FastAPI에 직접 SSE 연결하는 구조로 전환한다. 인증은 Spring이 첫 요청에서 JWT를 검증한 뒤 **단명 서명 티켓**을 발급하고, FE가 그 티켓으로 FastAPI에 연결한다(auth handoff). *지금은 결정만 기록 — 본문·ERD·API 명세는 아직 고치지 않는다. 상세 스펙은 후속 세션에서 확정.*
+>
+> - **FastAPI로 넘어가는 책임(구현 시):** ① **티켓 검증** — 서명·만료·scope·재사용 방지, **stateless 서명**으로(Redis는 Spring 전용 D7 유지). ② **공개 문 경비** — TLS·CORS·rate limit·공개 DNS/LB. ③ **SSE 배관 일체** — `text/event-stream` 헤더·버퍼링 off(`X-Accel-Buffering:no`)·하트비트 `: ping`·**클라 이탈 시 LLM 생성 취소**(비용)·백프레셔·스트림 내 `error` 이벤트. → §8의 "열림" 항목이 이 구조에선 Spring이 아니라 FastAPI 쪽 숙제로 이동.
+> - **안 바뀌는 것:** LLM 쓰기는 여전히 Spring `/internal/*` 콜백(D7) + `X-Internal-Token`(D4). 직결은 **읽기(응답 표시) 경로에만** 적용.
+> - **전제 충돌(후속 정리 필요):** D-분산8 "FastAPI 1대 고정·비노출"과 상충 — 직결 시 FastAPI는 **공개 진입점 + 무상태 복제 대상**이 된다.
+> - **나중에 고칠 지점(마커):** §1-2 D-분산6/D-분산8, 본 D5 본문, §8, **04 API 명세**(채팅 플로우 + 티켓 발급 엔드포인트 신설), **ERD**(티켓 stateless면 변경 없음 예상 — 확인만). ⚠️ 이번엔 손대지 않음.
+
 ### D6. user_event 적재는 Spring 이벤트 + @Async + AFTER_COMMIT
 
 - 서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @TransactionalEventListener(phase = AFTER_COMMIT)`가 INSERT. 본 트랜잭션과 **양방향** 분리: 로그 실패가 주문 트랜잭션을 못 깨고(@Async), 롤백된 트랜잭션의 유령 이벤트도 안 남는다(AFTER_COMMIT). 일반 `@EventListener`는 발행 즉시 실행돼 주문이 롤백돼도 `ORDER_CREATED`가 적재됨 — 판매자 지표가 조용히 오염되므로 금지 (2026-07-09 설계 재검토).
@@ -235,6 +242,8 @@ com.jarvis
 ## 8. SSE 성능·안정성 지형 (결정됨 vs 열림)
 
 Spring 중개(D5)의 대가는 성능·안정성. "네트워크 장비와의 충돌"은 §1-2 D-분산6에서 결정됐고, **"Spring 프로세스 내부의 자원·수명 관리"가 아직 열린 설계 숙제**다(실제 부하에서 터지는 지점).
+
+> **[2026-07-15] D5 전환(§4 D5 결정) 반영 시 이 절 재해석:** 아래 "열림" 항목(타임아웃 정합·이탈 취소·동시 스트림 상한·백프레셔)은 FastAPI 직결 구조에선 Spring이 아니라 **FastAPI 쪽 숙제**로 이동한다. 현재 서술은 Spring 중개 전제 — 직결 확정 시 함께 갱신.
 
 **결정됨**
 - 버퍼링(스트리밍 경로만 `proxy_buffering off`+`X-Accel-Buffering:no`), idle timeout(하트비트 `: ping`+장비 300s), 분산 라우팅(self-pinning, sticky 불필요), FastAPI 다운(SSE `error` `LLM_UNAVAILABLE`, 비채팅 정상) — 전부 D-분산6/D5.
