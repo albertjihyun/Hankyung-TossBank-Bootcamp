@@ -1,5 +1,5 @@
 -- ============================================================
--- DB Schema (MySQL 8.x / InnoDB / utf8mb4) — 공유용 DDL 스냅샷
+-- DB Schema (MariaDB 11.x / InnoDB / utf8mb4) — 공유용 DDL 스냅샷
 -- 원본(source of truth): docs/backend/02-data-model.md
 --   테이블 정의·결정 근거(D1~D30)는 02 문서를 따른다.
 --   02가 바뀌면 이 파일도 함께 갱신할 것 (drift 금지).
@@ -8,6 +8,8 @@
 --       created_at 전 테이블, updated_at은 변경이 있는 테이블만.
 --       FK ON DELETE는 전부 RESTRICT (운영 데이터 보호).
 -- FK가 못 막는 교차 정합(D26)은 서비스 레이어 검증 — 각 테이블 주석 참조.
+-- MariaDB 주의: JSON 타입은 LONGTEXT 별칭(+ 자동 CHECK(JSON_VALID)) — 네이티브 저장 아님.
+--   Hibernate는 MariaDBDialect + @JdbcTypeCode(SqlTypes.JSON)로 매핑(02 §3 매핑 규약).
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -140,7 +142,7 @@ CREATE TABLE cart_item (
     PRIMARY KEY (id),
     UNIQUE KEY uk_cart_member (member_id, product_id, option_id),
     UNIQUE KEY uk_cart_guest (guest_id, product_id, option_id),
-    -- 주의: MySQL UNIQUE는 NULL 중복 허용 → option_id=NULL엔 제약 미적용, 서비스의 조회-후-수량증가 upsert가 실질 방어선
+    -- 주의: MariaDB UNIQUE는 NULL 중복 허용 → option_id=NULL엔 제약 미적용, 서비스의 조회-후-수량증가 upsert가 실질 방어선
     CONSTRAINT chk_cart_quantity CHECK (quantity > 0),
     CONSTRAINT fk_cart_member  FOREIGN KEY (member_id)  REFERENCES member (id)         ON DELETE RESTRICT,
     CONSTRAINT fk_cart_guest   FOREIGN KEY (guest_id)   REFERENCES guest (id)          ON DELETE RESTRICT,

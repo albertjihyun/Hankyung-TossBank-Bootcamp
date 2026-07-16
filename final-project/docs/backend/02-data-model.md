@@ -1,7 +1,7 @@
 # 02. 데이터 모델(ERD) 명세
 
 > 기준: 「기능 정의 - 이소희」 + [01 주문 상태 머신](01-order-state-machine.md)
-> DB: MySQL 8.x (AWS RDS), utf8mb4 · InnoDB. JPA 엔티티는 이 문서의 테이블 정의를 그대로 따른다.
+> DB: MariaDB 11.x (AWS RDS for MariaDB), utf8mb4 · InnoDB. JPA 엔티티는 이 문서의 테이블 정의를 그대로 따른다.
 > 공유용 DDL 스냅샷: [schema.sql](schema.sql) — 이 문서(§3)가 원본이며, §3 변경 시 함께 갱신할 것.
 > 2026-07-09: 노션 「상품 참고」「로그 참고」(7/9 공유) 대조 설계 세션 — D8~D13 추가, `spec` 컬럼을 `attributes`로 개칭(D11).
 
@@ -186,7 +186,7 @@
 - **문제**: 시드 계획(§5)은 브랜드 15~30개에 판매자 계정 2~3개만 연결하는데 `seller_id NOT NULL` — 크롤링 브랜드 전부에 회원이 있어야 INSERT 가능(시드 블로커).
 - **선택지**: (A) 브랜드마다 더미 SELLER 회원 생성 (B) NULL 허용
 - **기준**: (A)는 member의 NOT NULL 컬럼(약관 동의 시각·성별·출생일)을 가입한 적 없는 가짜 인물로 채워 회원 데이터의 의미를 오염시킨다. (B)는 "아직 입점 판매자가 연결되지 않은 브랜드"라는 도메인 사실 그대로.
-- **선택**: (B). MySQL UNIQUE는 NULL 다중 허용이라 "판매자 1명 = 브랜드 1개" 제약은 유지. 판매자 플로우는 member→brand 방향 유도(03 §7)라 영향 없음 — 주인 없는 브랜드는 대시보드 주인이 없는 게 맞다.
+- **선택**: (B). MariaDB UNIQUE는 NULL 다중 허용이라 "판매자 1명 = 브랜드 1개" 제약은 유지. 판매자 플로우는 member→brand 방향 유도(03 §7)라 영향 없음 — 주인 없는 브랜드는 대시보드 주인이 없는 게 맞다.
 
 ### D26. FK가 못 막는 교차 정합 4건은 서비스 검증으로 강제한다 (ERD 정합 검토 — 2026-07-10)
 
@@ -418,7 +418,7 @@ erDiagram
 
 공통: PK는 `id BIGINT AUTO_INCREMENT`(guest 제외). 모든 테이블에 `created_at DATETIME NOT NULL`, 변경이 있는 테이블에 `updated_at`. FK는 명시하되 ON DELETE는 전부 RESTRICT(운영 데이터 보호, 데모에서 삭제 기능 자체가 거의 없음).
 
-JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 — RDS에서 시퀀스 없음). 상태·역할·타입 컬럼은 enum + `@Enumerated(STRING)`(VARCHAR 정의와 1:1). JSON 컬럼(`attributes`, `attribute_schema`, `meta`)은 `@JdbcTypeCode(SqlTypes.JSON)`(Hibernate 6)로 매핑 — 서버는 파싱만 하고 스키마 검증하지 않는다(D7·D11).
+JPA 매핑 규약: Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariadb://`). PK 생성은 `IDENTITY` 전략(MariaDB AUTO_INCREMENT 대응 — RDS에서 시퀀스 없음). 상태·역할·타입 컬럼은 enum + `@Enumerated(STRING)`(VARCHAR 정의와 1:1). JSON 컬럼(`attributes`, `attribute_schema`, `meta`)은 `@JdbcTypeCode(SqlTypes.JSON)`(Hibernate 6)로 매핑 — MariaDB의 JSON은 `LONGTEXT` 별칭(+ 자동 `CHECK(JSON_VALID)`)이라 네이티브 저장은 아니지만 dialect가 흡수한다. 서버는 파싱만 하고 스키마 검증하지 않는다(D7·D11).
 
 ### member
 | 컬럼 | 타입 | 제약 | 비고 |
@@ -501,7 +501,7 @@ JPA 매핑 규약: PK 생성은 `IDENTITY` 전략(MySQL AUTO_INCREMENT 대응 �
 
 - UNIQUE(member_id, product_id, option_id) + UNIQUE(guest_id, product_id, option_id) — 같은 상품+옵션 재담기는 수량 증가로 처리.
 - option_id는 반드시 해당 product의 옵션이어야 함 — FK로는 강제 불가, 서비스 검증(D26 ①).
-- **MySQL 주의**: UNIQUE 인덱스는 NULL을 중복 허용하므로 option_id=NULL(무옵션 상품)엔 이 제약이 걸리지 않는다 → 서비스 레이어의 "조회 후 수량 증가" upsert가 실질 방어선. 동시 요청으로 중복 행이 생겨도 기능상 무해(목록에 2행 표시)라 감수 — 스키마로 막으려면 option_id NOT NULL + 센티널(0)이 필요한데 FK 무결성을 깨는 비용이 더 큼.
+- **MariaDB 주의**: UNIQUE 인덱스는 NULL을 중복 허용하므로 option_id=NULL(무옵션 상품)엔 이 제약이 걸리지 않는다 → 서비스 레이어의 "조회 후 수량 증가" upsert가 실질 방어선. 동시 요청으로 중복 행이 생겨도 기능상 무해(목록에 2행 표시)라 감수 — 스키마로 막으려면 option_id NOT NULL + 센티널(0)이 필요한데 FK 무결성을 깨는 비용이 더 큼.
 - 가격은 저장하지 않는다(장바구니는 현재가 표시 — 스냅샷은 주문 시점에만).
 - **cart 헤더 테이블은 두지 않는다** — 장바구니는 주체(회원/게스트)당 암묵 1개고 자체 속성이 없어, 헤더를 만들면 컬럼이 소유자 id뿐인 1:1 테이블(조인 비용만 추가)이 된다. "장바구니 = 그 주체의 cart_item 집합". 다중/공유 장바구니가 생기면 cart 헤더 + cart_id 컬럼 추가로 확장.
 - 게스트 장바구니는 guest_id로 지원(D30) — 로그인 유도는 담기가 아니라 **결제 시점**, 가입/로그인 시 병합 승계.
