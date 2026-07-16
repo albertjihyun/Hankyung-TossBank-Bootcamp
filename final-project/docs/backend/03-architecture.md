@@ -5,18 +5,20 @@
 ## 1. 시스템 구성
 
 ```
-브라우저 ── Next.js(FE) ── Spring Boot(BE, 단일 진입점) ──┬── MariaDB
-                                │                        ├── Redis (채팅 세션 TTL)
-                                │  SSE 프록시              │
-                                └──────▶ FastAPI(LLM팀) ──┘
-                                ◀── /internal/* 콜백 (서비스 토큰)
+브라우저 ─ Next.js(FE) ─┬─ /api (JWT·게스트쿠키) ─────▶ Spring Boot(BE) ─┬─ MariaDB (커머스)
+                        │                          ▲     │ 티켓발급    └─ Redis (세션 TTL·RS256 키)
+                        │        /internal 콜백(토큰) │     │ (RS256)
+                        └─ 채팅 SSE (단명 티켓/JWKS) ──────▶ FastAPI(LLM팀) ─── Vector PG (임베딩·LLM 소유)
 ```
 
-- FE는 BE만 호출한다. FastAPI 직접 호출 금지 — 인증/권한 검증 지점을 BE 하나로 단일화하기 위함.
-- LLM의 쓰기 작업(장바구니 담기, 문의 접수)은 전부 BE의 `/internal/*` API 콜백으로만 일어난다.
-- 대화 내용은 어디에도 저장하지 않는다(기능 정의 확정). BE는 세션 ID 발급/TTL만 관리.
+- **신원·쓰기의 소유자는 BE 하나.** `/api`(조회·주문·담기·신원)는 전부 Spring. LLM의 쓰기(담기·문의)는 전부 BE `/internal/*` 콜백(`X-Internal-Token`)으로만.
+- **채팅 SSE(읽기·응답 표시)만 FastAPI 직결** — FE가 Spring이 발급한 **단명 서명 티켓(RS256)** 으로 FastAPI에 직접 연결하고, FastAPI는 **JWKS로 티켓만 검증**한다(신원을 만들지 않고 되돌려줌). 상세 D5. *과거엔 Spring SSE 패스스루였음(D5 취소선).*
+- **커머스 DB(MariaDB)는 Spring만**(D7). FastAPI는 자기 소유 **Vector PG(임베딩)** 만 직접 붙고 커머스 DB엔 안 붙는다(D-분산9, D7 예외).
+- 대화 내용은 어디에도 저장하지 않는다(기능 정의 확정). BE는 세션 ID 발급/TTL·티켓 서명만 관리, 멀티턴 맥락은 FastAPI 인메모리.
 
 ### 1-1. 배포 형상 — 단일 서버 단계 (2026-07-08 스터디 결정. 분산 형상은 §1-2)
+
+> **[2026-07-16 현황]** 실제 배포는 이미 **§1-2(분산) 방향**으로 가 있다 — 커머스 DB는 compose 컨테이너가 아니라 **RDS(MariaDB)** 로 외부화됨. §1-1은 "왜 이렇게 나눴나"의 근거·데모 최소 형상으로 유지하되, 상태(DB)는 §1-2/D-분산9 기준(외부화)이 현행이다.
 
 EC2 1대 + docker-compose, 컨테이너 6개(nginx/next/spring/fastapi/mariadb/redis).
 
@@ -38,24 +40,26 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 ```
                       ┌───────┐
-                      │  ALB  │              ← 층 1: 인스턴스 바깥·AWS 관리형 (유일한 공개 진입점)
+                      │  ALB  │              ← 층 1: 인스턴스 바깥·AWS 관리형 · 공개 진입점
                       └───┬───┘
-              ┌───────────┴───────────┐      ※ ALB는 인스턴스에만 — fastapi엔 직접 안 감(비노출)
-              ▼                       ▼
-        ┌──────────┐            ┌──────────┐        ← 앱 티어 A: nginx+next+spring (무상태 복제)
-        │ nginx    │            │ nginx    │
-        │  ├ next  │            │  ├ next  │
-        │  └ spring│            │  └ spring│ ◀──▶ ┌─────────┐
-        └────┬─────┘            └────┬─────┘[내부LB]│ fastapi │  ← 앱 티어 B: LLM · 1대 고정 (비노출)
-             │                       │             └─────────┘     D-분산8 · ※ DB엔 직접 안 붙음(D7)
-             └───────────┬───────────┘        spring ⇄ fastapi = SSE 요청 / internal 콜백
-                         ▼
-                ┌───────────────────┐
-                │  RDS · ElastiCache │       ← 공유 상태 (오직 spring 접근) · Multi-AZ / primary+replica
-                └───────────────────┘
+          ┌───────────────┼──────────────────────────┐   ※ 직결(D5) 후 FastAPI도 공개 대상:
+          ▼               ▼                           ▼     SSE는 FE ↔ FastAPI 직접(티켓 검증)
+    ┌──────────┐    ┌──────────┐                ┌─────────┐
+    │ nginx    │    │ nginx    │                │ fastapi │  ← 앱 티어 B: LLM · **1대 고정 · 공개**
+    │  ├ next  │    │  ├ next  │                └────┬────┘     D-분산8 · 커머스 DB엔 직접 안 붙음(D7)
+    │  └ spring│    │  └ spring│◀──/internal 콜백────┘        fastapi → spring = /internal 콜백
+    └────┬─────┘    └────┬─────┘                     │        spring → fastapi = P-5 추천·세션정리
+         │               │            (FastAPI 전용) ▼
+         │               │                  ┌──────────────────┐
+         │               │                  │ Vector PG(pgvec) │ ← 임베딩 상태 · D7 예외(공개 카탈로그)
+         └───────┬───────┘                  └──────────────────┘
+                 ▼
+        ┌───────────────────┐
+        │  RDS · ElastiCache │       ← 커머스 공유 상태 (오직 spring 접근) · Multi-AZ / primary+replica
+        └───────────────────┘
 ```
 
-> 위 그림은 **분산/프로덕션 목표 형상**. 데모/단일 서버 단계(§1-1)에선 fastapi를 별도 티어로 빼지 않고 compose 한 박스에 co-location — 과분리 금지(D-분산8).
+> 위 그림은 **분산/프로덕션 목표 형상**. **앱 티어 A(nginx+next+spring)만 무상태 복제**, fastapi는 별도 티어·1대 고정(D-분산8), 상태(커머스 RDS·ElastiCache·Vector PG)는 전부 외부화. 데모/단일 서버 단계(§1-1)에선 fastapi·Vector PG를 별도로 빼지 않고 compose 한 박스에 co-location 가능 — 과분리 금지(D-분산8).
 
 **D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 복제. mariadb·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.** (단, fastapi는 별도 티어로 빼되 복제 없이 1대만 둔다 — D-분산8.)
 
@@ -67,17 +71,25 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 **D-분산5. 스케줄러는 분산 안전하게 — 조건부 UPDATE + Redis 분산 락.** 상세는 [01 §6](01-order-state-machine.md#6-스케줄러-명세). 다인스턴스에서 같은 잡이 중복 실행되므로 (a) 전이 쿼리는 `WHERE status=<이전>` 조건부 UPDATE(정합성 최종 방어선), (b) 잡 레벨은 Redis 분산 락(ShedLock)으로 매 틱 1대만 실행(중복 부수효과 차단). 01 §6의 "인스턴스 1대 전제" 폐기.
 
-**D-분산6. 채팅 SSE의 분산 대응.** 채팅은 SSE(장수명 HTTP 연결)라 짧은 요청을 가정한 중간 장비(ALB·nginx)와 충돌한다. 세 가지:
-- **self-pinning**: 스트림 하나는 TCP 연결 하나 = 처리 중 한 인스턴스에 자동 고정(관리 불필요). 분산 단위는 "토큰 조각"이 아니라 "스트림(요청) 전체" — LB는 요청 단위로 나눈다. **다음 턴은 아무 인스턴스로 가도 되고**(세션이 Redis에 있으므로), 따라서 **sticky session 불필요**.
-- **idle timeout**: LLM이 뜸 들이는 침묵 구간(>ALB idle timeout, 기본 60s)에 연결이 끊긴다 → 주기적 하트비트(`: ping` 주석) 전송 + ALB/nginx idle·read timeout을 넉넉히(예: 300s).
-- **버퍼링**: 인스턴스 nginx가 응답을 모았다 한 번에 넘기면 SSE의 실시간성이 죽는다(로딩만 돌다 답이 팍) → 스트리밍 경로에 `proxy_buffering off`(+ `proxy_http_version 1.1`), 또는 spring이 `X-Accel-Buffering: no` 헤더 전송. 전역이 아니라 `/api/chat` 등 스트리밍 경로에만.
+**D-분산6. 채팅 SSE의 분산 대응 (직결 후 = FE ↔ FastAPI).** 채팅은 SSE(장수명 HTTP 연결)라 짧은 요청을 가정한 중간 장비(ALB)와 충돌한다. 직결(D5)로 SSE는 **ALB → FastAPI**를 지나므로 아래는 그 경로에 적용(과거엔 Spring 경유 전제였음). 세 가지:
+- **self-pinning / sticky**: FastAPI는 **1대 고정(D-분산8)** 이라 스트림·다음 턴이 어차피 같은 인스턴스로 간다 — sticky 고민 자체가 없음(대화 맥락도 FastAPI 인메모리라 그래야 맞음). *복제하게 되면* 스트림 전체가 TCP 연결 하나로 한 인스턴스에 자동 고정되지만, 맥락 인메모리 때문에 sessionId sticky가 필요해짐(그래서 안 늘림 — D-분산8).
+- **idle timeout**: LLM이 뜸 들이는 침묵 구간(>ALB idle timeout, 기본 60s)에 연결이 끊긴다 → FastAPI가 주기적 하트비트(`: ping` 주석) 전송 + ALB idle·read timeout을 넉넉히(예: 300s).
+- **버퍼링**: 중간 장비가 응답을 모았다 한 번에 넘기면 SSE 실시간성이 죽는다 → FastAPI가 `text/event-stream` + `X-Accel-Buffering: no`. FastAPI 앞에 nginx를 둔다면 스트리밍 경로만 `proxy_buffering off`(+`proxy_http_version 1.1`).
 
 **D-분산7. 인그레스는 ALB(공개 진입점을 인정), Cloudflare Tunnel 아님.** 기준은 *노출 제거*가 아니라 *노출 인정 + 방어*다. 진입점을 없애는(cloudflared 아웃바운드 터널) 대신, ALB의 로드밸런싱·헬스체크·failover 이득이 "공개 진입점 1개를 감수하는 비용"보다 크다고 판단 → 진입점을 없애지 않고 **nginx 443 하나로 좁히고 보안그룹으로 잠근다**. 이건 `/internal` 3중 방어(포트를 없애자가 아니라 필요한 문만 열고 나머지를 네트워크·토큰으로 좁힘)·D-분산4(관리 이득을 위해 관리형 진입점을 받아들임)와 **동일한 철학 — 문을 없애는 게 아니라 좁혀서 지킨다.** 터널은 "문을 없앤다"는 다른 철학이라, 로드밸런싱 이득을 포기하면서까지 갈아탈 근거가 미달.
 
-**D-분산8. fastapi는 별도 티어 + 1대 고정 — 복제하지 않는다.** D-분산1이 "무상태는 복제"라 했으나 fastapi는 **별도 티어로 빼되 복제는 안 하고 1대만** 둔다.
+**D-분산8. fastapi는 별도 티어 + 1대 고정 — 복제하지 않는다. (직결 후 = 공개·1대)** D-분산1이 "무상태는 복제"라 했으나 fastapi는 **별도 티어로 빼되 복제는 안 하고 1대만** 둔다.
 - **왜 별도 티어(next·spring과 co-location 안 함)**: ① 자원 모양이 다름 — 임베딩·벡터·GPU 가능성, 동시성·메모리 프로파일이 spring과 상이 → 인스턴스 타입을 독립적으로 고를 수 있게. ② LLM팀 소유·다른 런타임 → 독립 배포. ③ 장애·자원 격리 — fastapi hang/누수가 같은 박스의 CRUD를 굶기면 안 됨.
-- **왜 그런데 1대만(복제 안 함)**: ① **죽어도 됨** — fastapi 실패는 `LLM_UNAVAILABLE`로 degrade하고 쇼핑몰(next/spring/DB)은 정상(D5). next/spring/DB의 실패는 서비스 전체를 죽이지만 fastapi는 아니라 **SPOF여도 괜찮은 유일한 계층.** ② **부하가 병목 아님** — 채팅은 외부 LLM 호출 대기(I/O)가 대부분이라 한 대가 동시 연결 여럿 감당. ③ **대화 맥락이 인메모리** — fastapi는 멀티턴 맥락을 자체 메모리에 sessionId로 유지(05). **1대면 모든 턴이 같은 인스턴스로 가 맥락이 그대로 유지**된다. 복제하면 턴마다 다른 인스턴스로 가 맥락이 갈라져 외부화/sticky가 필요해지는데, **안 늘림으로써 그 복잡도를 통째로 회피**(Redis는 세션 ID·TTL만 들고, 대화 맥락은 fastapi 메모리라 이 회피가 성립).
-- **유지되는 것**: 별도 티어라 fastapi는 여전히 인터넷 비노출(보안그룹으로 spring 티어에서 온 것만), spring↔fastapi·`/internal` 콜백은 내부 LB 경유 — 단일 진입점·`/internal` 3중 방어 불변. **분산 전환 시 fastapi만 단일, 나머지(next/spring)는 복제.** 데모/단일 서버(§1-1)는 compose 한 박스 co-location. 코드 변경 아님(spring은 `LLM_BASE_URL`로 fastapi를 부름).
+- **왜 그런데 1대만(복제 안 함)**: ① **죽어도 됨** — fastapi 실패는 `LLM_UNAVAILABLE`로 degrade하고 쇼핑몰(next/spring/DB)은 정상(D5). next/spring/DB의 실패는 서비스 전체를 죽이지만 fastapi는 아니라 **SPOF여도 괜찮은 유일한 계층.** ② **부하가 병목 아님** — 채팅은 외부 LLM 호출 대기(I/O)가 대부분이라 async 한 대가 동시 SSE 여럿 감당. 트래픽 방어는 복제가 아니라 **rate limit(05 §3) + degrade + 수직 확장**이 먼저(상류 LLM API 한도가 진짜 천장이라 복제로 안 풀림). ③ **대화 맥락이 인메모리** — fastapi는 멀티턴 맥락을 자체 메모리에 sessionId로 유지(05). **1대면 모든 턴이 같은 인스턴스로 가 맥락이 그대로 유지**된다. 복제하면 턴마다 다른 인스턴스로 가 맥락이 갈라져 외부화/sticky가 필요해지는데, **안 늘림으로써 그 복잡도를 통째로 회피**(Redis는 세션 ID·TTL만 들고, 대화 맥락은 fastapi 메모리라 이 회피가 성립).
+- **[2026-07-16] 직결로 바뀐 것 — "비노출 1대" → "공개 1대"**: SSE가 FE↔FastAPI 직결(D5)이라 fastapi는 **인터넷 공개 진입점**이 된다. 단 **복제는 여전히 안 함** — "공개"와 "복제"는 별개 축이고, 1대의 근거(맥락 인메모리)는 그대로다. 공개에 따른 책임(TLS·CORS·rate limit·티켓 검증)은 FastAPI로 이동(D5·§8). 보안그룹으로 좁힘: 공개 포트는 SSE(읽기)만, `/internal` 콜백은 여전히 spring 티어에서 온 것만.
+- **정말 복제가 필요해지면(미래 레버) — 조회/생성 분리**: fastapi 통째 복제(맥락 갈라짐) 대신, **stateless 조회(벡터검색·`/internal` 콜백)는 복제**하고 **stateful 생성(SSE 홀딩 + sessionId 인메모리 맥락)은 고정/단일**로 쪼갠다(D-분산1을 fastapi 내부에 적용). 데모 단계엔 과분리라 안 함 — 진짜 병목(LLM API 대기)은 이 분리로도 안 줄어듦.
+- **유지되는 것**: **분산 전환 시 fastapi만 단일, 나머지(next/spring)는 복제.** 데모/단일 서버(§1-1)는 compose 한 박스 co-location. spring→fastapi 호출(P-5·세션정리)은 `LLM_BASE_URL`로, fastapi→spring 콜백은 `/internal` + `X-Internal-Token` — 3중 방어 불변.
+
+**D-분산9. 벡터 DB(Vector PG/pgvector)도 상태 외부화 — FastAPI 소유, D7 예외.** LLM 추천의 의미검색용 임베딩 스토어(`productId·attributes·embedding`, 05 §1)는 **상태(stateful)** 라 D-분산1대로 외부화한다 — MariaDB와 동형(데모=compose 컨테이너+volume, 분산=RDS PostgreSQL/pgvector).
+- **왜 인스턴스 안에 안 두고 밖으로**: "1대라서"가 아니라 **생명주기 분리** — 임베딩 재생성은 비쌈(크롤링 상품 1만+ 임베딩 = API 비용·시간)이라 FastAPI 박스와 운명을 묶지 않는다(재배포·교체해도 데이터 생존). + 인덱스 빌드/배치 upsert의 CPU·메모리 스파이크가 같은 박스의 async SSE 서빙을 굶기지 않게(자원 격리).
+- **failover는 후순위**: 벡터DB는 MariaDB에서 **재생성 가능**(파생 데이터)이고 down 시 정형-only 추천으로 degrade되므로, Multi-AZ는 커머스 RDS보다 우선순위 낮음(비용 보고 토글).
+- **D7 예외인 이유**: D7(모든 DB는 Spring만)은 *커머스 DB(주문·PII·카탈로그)* 대상. 벡터DB는 **공개 카탈로그의 임베딩(PII·쓰기 없음)** 이라 "유출 개념 없는 공개 데이터" → FastAPI 직접 접근 허용해도 D7 threat model 밖. 커머스 RDS는 여전히 **오직 Spring**.
+- **정합성**: 가격·재고 같은 치명적 정형 진실은 **항상 Spring/MariaDB에서 확인**(추천 후보조회 1왕복·카드 하이드레이션 2왕복이 진실 원천). 벡터DB의 attributes는 **배치 동기화**라 다소 낡아도 무방 — 랭킹 순서만 흔들 뿐 거짓 가격·품절을 못 만든다(05 §1).
 
 ## 2. 결정 로그
 
@@ -105,7 +117,7 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
-- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열, `POST /api/chat`, `/api/cart/**`(게스트 쿠키 허용 — 02 D30)는 permitAll.
+- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회 포함), `POST /api/chat/sessions`(CH-1 티켓 발급), `/api/cart/**`(게스트 쿠키 허용 — 02 D30)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
 - 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 30일** — 세션 쿠키면 브라우저 닫는 순간 게스트 장바구니가 증발하므로 명시 필수). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·user_event의 guest_id FK가 전제하는 선행 조건). **쿠키 발급 전 게스트 행동(PRODUCT_VIEW 등)은 미추적** — 감수(2026-07-09 확인).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
@@ -115,19 +127,27 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 - **선택**: (A). `X-Internal-Token: <env>` 헤더를 검증하는 필터를 `/internal/**`에만 적용. 토큰은 양쪽 `.env`로 공유, 코드/레포에 하드코딩 금지.
 - **트레이드오프**: 토큰 유출 시 전체 노출 — 데모 환경 감수. 배포 시 `/internal/**`은 외부 라우팅에서 제외하면 이중 방어.
 
-### D5. 채팅 프록시는 SSE 패스스루
+### D5. 채팅 SSE = FastAPI 직결 + 단명 티켓 핸드오프 (2026-07-16 확정 · RS256/JWKS)
 
-- FE `POST /api/chat` → BE가 세션 검증 후 FastAPI로 스트리밍 요청 → 응답 SSE 이벤트를 그대로 FE에 중계. (게스트 횟수 제한 없음 — 2026-07-07 회의로 폐지)
-- 구현: Spring WebFlux 전면 도입 대신 **MVC + `SseEmitter` + WebClient**(FastAPI 호출용)만 사용. 이유: 나머지 API가 전부 동기 CRUD라 전면 리액티브는 과함.
-- 타임아웃: FastAPI 연결 5초 / 전체 응답 60초. 초과·오류 시 SSE로 `error` 이벤트 전송 후 종료. 재시도는 FE 버튼(자동 재시도 없음 — LLM 호출 중복 비용 방지).
-- **왜 FastAPI가 FE로 직접 안 쏘고 Spring이 중개하나**: SSE는 장수명 HTTP 연결 하나라 Spring이 DB 처리만 하고 그 소켓을 FastAPI에 넘길 방법이 없다. "직접 쏜다 = FE가 FastAPI에 직접 연결한다"가 되고, 그 순간 ① 인증 경계가 둘로 갈라지고(FastAPI가 JWT·게스트를 판별해야 함 — "신원 검증은 `/api`에서 한 번" 원칙 붕괴) ② FastAPI가 공개 진입점이 돼야 하며(내부망 `expose`만 하던 걸 외부 노출 = nginx 우회 뒷문) ③ 세션·게스트 관리(Redis, BE 소유)를 우회한다. 홉 하나(내부망 수 ms)를 더 먹는 대신 단일 진입점 경계를 지키는 판단.
+> **연혁**: 원안은 "Spring SSE 패스스루"(아래 취소선 본문, 2026-07-08~). **2026-07-15** 직결 전환 결정 → **2026-07-16** 티켓 방식(RS256+JWKS)·추천 데이터 흐름 확정. 근거: 노션 자료실 **「추천 에이전트 흐름」**·**「JWKS 방식 검토 후 제안」** + LLM 팀 합의. 패스스루가 대규모 트래픽에서 **스트림당 소켓 2개(FE↔Spring, Spring↔FastAPI)를 릴레이**하는 비용이 병목이라 폐기.
 
-> **[결정 2026-07-15] D5 방향 전환 — SSE는 FastAPI 직결(티켓 핸드오프)로 간다.** 위 "Spring 패스스루"는 대규모 트래픽에서 Spring이 스트림당 소켓 2개(FE↔Spring, Spring↔FastAPI)를 릴레이하는 비용이 병목이 되므로, **목표 설계**를 FE가 FastAPI에 직접 SSE 연결하는 구조로 전환한다. 인증은 Spring이 첫 요청에서 JWT를 검증한 뒤 **단명 서명 티켓**을 발급하고, FE가 그 티켓으로 FastAPI에 연결한다(auth handoff). *지금은 결정만 기록 — 본문·ERD·API 명세는 아직 고치지 않는다. 상세 스펙은 후속 세션에서 확정.*
->
-> - **FastAPI로 넘어가는 책임(구현 시):** ① **티켓 검증** — 서명·만료·scope·재사용 방지, **stateless 서명**으로(Redis는 Spring 전용 D7 유지). ② **공개 문 경비** — TLS·CORS·rate limit·공개 DNS/LB. ③ **SSE 배관 일체** — `text/event-stream` 헤더·버퍼링 off(`X-Accel-Buffering:no`)·하트비트 `: ping`·**클라 이탈 시 LLM 생성 취소**(비용)·백프레셔·스트림 내 `error` 이벤트. → §8의 "열림" 항목이 이 구조에선 Spring이 아니라 FastAPI 쪽 숙제로 이동.
-> - **안 바뀌는 것:** LLM 쓰기는 여전히 Spring `/internal/*` 콜백(D7) + `X-Internal-Token`(D4). 직결은 **읽기(응답 표시) 경로에만** 적용.
-> - **전제 충돌(후속 정리 필요):** D-분산8 "FastAPI 1대 고정·비노출"과 상충 — 직결 시 FastAPI는 **공개 진입점 + 무상태 복제 대상**이 된다.
-> - **나중에 고칠 지점(마커):** §1-2 D-분산6/D-분산8, 본 D5 본문, §8, **04 API 명세**(채팅 플로우 + 티켓 발급 엔드포인트 신설), **ERD**(티켓 stateless면 변경 없음 예상 — 확인만). ⚠️ 이번엔 손대지 않음.
+- ~~FE `POST /api/chat` → BE가 세션 검증 후 FastAPI로 스트리밍 요청 → 응답 SSE 이벤트를 그대로 FE에 중계~~ **(패스스루 폐기)**
+- ~~구현: MVC + `SseEmitter` + WebClient. **왜 Spring이 중개하나**: 소켓을 FastAPI에 넘길 방법이 없어 단일 진입점을 지킴~~ **(직결로 대체 — 아래)**
+
+**직결 구조 (읽기/응답 표시 경로만)**
+
+- **읽기 경로 = FE ↔ FastAPI 직접 SSE 연결.** Spring은 스트림 소켓을 릴레이하지 않는다. `SseEmitter`/WebClient 브리지 제거.
+- **인증 = 단명 서명 티켓(auth handoff).** 신원 검증의 소유자는 여전히 Spring — FastAPI는 검증만 한다.
+  - **발급**: 채팅 진입 첫 요청에서 Spring이 신원 확인(회원=JWT AT / 게스트=`guest_id` 쿠키) 후 **스트림용 단명 JWT를 RS256으로 서명**해 발급. 세션 발급(CH-1)에 얹어 **추가 왕복 없음**. private key는 Spring만 보관·회전.
+  - **검증**: FastAPI가 **JWKS**(`GET /.well-known/jwks.json`)로 public key를 조회(캐싱 + `kid` miss 시 refetch)해 `signature/exp/iss/aud/scope` 검증. **stateless** — Redis/DB 안 봄(D7 "Redis는 Spring 전용" 유지).
+  - **티켓 claim**: `sub`(userId|guestId), `sub_type`(member|guest), `iss:jarvis-spring-auth`, `aud:jarvis-fastapi-ai`, `scope:chat:stream`, `exp`(발급 +30~60초).
+  - **왜 전권 AT를 직접 안 쓰나**: `EventSource`(GET)는 커스텀 헤더를 못 실어 AT가 **쿼리스트링에 노출**(액세스 로그·히스토리 잔존); 전권 AT의 `aud`에 FastAPI를 더하면 토큰 혼용 방지 취지와 어긋남. → **30~60초 read-only 티켓만** 내보내 유출 피해를 "채팅 스트림 1회 연결"로 봉쇄.
+  - **게스트 커버**: 게스트도 Spring이 동일 경로로 발급(`sub_type:guest`, 개인화 미적용). "게스트는 JWT가 없다" 문제를 발급 단계로 흡수 — 회원/게스트가 같은 경로.
+  - **one-time 근사**: stateless라 진짜 1회용(재사용 원천 차단)은 상태 저장이 필요 → 짧은 TTL로 근사. 데모 규모에서 충분.
+- **쓰기는 불변**: LLM 쓰기(담기·문의)는 여전히 Spring `/internal/*` 콜백(D7) + `X-Internal-Token`(D4). 직결은 **읽기 경로에만**.
+- **FastAPI로 이동한 책임**: ① 공개 문 경비 — TLS·CORS·rate limit·공개 DNS/LB. ② SSE 배관 일체 — `text/event-stream`·버퍼링 off(`X-Accel-Buffering:no`)·하트비트 `: ping`·**클라 이탈 시 LLM 생성 취소**(비용)·백프레셔·스트림 내 `error` 이벤트. → §8의 "열림" 항목이 Spring이 아니라 FastAPI 숙제로 이동.
+- **타임아웃**: FastAPI↔Spring `/internal` 콜백 3s(05 §3). 스트림 수명·하트비트 정합은 FastAPI 소관(§8). 자동 재시도 없음(LLM 중복 비용 방지) — 재시도는 FE 버튼.
+- **후속 반영됨**: 이 전환으로 D-분산6/D-분산8(§1-2)·§7 ③·§8·04(티켓 발급 + `GET /api/products/cards`)·05 갱신. ERD는 티켓 stateless라 변경 없음.
 
 ### D6. user_event 적재는 Spring 이벤트 + @Async + AFTER_COMMIT
 
@@ -155,7 +175,7 @@ com.jarvis
 ├── member    ├── brand     ├── category  ├── product
 ├── cart      ├── order     ├── claim     ├── review
 ├── wishlist  ├── address   ├── inquiry
-├── chat      # 채팅 프록시(세션, SSE)
+├── chat      # 채팅 세션 + 스트림 티켓 발급(RS256/JWKS) — SSE는 FastAPI 직결(D5)
 ├── internal  # /internal/* 컨트롤러 (LLM 콜백 전용)
 └── seller    # 판매자 지표 조회
 ```
@@ -186,8 +206,10 @@ com.jarvis
 |---|---|
 | `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MariaDB |
 | `REDIS_HOST` / `REDIS_PORT` | Redis |
-| `JWT_SECRET` | AT/RT 서명 |
-| `LLM_BASE_URL` | FastAPI 주소 |
+| `JWT_SECRET` | AT/RT 서명 (HS256, Spring 내부 검증) |
+| `STREAM_TICKET_PRIVATE_KEY` / `..._KID` | 스트림 티켓 **RS256** 서명 private key + 현재 키 ID(`kid`) — **Spring만 보관·회전**, public key는 JWKS(`/.well-known/jwks.json`)로 노출(D5) |
+| `LLM_BASE_URL` | FastAPI 주소 — **Spring→FastAPI 호출용**(P-5 추천·세션 정리 통지). 채팅 SSE는 FE 직결이라 무관 |
+| `NEXT_PUBLIC_LLM_SSE_URL` (FE) | 채팅 SSE 직결용 FastAPI 공개 URL — **FE 브라우저가 티켓 들고 직접 연결**(FE 팀 공유 필요, D5) |
 | `INTERNAL_TOKEN` | internal API 서비스 토큰 (FastAPI와 공유) |
 | `app.mock.shipping-minutes` 등 | mock 전이 간격 (환경변수 아님, yml 기본값 shipping/delivery/confirm/claim-approve = 5/5/10/5분 — 01 §6) |
 
@@ -202,7 +224,9 @@ com.jarvis
 - [ ] 예외는 도메인별 커스텀 예외 → `GlobalExceptionHandler`에서 ErrorCode 매핑인가 (컨트롤러 try-catch 금지)
 - [ ] 상태 전이·자격 검증(01 문서 매트릭스)이 서비스 레이어에 있는가
 - [ ] `/internal/**`에 서비스 토큰 필터가 걸려 있고, FE 경로에서 접근 불가한가
-- [ ] FastAPI 호출에 타임아웃이 설정돼 있는가 (커넥션 5s / 응답 60s)
+- [ ] Spring→FastAPI 호출(P-5 추천·세션 정리)에 타임아웃이 있는가 (P-5 연결 2s/응답 3s — 채팅 60s는 직결이라 Spring 소관 아님)
+- [ ] 스트림 티켓이 **RS256**으로 서명되고 private key는 env/keystore에만 있는가(JWKS로 public만 노출), 신원(userId/guestId/brandId)은 **서버가 채워** 티켓 claim에 박히는가(클라이언트 주장 무시)
+- [ ] `GET /api/products/cards?ids=`(P-7)가 다건 `id IN` 조회에 인덱스를 타는가, HIDDEN/품절을 드롭하는가
 - [ ] 시크릿이 코드·yml에 리터럴로 없는가
 - [ ] 배포 compose에서 nginx만 `ports:` publish이고 나머지는 `expose`인가 (spring 8080 외부 노출 = nginx 우회 뒷문)
 - [ ] internal 컨트롤러가 도메인 서비스를 재사용하는가 (로직 복제 금지)
@@ -219,7 +243,7 @@ com.jarvis
 ```
 
 - **경계(일부러 빈 칸)**: 에이전트의 쓰기 상한은 "담기까지". 주문 생성·클레임·후기는 LLM이 못 한다(05 §0-1). 고도화 시에도 초안+사용자 본인 JWT 확인으로만.
-- **핵심 비대칭**: ①②(유저)는 1왕복. ③④(에이전트)는 2왕복 중첩 — **Spring이 한 요청 안에서 호출자(FastAPI 호출)이자 피호출자(`/internal` 콜백)** 가 되고, 그동안 SSE가 열려 있다.
+- **핵심 비대칭**: ①②(유저)는 1왕복. ③④(에이전트)는 **SSE를 FastAPI가 직접 붙들고(D5 직결)**, 그 안에서 FastAPI가 Spring `/internal`을 여러 번 콜백한다(추천은 후보조회→Top5 하이드레이션 2왕복). Spring은 더 이상 스트림 소켓을 릴레이하지 않고, **티켓 발급자(진입 시) + `/internal` 피호출자(스트림 중)** 역할만 한다.
 - **입구는 둘, 로직은 하나**: ④의 담기가 ②와 **같은 `CartService.addItem`을 재사용**(§3). `/api`·`/internal`은 신뢰 모델만 다른 입구. 담기 주체는 회원(JWT의 userId) 또는 게스트(guest_id 쿠키/메아리 — 02 D30).
 - **판매자 불변식**: `brandId`는 항상 **서버가 계정에서 유도**(사용자·LLM이 주장 못 함), 에이전트에는 **집계된 값만** 준다(raw 접근 없음 — I-6).
 
@@ -229,29 +253,34 @@ com.jarvis
 
 **② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고는 미모델링, 02 D8) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
 
-**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB 조회(attributes 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
+**③ 에이전트 조회 추천 (직결 + 2왕복 리랭킹, D5·05 §1)** — FE가 `POST /api/chat/sessions`(CH-1)로 세션과 함께 **스트림 티켓**을 받고(Spring이 신원 검증 후 RS256 서명·발급) → FE가 그 티켓으로 **FastAPI에 직접 SSE 연결** → FastAPI가 발화에서 **정형조건(가격·카테고리·색상·재고·판매상태)** 과 **의미조건(원룸에 적합·공부하기 좋은…)** 을 추출 →
+  - **[1왕복 · 후보 조회]** 정형조건만 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB에서 후보 조회. **정형 진실(가격·재고·상태)은 여기서 확정** — 이후 벡터DB가 낡아도 살 수 없는 상품이 안 섞임. 응답은 **리랭킹용 최소필드(productId·name·summary·attributes·tags)**, **라운드1 LIMIT 상한**으로 후보 폭발(느슨한 대분류) 방지.
+  - **[리랭킹]** FastAPI가 **자기 소유 벡터DB(productId·attributes·embedding)** 로 의미조건 리랭킹 → **top-K(20~30)만** LLM에 태워 추천 이유·채팅 응답 생성 → **Top5** 선정(하이드레이션에서 재고/HIDDEN 드롭 대비 넉넉히 고름).
+  - **[SSE 발행]** `token`(응답 텍스트)·`conditions`(칩)·`products{items:[{productId, reason}]}`(**ID+이유만**, 카드 필드 없음)·`done`.
+  - **[2왕복 · FE pull 하이드레이션]** FE가 `products` 이벤트 수신을 **트리거**로 `GET /api/products/cards?ids=1,2,…`(P-7, Spring) 호출 → 카드 필드(가격·정가·썸네일·재고·평점·reviewCount)를 **BE 자기 DB에서** 받아 productId로 조인해 우측 패널 렌더. (SSE는 단방향이라 "결과 준비됨" 신호도 같은 열린 소켓의 이벤트로 전달 — FE는 폴링하지 않음.)
+  - 게스트면 티켓 `sub_type:guest`, 개인화 없이 동일 흐름. **SELLER 채널**은 변종(brandId는 서버 유도, I-6 사용).
 
-**④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}` (게스트도 guestId로 담기 성공 — 02 D30, 로그인 유도는 결제 시점); 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 그 외 검증 실패→사유 안내. 자동 재시도 없음(중복 담기 방지).
+**④ 에이전트 쓰기(담기)** — ③처럼 FastAPI가 SSE를 붙든 채 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백(`X-Internal-Token`, userId/guestId는 **티켓 `sub`의 메아리**) → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}` (게스트도 guestId로 담기 성공 — 02 D30, 로그인 유도는 결제 시점); 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 그 외 검증 실패→사유 안내. 자동 재시도 없음(중복 담기 방지).
 
 **⑤ 판매자 조회(대시보드)** — FE `GET /api/seller/summary`(Bearer) → 시큐리티 필터가 JWT+`SELLER` 확인 → SellerController가 **토큰 memberId에서 brandId 유도**(주장받지 않음) → SellerService 집계(매출·주문수는 order_item, 조회/담김/판매수는 user_event; 복잡 집계만 JdbcTemplate) → WHERE에 brandId 박혀 남의 데이터는 쿼리 단계에서 안 나옴 → envelope. (S-2도 동형.)
 
 **⑥ 판매자 쓰기(상품수정)** — FE `PATCH /api/seller/products/{id}`(Bearer) → JWT+`SELLER` → SellerProductService가 **먼저 소유권 검사**(상품의 브랜드 == 내 brandId, 아니면 403) → UPDATE(`status=HIDDEN` 비노출 포함). ②엔 없던 소유권 스텝이 결정적.
 
-**⑦ 판매자 에이전트(챗봇)** — FE `POST /api/chat/seller`(SSE) → JWT+`SELLER`+세션 검증 후 emitter → WebClient로 FastAPI(`channel:SELLER`, **서버 유도 brandId**) → 분석에 수치 필요 시 `GET /internal/seller/{brandId}/stats` 콜백 → InternalController가 ⑤와 같은 집계 서비스로 **집계값만** 반환(raw 로그·임의 쿼리 권한 없음 → text2SQL 실패·타 판매자 접근 원천 차단) → FastAPI가 분석 답변 `token`(+차트용 구조화 데이터) 발행 → 패스스루. ※ **판매자용 구조화 이벤트(예: `stats`) 스키마는 05에 미정 — LLM 팀 합의 필요(05 §4).**
+**⑦ 판매자 에이전트(챗봇)** — FE가 `POST /api/chat/seller`(S-4)로 JWT+`SELLER`+세션 검증 후 **SELLER 스코프 스트림 티켓**을 받아(brandId는 **서버가 계정에서 유도**해 티켓 claim에 박음 — 클라이언트/LLM 주장 불가) → FE가 티켓으로 FastAPI에 직접 SSE 연결(`channel:SELLER`) → 분석에 수치 필요 시 `GET /internal/seller/{brandId}/stats` 콜백(brandId는 **티켓 claim의 메아리**, FastAPI 툴 인자 아님) → InternalController가 ⑤와 같은 집계 서비스로 **집계값만** 반환(raw 로그·임의 쿼리 권한 없음 → text2SQL 실패·타 판매자 접근 원천 차단) → FastAPI가 분석 답변 `token`(+차트용 구조화 데이터) SSE 발행. ※ **판매자용 구조화 이벤트(예: `stats`) 스키마는 05에 미정 — LLM 팀 합의 필요(05 §4).**
 
 ## 8. SSE 성능·안정성 지형 (결정됨 vs 열림)
 
-Spring 중개(D5)의 대가는 성능·안정성. "네트워크 장비와의 충돌"은 §1-2 D-분산6에서 결정됐고, **"Spring 프로세스 내부의 자원·수명 관리"가 아직 열린 설계 숙제**다(실제 부하에서 터지는 지점).
+직결(D5) 전환으로 SSE의 성능·안정성 숙제는 **Spring 프로세스 밖 = FastAPI 소유**로 이동했다. Spring은 티켓 발급자 + `/internal` 피호출자일 뿐 스트림 소켓을 붙들지 않으므로, 아래 "열림" 항목은 **FastAPI(LLM 팀) 숙제**다. Spring 측 SSE 자원·수명 관리(과거 `SseEmitter`/WebClient 브리지)는 **폐기**됐다.
 
-> **[2026-07-15] D5 전환(§4 D5 결정) 반영 시 이 절 재해석:** 아래 "열림" 항목(타임아웃 정합·이탈 취소·동시 스트림 상한·백프레셔)은 FastAPI 직결 구조에선 Spring이 아니라 **FastAPI 쪽 숙제**로 이동한다. 현재 서술은 Spring 중개 전제 — 직결 확정 시 함께 갱신.
+> **[2026-07-16 갱신]** 이전 서술(Spring 중개 전제)은 D5 직결 확정으로 폐기. "네트워크 장비와의 충돌"(§1-2 D-분산6)은 이제 ALB/공개 nginx ↔ FastAPI 사이에 적용된다.
 
 **결정됨**
 - 버퍼링(스트리밍 경로만 `proxy_buffering off`+`X-Accel-Buffering:no`), idle timeout(하트비트 `: ping`+장비 300s), 분산 라우팅(self-pinning, sticky 불필요), FastAPI 다운(SSE `error` `LLM_UNAVAILABLE`, 비채팅 정상) — 전부 D-분산6/D5.
 
-**열림 (미해결 설계 항목)**
-- **타임아웃 3개 정합**: SseEmitter 타임아웃 vs 스트림 60s(D5) vs 하트비트 간격 — 하트비트가 살아있는데 60s에 죽으면 모순. 하트비트 기준으로 재정의 필요.
-- **클라이언트 이탈 시 상류 취소**: FE가 탭 닫으면 Spring이 `onCompletion`/`onTimeout`에서 **FastAPI로 가던 WebClient 구독을 취소**해야 함 — 안 하면 아무도 안 보는데 LLM 비용이 계속 나가고 emitter가 쌓인다(성능+비용).
-- **동시 스트림 상한(최대 미확정)**: MVC+`SseEmitter`+WebClient의 스레드 모델. WebClient는 논블로킹이라 FastAPI 대기는 스레드를 안 잡지만, emitter로 밀어넣는 브리지를 잘못 짜면 연결당 스레드가 묶여 Tomcat 기본 200이 천장. 논블로킹 브리지로 풀 수 있으나 구현 난이도.
-- **느린 클라이언트/백프레셔**: FastAPI가 빨리 뱉는데 클라가 느리면 Spring 메모리에 적체 → 상한·드롭 정책 필요.
+**열림 (FastAPI 소유 설계 항목 — LLM 팀)**
+- **스트림 수명·하트비트 정합**: 하트비트 간격 vs 스트림 최대 수명 — 하트비트가 살아있는데 죽으면 모순. 하트비트 기준으로 정의.
+- **클라이언트 이탈 시 LLM 생성 취소**: FE가 탭 닫으면 FastAPI가 이탈을 감지해 **진행 중인 LLM 생성을 취소**해야 함 — 안 하면 아무도 안 보는데 LLM 비용이 계속 나간다(성능+비용).
+- **동시 스트림 상한**: FastAPI 1대(D-분산8)의 async 이벤트 루프가 감당하는 동시 SSE 수. 채팅은 외부 LLM 대기(I/O)가 대부분이라 한 대가 다수 감당하지만 천장은 존재 → 넘으면 `LLM_UNAVAILABLE` degrade + rate limit(05 §3).
+- **느린 클라이언트/백프레셔**: FastAPI가 빨리 뱉는데 클라가 느리면 FastAPI 메모리에 적체 → 상한·드롭 정책 필요.
 
-> 다음 설계 세션 진입점: 동시 스트림 상한(스레드/수명 모델)부터. 여기서 정해지면 타임아웃 정합·이탈 취소가 딸려 정해진다.
+> **BE 측 남는 숙제**: 티켓 발급 엔드포인트(04)의 발급 지연·키 회전, `GET /api/products/cards`(P-7)의 배치 조회 성능(다건 id IN 조회 인덱스).
