@@ -2,7 +2,7 @@
 
 > 기준: 「기능 정의 - 이소희」의 페이지별 기능에서 역산. 응답은 전부 03 문서의 envelope(`{success, data|error}`), 인증 규약도 03을 따른다.
 > 표기: 🔓 인증 불필요 / 🔑 로그인 필요 / 🏪 SELLER / 🛡 ADMIN / ⚙ internal(서비스 토큰). `{}`는 path variable.
-> LLM 콜백(⚙ `/internal/*`)과 채팅 프록시의 상세 스키마는 [05 LLM 연동 계약](05-llm-contract.md)이 원본이고 여기서는 목록만 둔다.
+> LLM 콜백(⚙ `/internal/*`)과 채팅 직결(SSE·티켓)의 상세 스키마는 [05 LLM 연동 계약](05-llm-contract.md)이 원본이고 여기서는 목록만 둔다.
 
 ## 1. auth
 
@@ -28,9 +28,11 @@
 | P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만 |
 | P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계 — ORDER_CREATED 이벤트는 주문 단위라 상품별 집계 불가, 02 §4) → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
-| P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서). **타임아웃 연결 2s/응답 3s**(채팅용 60s와 별도 — 메인 렌더 블로킹 방지), 실패·타임아웃·프로필 없음 시 P-4로 fallback |
+| P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서). **타임아웃 연결 2s/응답 3s**(채팅용과 별도 — 메인 렌더 블로킹 방지), 실패·타임아웃·프로필 없음 시 P-4로 fallback. FastAPI가 상품 ID 목록을 주면 BE가 카드 조립(P-7과 동형) |
 | P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size |
+| P-7 | GET | /api/products/cards?ids=1,2,3 | 🔓(게스트 허용) | **추천 카드 하이드레이션** — 챗봇 추천 SSE의 `products{productId,reason}` 수신 후 FE가 카드 표시 데이터를 pull(05 §1-2-1, 03 D5 직결). 응답 item: `productId, name, brandName, price, originalPrice, imageUrl, rating, reviewCount, purchasable`. **HIDDEN·품절은 드롭**(응답에서 제외 — Top5가 <5로 줄 수 있음, FastAPI가 넉넉히 골라 대비). ids 상한 20(다건 `id IN`, INT 검증). reason은 SSE 소유라 응답에 없음 — FE가 productId로 조인 |
 
+- P-7은 **표시 데이터 전용**(주문·결제의 진실 아님 — 결제 금액 재계산은 O-1). 추천 외 범용 다건 카드 조회로도 재사용 가능.
 - P-2의 평점 통계는 review 테이블 실시간 집계(파생값 저장 금지).
 - 연관 추천 2종(함께 구매/대체 상품)은 상세 화면 요소지만 추천 로직이 LLM 소관이라 05 문서의 FastAPI 호출로 정의(BE는 프록시 GET `/api/products/{id}/related`).
 
@@ -85,13 +87,17 @@
 - 문의 "접수"는 사용자 API가 없다 — 문의 챗봇(LLM)이 ⚙ internal 콜백으로만 생성(문의 단일 채널 원칙, 05 문서).
 - 후기는 **등록만** — 본인 후기 수정·삭제 API 없음(02 D29, MVP 팀 결정).
 
-## 6. chat (프록시 — 상세는 05 문서)
+## 6. chat (직결 — 상세는 05 문서. 2026-07-16 D5 직결 반영)
+
+> **채팅 SSE는 FE↔FastAPI 직결(03 D5)** — 채팅 메시지·스트림은 Spring 엔드포인트가 아니라 FastAPI(`{LLM_SSE_URL}/chat`)로 직접 간다(05 §1-1). Spring의 역할은 **세션 + 단명 스트림 티켓(RS256) 발급**뿐.
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| CH-1 | POST | /api/chat/sessions | 🔓(게스트 허용) | 세션 발급(Redis TTL 10분). "새 대화" 버튼도 이걸 다시 호출 |
-| CH-2 | POST | /api/chat | 🔓(게스트 허용) | 추천 챗봇 메시지 전송, SSE 스트림 응답. 게스트도 무제한 사용(횟수 제한 폐지 — 2026-07-07 회의), 개인화만 미적용 |
-| CH-3 | POST | /api/chat/cs | 🔑+🔓 | 문의 챗봇(고객센터) 메시지. 비로그인은 일반 안내만(주문 질문 시 로그인 유도 메시지는 LLM 측 처리) |
+| CH-1 | POST | /api/chat/sessions | 🔓(게스트 허용) | 세션 발급(Redis TTL 10분) **+ 스트림 티켓(RS256/JWKS) 동시 발급**. body: `channel`(SHOPPING\|CS). 신원 확인(회원 JWT/게스트 쿠키) 후 `sub/sub_type/scope:chat:stream` 티켓 서명. 응답: `sessionId, streamTicket, llmSseUrl, expiresIn(30~60s)`. "새 대화" 버튼도 이걸 재호출(05 §1-0) |
+| ~~CH-2~~ | ~~POST~~ | ~~/api/chat~~ | — | **폐기(직결)** — 추천 챗봇 메시지·SSE는 FE가 `POST {LLM_SSE_URL}/chat`(`Authorization: Bearer <티켓>`)로 FastAPI에 직접(05 §1-1). Spring 경유 아님. 게스트 무제한·개인화 미적용은 유지 |
+| ~~CH-3~~ | ~~POST~~ | ~~/api/chat/cs~~ | — | **폐기(직결)** — CS 챗봇도 동일 직결(`channel:CS` 티켓). 비로그인은 일반 안내만(주문 질문 시 로그인 유도는 LLM 측) |
+
+- 티켓 만료 시 재발급은 CH-1 재호출. 티켓 발급 앞단에 보조 rate limit 가능(05 §3).
 
 ## 7. seller
 
@@ -100,7 +106,7 @@
 | S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(EXCHANGED·처리중 포함) — I-6도 동일 |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
 | S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, original_price, status — 검증 `price ≤ original_price`(02 D28), 본인 브랜드 상품 아니면 403. description은 서버측 sanitize(LLM 초안 포함 모든 입력 — XSS 차단). 에이전트 초안(05 draft 이벤트)의 "적용"도 FE가 이 API를 판매자 JWT로 호출 |
-| S-4 | POST | /api/chat/seller | 🏪 | 판매자 에이전트 챗봇(SSE). brandId는 JWT 검증 후 BE가 DB에서 도출(클라이언트 전송 값 무시). AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백 사용, 상세 수정은 초안(draft)+판매자 확인 — 05 §1-3 |
+| S-4 | POST | /api/chat/seller/sessions | 🏪 | 판매자 챗봇 **세션 + SELLER 스코프 스트림 티켓 발급**(직결 — 채팅 SSE는 FE↔FastAPI). `brandId`는 JWT 검증 후 **BE가 DB에서 도출해 티켓 claim에 박음**(클라이언트/LLM 주장 무시). 발급 후 FE가 티켓으로 FastAPI에 `channel:SELLER` SSE 연결. AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백(I-6) 사용, 상세 수정은 초안(draft)+판매자 확인 — 05 §1-3. *(구 `POST /api/chat/seller` SSE 프록시는 직결로 폐기)* |
 
 ## 8. admin — ⚠️ 전부 고도화 (MVP 아님)
 
@@ -120,7 +126,7 @@
 
 | # | Method | 경로 | 설명 |
 |---|---|---|---|
-| I-1 | GET | /internal/products/search | 상품 검색(키워드/카테고리/가격 범위) |
+| I-1 | GET | /internal/products/search | 추천 1왕복 후보 조회 — 정형조건 필터, **리랭킹용 최소필드**만 반환(표시 데이터 없음, 라운드1 LIMIT). 05 §I-1 |
 | I-2 | POST | /internal/cart/items | 챗봇 장바구니 담기 |
 | I-3 | GET | /internal/products/popular | 인기 상품 (무관 질문 시 카드 유지용) |
 | I-4 | GET | /internal/members/{id}/orders/status | 주문 상태 요약 (문의 챗봇용) |
@@ -134,6 +140,7 @@
 
 ## 11. 미결(OPEN) — 구현 전 확정 필요
 
-- [ ] P-5 개인화 추천의 응답 형태(상품 ID 목록 vs 카드 데이터) — LLM 팀과 05 계약에서 확정
+- [x] ~~채팅 SSE 방식~~ — **FE↔FastAPI 직결 + RS256/JWKS 단명 티켓 확정(2026-07-16, 03 D5)**. CH-1이 세션+티켓 발급, CH-2/CH-3/구 S-4 SSE 프록시 폐기. 추천 카드는 P-7로 FE가 하이드레이션
+- [ ] P-5 개인화 추천의 응답 형태 — **상품 ID 목록 + BE 카드 조립(P-7 동형)으로 제안 확정 방향**(05 §4), FastAPI 응답 스키마만 LLM 팀 확정 대기
 - [x] ~~상품 상세 "바로 구매" 지원 여부~~ — **있음 확인(2026-07-10)**. O-1 body에 items[] 경로 추가로 반영(§4), 스키마 변경 없음
 - [x] ~~최근 본 상품 "개별 삭제(X)" 여부~~ — 기능 없음 확인(2026-07-10, 02 D29 종결)
