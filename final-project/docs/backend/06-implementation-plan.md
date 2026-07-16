@@ -33,11 +33,11 @@ cart(C-1~4 — 게스트 담기 + 가입 시 병합 승계, 02 D30), orders/orde
 review(M-1~3) + P-3 실데이터, wishlist(M-4~6), recent(M-7), address(M-8), inquiry 조회(M-9), 프로필(M-10). (관리자 AD-1~7은 MVP 제외 — 2026-07-09 팀 결정, 04 §8)
 - **완료**: 후기 자격 상태(DELIVERED/EXCHANGED/CONFIRMED)에서만 작성됨(그 외 400), 후기 신고 접수·중복 신고 409 확인. 신고 처리(HIDE)·문의 답변은 고도화 — 데모용 답변 완료 문의는 시드로.
 
-## Phase 5. 채팅 프록시 + internal API (1.5일, LLM팀 병행 필요)
+## Phase 5. 채팅 티켓 발급 + 카드 하이드레이션 + internal API (1.5일, LLM팀 병행 필요)
 
-세션 발급(Redis TTL), CH-1~3, SSE 패스스루, 게스트 쿠키 발급, internal I-1~I-6 + 서비스 토큰 필터. FastAPI가 아직 없으면 **mock FastAPI**(고정 응답 반환하는 로컬 스텁)로 BE 측을 먼저 완성.
-- **완료**: 스텁 기준 SSE 4종 이벤트가 FE(curl)로 중계됨. internal API가 토큰 없이 401, FE 경로로 접근 불가.
-- **선행 조건**: 05 계약 v0.1을 LLM 팀과 이번 주 내 합의(OPEN 6개). 합의 전엔 스텁으로 진행.
+세션 발급(Redis TTL), **CH-1 세션+스트림 티켓(RS256) 발급 + JWKS 엔드포인트(`/.well-known/jwks.json`)**, **P-7 카드 하이드레이션**, 게스트 쿠키 발급, internal I-1~I-7 + 서비스 토큰 필터. 채팅 SSE는 FastAPI 직결이라 **Spring은 SSE를 중계하지 않는다**(03 D5) — BE는 티켓 발급·검증키·콜백만 책임. FastAPI가 아직 없으면 **mock FastAPI**(고정 SSE 반환·티켓 JWKS 검증 스텁)로 FE 직결 흐름을 먼저 검증.
+- **완료**: CH-1이 유효 티켓 발급 → (mock)FastAPI가 JWKS로 검증 → SSE `products{productId,reason}` 수신 → FE가 P-7로 카드 조립. internal API가 토큰 없이 401, FE 경로로 접근 불가.
+- **선행 조건**: 05 계약 v0.2 핵심(직결·티켓·2왕복)은 LLM 팀과 합의됨(2026-07-16). 잔여 OPEN(벡터DB 배치 동기화·LIMIT 기준치 등 §4)은 스텁으로 진행.
 
 ## Phase 6. 판매자 + 시드 완성 + 통합 (1일)
 
