@@ -2,6 +2,7 @@
 
 > 기준: 「기능 정의 - 이소희」 + [01 주문 상태 머신](01-order-state-machine.md)
 > DB: MySQL 8.x (AWS RDS), utf8mb4 · InnoDB. JPA 엔티티는 이 문서의 테이블 정의를 그대로 따른다.
+> 공유용 DDL 스냅샷: [schema.sql](schema.sql) — 이 문서(§3)가 원본이며, §3 변경 시 함께 갱신할 것.
 > 2026-07-09: 노션 「상품 참고」「로그 참고」(7/9 공유) 대조 설계 세션 — D8~D13 추가, `spec` 컬럼을 `attributes`로 개칭(D11).
 
 ## 1. 결정 로그
