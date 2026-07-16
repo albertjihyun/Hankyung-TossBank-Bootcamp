@@ -5,7 +5,7 @@
 ## 1. 시스템 구성
 
 ```
-브라우저 ── Next.js(FE) ── Spring Boot(BE, 단일 진입점) ──┬── MySQL
+브라우저 ── Next.js(FE) ── Spring Boot(BE, 단일 진입점) ──┬── MariaDB
                                 │                        ├── Redis (채팅 세션 TTL)
                                 │  SSE 프록시              │
                                 └──────▶ FastAPI(LLM팀) ──┘
@@ -18,18 +18,18 @@
 
 ### 1-1. 배포 형상 — 단일 서버 단계 (2026-07-08 스터디 결정. 분산 형상은 §1-2)
 
-EC2 1대 + docker-compose, 컨테이너 6개(nginx/next/spring/fastapi/mysql/redis).
+EC2 1대 + docker-compose, 컨테이너 6개(nginx/next/spring/fastapi/mariadb/redis).
 
 ```
 인터넷 ──:80/443──▶ [nginx] ── /          ─▶ next:3000
                             ── /api/**    ─▶ spring:8080
                             ── /internal/** ─▶ 404 (라우팅하지 않음)
-docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:8000 / next(서버측) ─▶ spring:8080
+docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastapi:8000 / next(서버측) ─▶ spring:8080
 ```
 
-- **외부에 publish되는 포트는 nginx의 80/443뿐.** spring/next/fastapi/mysql/redis는 내부망 `expose`만 — 배포 compose에 `ports:` publish를 적는 순간(특히 spring 8080) nginx를 우회하는 뒷문이 생긴다.
+- **외부에 publish되는 포트는 nginx의 80/443뿐.** spring/next/fastapi/mariadb/redis는 내부망 `expose`만 — 배포 compose에 `ports:` publish를 적는 순간(특히 spring 8080) nginx를 우회하는 뒷문이 생긴다.
 - **`/internal` 3중 방어**: ① nginx가 라우팅하지 않음(경로 차단) ② spring 포트 미노출(네트워크 차단) ③ 서비스 토큰 필터(애플리케이션 검증). ①②는 네트워크 수준이라 토큰이 유출돼도 외부에선 쓸 곳이 없다.
-- MySQL 데이터는 named volume으로 컨테이너 생명주기와 분리. RDS 전환은 분산 단계에서 검토.
+- MariaDB 데이터는 named volume으로 컨테이너 생명주기와 분리. RDS 전환은 분산 단계에서 검토.
 - **FE base URL이 2개** (FE 팀 공유 필요): 브라우저 발 호출은 `NEXT_PUBLIC_API_URL`(도메인, nginx 경유), Next 서버 컴포넌트 발 호출은 `API_URL`(`http://spring:8080`, 내부망 직행).
 
 ### 1-2. 배포 형상 — 분산 단계 (2026-07-08 스터디 결정)
@@ -57,11 +57,11 @@ docker 내부망:  spring ─▶ mysql:3306, redis:6379 / spring ◀▶ fastapi:
 
 > 위 그림은 **분산/프로덕션 목표 형상**. 데모/단일 서버 단계(§1-1)에선 fastapi를 별도 티어로 빼지 않고 compose 한 박스에 co-location — 과분리 금지(D-분산8).
 
-**D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 복제. mysql·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.** (단, fastapi는 별도 티어로 빼되 복제 없이 1대만 둔다 — D-분산8.)
+**D-분산1. 복제/공유 경계 = 상태 외부화.** next·spring·fastapi는 무상태 → 복제. mariadb·redis는 상태를 들고 있어 복제하면 세계가 갈라짐 → 공유. spring이 무상태 칸에 들어갈 수 있는 건 이미 (a) 인증을 JWT로 해 로그인 상태를 메모리에 안 두고, (b) 채팅 세션을 Redis TTL로 외부화했기 때문. **분산 전환 시 spring 코드 변경 없음.** (단, fastapi는 별도 티어로 빼되 복제 없이 1대만 둔다 — D-분산8.)
 
 **D-분산2. DB 이중화 = RDS Multi-AZ, read replica는 두지 않는다.** 이중화 이유는 읽기 부하가 아니라 failover(죽으면 전체가 죽음)다. JARVIS 트래픽의 병목은 DB가 아니라 LLM 대기(FastAPI)라 read replica의 근거가 미달. Multi-AZ는 물리 2대(서로 다른 AZ)·동기 복제·자동 승격을 엔드포인트 DNS 하나 뒤로 추상화 → 앱은 단일 URL만 보고 읽기/쓰기 분리도 없음. **부수 효과로 복제 지연·read-your-own-writes 문제를 애초에 회피**(대기 서버는 읽지 않으므로). *비용(상시 2배)상 데모 기간엔 단일 인스턴스로 두고 "프로덕션이면 Multi-AZ 토글 ON"으로 운영 가능 — 코드 영향 없음.*
 
-**D-분산3. Redis = ElastiCache primary+replica.** 자동 failover, 앱은 단일 엔드포인트. mysql과 동형.
+**D-분산3. Redis = ElastiCache primary+replica.** 자동 failover, 앱은 단일 엔드포인트. mariadb과 동형.
 
 **D-분산4. 로드밸런서는 2층.** 층 1(인스턴스 간 분배)은 **반드시 인스턴스 바깥**에 있어야 한다 — 특정 EC2 안에 두면 그 EC2가 죽을 때 분배기도 같이 죽어 SPOF가 그대로 이동. AWS ALB(관리형)를 쓰면 LB 자신의 이중화를 AWS가 떠안음(nginx를 별도 EC2에 직접 두면 그 EC2가 다시 SPOF). 층 2(인스턴스 안 nginx)는 §1-1 역할 유지: next/spring/fastapi 라우팅 + spring 8080 외부 미노출. **`/internal` 3중 방어는 그대로 유지**되고 앞단에 ALB가 한 겹 더 붙는 셈(보안그룹으로 각 EC2 nginx 포트는 ALB에서 온 것만 허용).
 
@@ -171,7 +171,7 @@ com.jarvis
 | Java | 21 (Microsoft OpenJDK, JAVA_HOME 명시 필수) | 로컬 환경 제약 (CLAUDE.md) |
 | Spring Boot | 3.5.x | Java 21 대응 최신 안정 |
 | 빌드 | Gradle wrapper (`./gradlew`) | |
-| DB | MySQL 8.x (로컬 docker-compose) | |
+| DB | MariaDB 11.x (로컬 docker-compose) | Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariadb://`). 포트 3306·utf8mb4 동일 |
 | ORM | Spring Data JPA + Hibernate. 복잡 집계(판매자 지표)만 JdbcTemplate 네이티브 쿼리 허용 | QueryDSL 미도입 — 동적 쿼리가 검색 1곳뿐이라 도입 비용>효용 |
 | Redis | spring-data-redis (채팅 세션 TTL 전용) | |
 | 분산 락 | ShedLock (Redis 기반) — 스케줄러 틱당 1대만 실행 (01 §6, D-분산5) | 단일 인스턴스에서도 무해 |
@@ -184,7 +184,7 @@ com.jarvis
 
 | 키 | 용도 |
 |---|---|
-| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MySQL |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MariaDB |
 | `REDIS_HOST` / `REDIS_PORT` | Redis |
 | `JWT_SECRET` | AT/RT 서명 |
 | `LLM_BASE_URL` | FastAPI 주소 |
@@ -193,7 +193,7 @@ com.jarvis
 
 `.gitignore`에 `application-local.yml`, `.env` 포함 확인. 어떤 시크릿도 커밋 금지.
 
-- **타임존**: JVM과 MySQL 세션 모두 `Asia/Seoul` 고정 — orderNo 날짜 파생(02 D24)·mock 간격 계산·시연 중 시각 표시가 전부 이 기준.
+- **타임존**: JVM과 MariaDB 세션 모두 `Asia/Seoul` 고정 — orderNo 날짜 파생(02 D24)·mock 간격 계산·시연 중 시각 표시가 전부 이 기준.
 - **CORS**: 배포는 nginx 동일 오리진이라 불필요. 로컬 개발(FE 3000 → BE 8080 직행)만 local 프로파일에서 `http://localhost:3000` 허용.
 
 ## 6. 공통 규약 요약 (구현 세션 체크용)
@@ -225,11 +225,11 @@ com.jarvis
 
 ### 줄글 설명
 
-**① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MySQL → envelope 응답. FastAPI 무관.
+**① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MariaDB → envelope 응답. FastAPI 무관.
 
 **② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고는 미모델링, 02 D8) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
 
-**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MySQL 조회(attributes 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
+**③ 에이전트 조회 추천** — FE `POST /api/chat`{sessionId,userId,message} → ChatController가 Redis 세션 검증 후 SseEmitter 열기 → WebClient로 FastAPI `/chat`(X-Internal-Token, userId 실어보냄) → FastAPI가 상품 필요 시 되돌아 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB 조회(attributes 포함) 반환 → FastAPI가 카드 조립+조건 추출 → `token/conditions/products/done` SSE 발행 → Spring이 가공 없이 패스스루(버퍼링 off). 게스트면 userId null, 개인화 없이 동일 흐름. **SELLER 채널**은 이 변종(brandId 실어보내고 I-6 사용).
 
 **④ 에이전트 쓰기(담기)** — ③처럼 시작 → FastAPI가 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백 → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}` (게스트도 guestId로 담기 성공 — 02 D30, 로그인 유도는 결제 시점); 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 그 외 검증 실패→사유 안내. 자동 재시도 없음(중복 담기 방지).
 
