@@ -1,4 +1,4 @@
-# 06. 구현 순서 계획
+# 06. 구현 순서 계획stap
 
 > 각 단계는 "완료 조건(검증 방법)"이 충족돼야 다음으로 넘어간다. 구현 세션은 단계마다 브랜치를 따고(feature-workflow), 끝나면 ship-it으로 PR을 만든다. 한 단계 = PR 1개가 기본.
 
@@ -10,7 +10,7 @@
 
 ## Phase 0. 스캐폴딩 (0.5일)
 
-Spring Boot 3.5 + Gradle 프로젝트 생성(`backend/`), docker-compose(MySQL+Redis), 03 문서의 global 패키지(envelope, ErrorCode, GlobalExceptionHandler, Async/Scheduling 설정), application.yml 프로파일 구조.
+Spring Boot 3.5 + Gradle 프로젝트 생성(`backend/`), docker-compose(MariaDB+Redis), 03 문서의 global 패키지(envelope, ErrorCode, GlobalExceptionHandler, Async/Scheduling 설정), application.yml 프로파일 구조.
 - **완료**: `./gradlew bootRun`(JAVA_HOME 명시) 후 `GET /actuator/health` 200. 존재하지 않는 경로가 envelope 형식의 404를 반환.
 
 ## Phase 1. 인증 + 회원 (1일)
