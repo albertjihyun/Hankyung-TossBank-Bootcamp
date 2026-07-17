@@ -247,7 +247,7 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 - **선택**: append-only 로그 테이블 3종 신설 — `order_status_logs` / `product_change_logs` / `account_event_logs`(§3). 전부 FK 미설정(append-only 로그 경량화 — 구 user_event.product_id와 같은 이유). 상세 기록 지점 규칙은 **01 문서 소관**(01에 신설됨) — 02는 테이블 정의 + 요약만.
 - **order_status_logs 요약**: to_status 어휘는 **우리 상태명 그대로** — 주문 수준 `PENDING`/`PAID`/`PAYMENT_FAILED`/`CANCELLED`, 아이템 이행 수준 `SHIPPING`/`DELIVERED`/`CANCELLED`/`RETURNED`. `ORDERED`는 PAID와 같은 트랜잭션이라 별도 기록 안 함, `*_REQUESTED`(신청 접수)는 claim 테이블이 정본이라 미기록, `CONFIRMED`(구매확정)도 미기록. 교환 어휘 없음(D34). actor 규칙: 배송 전이=SYSTEM(모의 스케줄러 — 판매자 발송 기능 없음), 취소/반품 완료=USER(신청 주체 — 자동 승인 스케줄러가 실행해도 신청 주체 기준) + claim.reason 텍스트, 결제 성공/실패=SYSTEM. 같은 주문의 여러 아이템이 같은 전이를 동시에 겪으면(스케줄러 배치) 주문 단위 1행만. **orders.status 어휘에 `CANCELLED` 편입**(4종, 컬럼 타입 무변경) — 전량 취소(소속 아이템 전부 CANCELLED) 시 같은 트랜잭션에서 orders.status→CANCELLED + 로그 1행. 미입금 자동취소 배치는 도입하지 않음(주문=결제 동시 생성이라 해당 없음).
 - **product_change_logs 요약**: 전후 값 동일 시 미기록. 주문에 의한 재고 -1은 미기록(order_item으로 복원 가능) — 수동 조정과 품절(new_value=0)/재입고 전환만 기록. 품절 신호 = STOCK new_value 0 (SOLD_OUT 상태 미도입).
-- **account_event_logs 요약**: Spring Security AuthenticationSuccessHandler/FailureHandler에 1회 심음. 로그인 실패도 기록 — 없는 계정 시도는 member_id NULL + IP(무차별 대입 탐지 재료). FE의 login 행동 이벤트(D31)와 중복이지만 목적이 다름(행동 vs 보안) — **"마지막 로그인"의 단일 출처는 account_event_logs.LOGIN_SUCCESS**.
+- **account_event_logs 요약**: AuthService 성공/실패 지점에서 직접 적재(03 §3-1 — formLogin 미사용이라 Security 핸들러 자동 발화 없음). 로그인 실패도 기록 — 없는 계정 시도는 member_id NULL + IP(무차별 대입 탐지 재료). FE의 login 행동 이벤트(D31)와 중복이지만 목적이 다름(행동 vs 보안) — **"마지막 로그인"의 단일 출처는 account_event_logs.LOGIN_SUCCESS**.
 - **트레이드오프**: 쓰기 경로마다 로그 INSERT 1회 추가 — append-only 단순 INSERT라 무시 가능. FK 미설정으로 고아 로그 가능 → 로그는 참조 무결성보다 적재 안정성 우선.
 
 ### D33. 재고를 모델링한다 — product.stock_quantity (D8 폐기 — 2026-07-17)
@@ -727,7 +727,7 @@ JPA 매핑 규약: Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariad
 | created_at | DATETIME(6) | NOT NULL | |
 
 - 인덱스: `(member_id, created_at)`, `(ip_address, created_at)`, `(event_type, created_at)`.
-- Spring Security AuthenticationSuccessHandler/FailureHandler에 1회 심음. FE의 `login` 행동 이벤트(D31)와 목적이 다름(행동 vs 보안) — **"마지막 로그인"의 단일 출처 = account_event_logs.LOGIN_SUCCESS**.
+- 적재 지점: AuthService의 로그인 성공/실패 지점에서 직접 INSERT — A-2가 formLogin이 아닌 컨트롤러 방식이라 Security Success/FailureHandler가 자동 발화하지 않음(03 §3-1, 2026-07-17 구체화. 원안 "Security 핸들러에 심음"은 이 지점을 뜻함). FE의 `login` 행동 이벤트(D31)와 목적이 다름(행동 vs 보안) — **"마지막 로그인"의 단일 출처 = account_event_logs.LOGIN_SUCCESS**.
 
 ## 4. behavior_events 이벤트 타입 (퍼널 정의)
 
