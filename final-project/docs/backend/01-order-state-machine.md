@@ -127,7 +127,7 @@
 - 모의 결제 실패 트리거: 결제 수단 선택지에 **"테스트: 결제 실패"** 옵션을 둔다(선택 시 무조건 실패). 그 외 수단은 무조건 성공. 이유: 실패 케이스를 시연자가 의도적으로 재현할 수 있어야 하고, 랜덤 실패는 데모를 망친다.
 - `PAID` 이후 Order.status는 **전량 취소 단 하나의 예외**를 빼면 다시 변하지 않는다 — 소속 아이템이 전부 `CANCELLED`가 되는 순간 같은 트랜잭션에서 `CANCELLED`로 전이. 그 밖의 취소/반품에 의한 파생 표현("일부 환불됨" 등)은 아이템 상태에서 계산한다(§4).
 - 미입금 자동취소 배치는 도입하지 않는다 — `PENDING`/`PAYMENT_FAILED` 주문은 그대로 방치(D3의 쓰레기 주문 결정 유지). `CANCELLED`는 사용자 취소 전용.
-- 주문 생성(O-1) 시 `product.stock_quantity` 차감이 선행되며, 재고 부족이면 주문 생성 자체가 실패한다(02의 재고 도입 — 02 D8 폐기). 재고 차감 자체는 order_status_logs 기록 대상이 아니다(product_change_logs 규칙 — 02 소관).
+- `product.stock_quantity` 차감은 **결제 성공 처리(PENDING→PAID 전이, O-1·O-2 공통)와 같은 트랜잭션**에서 조건부 UPDATE로 수행한다(2026-07-17 확정) — 주문 생성 시점 차감이 아니므로 미결제(PENDING/PAYMENT_FAILED) 주문이 재고를 점유하지 않는다. 차감 실패(재고 부족) 시 결제 실패(`PAYMENT_FAILED`, reason `OUT_OF_STOCK`)로 처리. 취소/반품 시 재고 **복원은 MVP 미구현**(감수 — 시드 재고 100). 재고 차감 자체는 order_status_logs 기록 대상이 아니다(product_change_logs 규칙 — 02 소관).
 
 ### 2-2. OrderItem.status (이행 + 클레임 수준)
 
