@@ -85,6 +85,24 @@ public class ProductService {
         return ProductCardPageResponse.from(productPage, toCards(productPage.getContent()));
     }
 
+    /** M-7 — 최근 본 상품: 중복 제거 최신 20개 (04 §5, 02 D3) */
+    public List<ProductCardResponse> getRecent(Long memberId, int size) {
+        return getCardsByIds(productRepository.findRecentViewedIds(memberId, size));
+    }
+
+    /**
+     * 카드 다건 조회 — 입력 id 순서 보존. HIDDEN도 유지(purchasable=false) —
+     * 찜·최근 본 상품은 개인 목록이라 장바구니(C-1)와 같은 원칙, 공개 목록(P-4/P-6/P-7)과 다름.
+     */
+    public List<ProductCardResponse> getCardsByIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Product> products = productRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        return toCards(ids.stream().map(products::get).filter(java.util.Objects::nonNull).toList());
+    }
+
     /** P-6 브랜드홈 필터 축 — 해당 브랜드 판매 중 상품의 소분류 (02 D20) */
     public List<Long> getBrandCategoryIds(Long brandId) {
         return productRepository.findCategoryIdsByBrand(brandId);
