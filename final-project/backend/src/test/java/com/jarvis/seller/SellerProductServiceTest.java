@@ -58,7 +58,7 @@ class SellerProductServiceTest {
     @DisplayName("price·stock·status 변경은 change log 기록, 그 외 필드는 changes[]만 (02 D32 어휘 3종)")
     void updateRecordsLogsOnlyForVocabularyFields() {
         Product product = ownProduct();
-        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         SellerProductUpdateRequest request = new SellerProductUpdateRequest(
                 "새 이름", null, null, null, 89000, null, null, 50);
 
@@ -79,7 +79,7 @@ class SellerProductServiceTest {
     @DisplayName("동일 값 요청은 미기록·changes 빈 배열 (02 D32 '전후 동일 시 미기록')")
     void updateSameValueRecordsNothing() {
         Product product = ownProduct();
-        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         SellerProductUpdateRequest request = new SellerProductUpdateRequest(
                 "에어프라이어", null, null, null, 96800, null, ProductStatus.ON_SALE, 100);
 
@@ -93,7 +93,7 @@ class SellerProductServiceTest {
     @DisplayName("price > originalPrice면 400 PRODUCT_PRICE_INVALID (02 D28) — 교차 필드까지 검증")
     void updateRejectsPriceOverOriginal() {
         Product product = ownProduct();
-        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
         SellerProductUpdateRequest request = new SellerProductUpdateRequest(
                 null, null, null, null, 150000, null, null, null);
 
@@ -106,7 +106,7 @@ class SellerProductServiceTest {
     @DisplayName("타 브랜드 상품이면 403 — productId는 LLM 값이라 internal에서도 재검증 (05 §I-9)")
     void updateRejectsOtherBrandProduct() {
         Product product = ownProduct();
-        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
 
         assertThatThrownBy(() -> service.update(999L, 1L,
                 new SellerProductUpdateRequest("이름", null, null, null, null, null, null, null)))
@@ -118,7 +118,7 @@ class SellerProductServiceTest {
     @DisplayName("I-12 soft delete — HIDDEN 전환 + STATUS 로그, 재호출 멱등 (05 §1-3)")
     void softDeleteIsIdempotent() {
         Product product = ownProduct();
-        when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(product));
 
         service.softDelete(BRAND_ID, 1L);
         assertThat(product.getStatus()).isEqualTo(ProductStatus.HIDDEN);

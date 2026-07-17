@@ -174,9 +174,12 @@ public class SellerProductService {
         product.changeStatus(ProductStatus.HIDDEN);
     }
 
-    /** 소유권 검증 — productId는 LLM이 채우는 값이라 신뢰 불가, internal에서도 반복 (05 §I-9) */
+    /**
+     * 소유권 검증 — productId는 LLM이 채우는 값이라 신뢰 불가, internal에서도 반복 (05 §I-9).
+     * 쓰기 경로(수정·soft delete)라 비관적 락으로 로드 — 재고 절대값 수정이 주문 차감과 경합해도 lost update 없음 (02 D33).
+     */
     private Product ownedProduct(Long brandId, Long productId) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND));
         if (!product.getBrandId().equals(brandId)) {
             throw new BusinessException(ErrorCode.AUTH_FORBIDDEN);
