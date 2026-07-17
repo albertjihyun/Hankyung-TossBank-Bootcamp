@@ -61,7 +61,7 @@ FastAPI       : JWKS로 signature·exp·iss·aud·scope 검증 → 스트리밍
 ```
 
 - **신원(userId/guestId)은 body에 없다 — 티켓 claim(`sub`/`sub_type`)에서** 취한다(§1-0). 게스트면 `sub_type:guest`, 개인화 없이 응답.
-- 멀티턴 맥락은 sessionId 기준으로 **FastAPI가 인메모리/자체 스토어에 유지** (BE는 메시지를 저장하지 않음). 세션 종료 시 Spring이 **I-20 `POST {LLM_BASE_URL}/events/session-end`** 로 정리 통지(§2-1) — 트리거: 로그아웃/30분 유휴/새 대화. *(구 `DELETE {LLM_BASE_URL}/sessions/{id}` 안(OPEN이었음)을 대체 — 2026-07-17 확정. 잔여 OPEN: sessionId 형식, §2-1)*
+- 멀티턴 맥락은 sessionId 기준으로 **FastAPI가 인메모리/자체 스토어에 유지** (BE는 메시지를 저장하지 않음). 세션 종료 시 Spring이 **I-20 `POST {LLM_BASE_URL}/events/session-end`** 로 정리 통지(§2-1) — 트리거: 로그아웃/30분 유휴/새 대화. *(구 `DELETE {LLM_BASE_URL}/sessions/{id}` 안(OPEN이었음)을 대체 — 2026-07-17 확정. sessionId 형식도 UUID로 합의 완료)*
 - 카테고리 진입(메인에서 카테고리 클릭)은 별도 필드 없이 message로 전달: FE가 `"[카테고리] 주방용품 보여줘"` 형태로 첫 메시지 구성. **(OPEN: 전용 필드로 분리할지)**
 
 ### 1-2. 응답: SSE 스트림
@@ -192,7 +192,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 ### I-20. 세션 종료 통지 `POST {LLM_BASE_URL}/events/session-end` — **방향 예외(Spring→FastAPI)**
 - 트리거: 로그아웃 / 30분 유휴 / 새 대화. body: `{ "sessionId": "<uuid>", "reason": "LOGOUT" }` — reason enum `LOGOUT|IDLE_TIMEOUT|NEW_CONVERSATION|TAB_CLOSE`.
 - **멱등**: 없는 세션도 `200 + {"cleared": false}` — 재시도·중복 호출 무해.
-- sessionId는 Spring이 UUID로 발급 — 상대 명세의 `S-` 접두 형식 제약은 **OPEN(UUID로 요청 중)**.
+- sessionId는 Spring이 UUID로 발급 — **UUID 그대로 수신으로 합의 완료(2026-07-17 LLM 팀 확인)**. 구 `S-` 접두 형식 제약 폐기.
 - 구 "세션 만료 시 `DELETE {LLM_BASE_URL}/sessions/{id}` 통지(OPEN)" 항목을 대체 — 2026-07-17 확정.
 
 ## 3. 비기능 규약
@@ -214,7 +214,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - [x] ~~SSE 직결 여부·인증~~ — **FE↔FastAPI 직결 + RS256/JWKS 단명 티켓 확정**(§1-0, 03 D5). AI팀 JWKS 검증 방식 채택 + 검증 대상을 단명 스트림 티켓으로.
 - [x] ~~추천 카드 데이터 출처~~ — **`products` 이벤트는 `{productId, reason}`만, 카드는 FE가 P-7로 pull**(§1-2). 정형 진실은 Spring. *(2026-07-17 개정: `products` → `products.ready(listId)`, 카드 조회는 P-7 → CH-5 — §1-2)*
 - [x] ~~추천 조회 흐름~~ — **2왕복(정형 후보조회 I-1 → 벡터 리랭킹 → Top5 → 카드 하이드레이션 P-7)** 확정(§1-2-1). *(2026-07-17: 마지막 단계에 I-21 콜백 저장 + CH-5 조회 추가 — §1-2-1)*
-- [x] ~~세션 만료 통지 방식~~ — **I-20 `POST {LLM_BASE_URL}/events/session-end`로 확정(2026-07-17, §2-1)**. 잔여: sessionId의 `S-` 접두 형식 제약 — **OPEN(UUID로 요청 중)**
+- [x] ~~세션 만료 통지 방식~~ — **I-20 `POST {LLM_BASE_URL}/events/session-end`로 확정(2026-07-17, §2-1)**. sessionId 형식도 **UUID로 합의 완료**(구 `S-` 접두 제약 폐기)
 
 **[남은 OPEN]**
 - [ ] **벡터DB 배치 동기화**(§1-2-2): 트리거·주기, 전체 재적재 vs 델타, 크롤링 파이프라인(상품 1만+) 연결 지점 — LLM팀 + 데이터 파이프라인 합의
@@ -227,7 +227,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - [ ] **confirm 전송 형식**(§1-3): 전용 필드 `{action:"confirm", draftId}` vs 특수 메시지 — LLM 확정 대기 (draft 이벤트 필드 자체는 §1-3으로 확정)
 - [ ] **I-21/CH-5 추천 목록 스키마**: I-21 콜백 body·CH-5 응답(그룹핑·reason 노출 포함) — LLM 협의 중
 - [ ] **I-13 행동 이벤트 조회/집계**(`GET /internal/seller/{brandId}/events`) 본문 명세 — LLM팀 재작성 대기
-- [ ] **I-20 sessionId 형식**: 상대 명세의 `S-` 접두 제약 vs 우리 UUID 발급 — UUID로 요청 중(§2-1)
+- [x] ~~I-20 sessionId 형식~~ — **UUID로 합의 완료(2026-07-17 LLM 팀 확인, §2-1)**
 - [ ] **CH-3(CS 챗봇) 폐지/유지**: 직결 전환 후 문의 챗봇 존치 여부 — LLM 확인 중(04 §6)
 - [ ] **SELLER 툴 바인딩**: `brandId`(및 신원 필드 전부)는 LLM 툴 파라미터로 노출 금지 — **티켓 claim/세션 컨텍스트에서 코드 주입**(§1-0). 인젝션으로 타 브랜드 id를 넣는 경로 차단
 - [ ] **SELLER 프롬프트 가드레일**: ① "직접 반영했어요" 류 발화 금지(쓰기 툴이 없는데 성공 환각 시 판매자가 적용 버튼을 안 누름) ② 직접 반영 요구엔 "확인 후 적용 버튼으로 즉시 반영" 안내
