@@ -1,0 +1,132 @@
+package com.jarvis.product;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jarvis.brand.BrandService;
+import com.jarvis.category.CategoryService;
+import com.jarvis.global.response.BusinessException;
+import com.jarvis.global.response.ErrorCode;
+import com.jarvis.product.dto.ProductCardPageResponse;
+import com.jarvis.product.dto.ProductCardResponse;
+import com.jarvis.product.dto.ProductDetailResponse;
+import com.jarvis.review.ReviewService;
+import com.jarvis.review.dto.RatingStats;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class ProductService {
+
+    private static final int POPULAR_DAYS = 7;
+
+    private final ProductRepository productRepository;
+    private final ProductOptionRepository productOptionRepository;
+    private final BrandService brandService;
+    private final CategoryService categoryService;
+    private final ReviewService reviewService;
+    private final ObjectMapper objectMapper;
+
+    /**
+     * P-2 — HIDDEN도 응답한다(purchasable=false): 장바구니가 HIDDEN 아이템을 유지(C-1)하므로
+     * 상세 링크가 404가 되면 안 됨. 목록(P-4/P-6/P-7)에서는 제외.
+     */
+    public ProductDetailResponse getDetail(Long id) {
+        Product product = getProduct(id);
+        return ProductDetailResponse.from(product, parseJson(product.getAttributes()),
+                categoryService.getCategory(product.getCategoryId()),
+                brandService.getBrand(product.getBrandId()),
+                productOptionRepository.findAllByProductIdOrderByIdAsc(id),
+                reviewService.getStats(id));
+    }
+
+    /** P-4 — 7일 판매수 → product_view 수 → 최신순 순으로 채움 (04 §2) */
+    public List<ProductCardResponse> getPopular(int size) {
+        LocalDateTime since = LocalDateTime.now().minusDays(POPULAR_DAYS);
+        List<Long> ids = new ArrayList<>(productRepository.findPopularIdsBySales(since, size));
+        if (ids.size() < size) {
+            ids.addAll(productRepository.findPopularIdsByViews(since, excluded(ids), size - ids.size()));
+        }
+        if (ids.size() < size) {
+            ids.addAll(productRepository.findLatestIds(excluded(ids), size - ids.size()));
+        }
+        Map<Long, Product> products = productRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+        return toCards(ids.stream().map(products::get).filter(java.util.Objects::nonNull).toList());
+    }
+
+    /** P-6 상품 목록 — HIDDEN 제외, popular는 표시 판매량(02 D18) 기준 */
+    public ProductCardPageResponse getBrandProducts(Long brandId, Long categoryId, String sort,
+                                                    int page, int size) {
+        Page<Product> productPage = switch (sort) {
+            case "latest" -> findBrandPage(brandId, categoryId,
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id")));
+            case "price_asc" -> findBrandPage(brandId, categoryId,
+                    PageRequest.of(page, size, Sort.by(Sort.Order.asc("price"), Sort.Order.desc("id"))));
+            case "price_desc" -> findBrandPage(brandId, categoryId,
+                    PageRequest.of(page, size, Sort.by(Sort.Order.desc("price"), Sort.Order.desc("id"))));
+            default -> productRepository.findBrandProductsOrderByPopularity(brandId, categoryId,
+                    PageRequest.of(page, size));
+        };
+        return ProductCardPageResponse.from(productPage, toCards(productPage.getContent()));
+    }
+
+    /** P-6 브랜드홈 필터 축 — 해당 브랜드 판매 중 상품의 소분류 (02 D20) */
+    public List<Long> getBrandCategoryIds(Long brandId) {
+        return productRepository.findCategoryIdsByBrand(brandId);
+    }
+
+    private Page<Product> findBrandPage(Long brandId, Long categoryId, Pageable pageable) {
+        return categoryId == null
+                ? productRepository.findAllByBrandIdAndStatus(brandId, ProductStatus.ON_SALE, pageable)
+                : productRepository.findAllByBrandIdAndCategoryIdAndStatus(brandId, categoryId,
+                        ProductStatus.ON_SALE, pageable);
+    }
+
+    private List<ProductCardResponse> toCards(List<Product> products) {
+        List<Long> ids = products.stream().map(Product::getId).toList();
+        Map<Long, RatingStats> stats = reviewService.getStats(ids);
+        Map<Long, String> brandNames = brandService.getNames(
+                products.stream().map(Product::getBrandId).collect(Collectors.toSet()));
+        return products.stream()
+                .map(p -> ProductCardResponse.from(p, brandNames.get(p.getBrandId()),
+                        stats.getOrDefault(p.getId(), RatingStats.EMPTY)))
+                .toList();
+    }
+
+    private Product getProduct(Long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PRODUCT_NOT_FOUND));
+    }
+
+    /** NOT IN 파라미터는 빈 리스트 불가 — 매칭 불가능한 센티널로 대체 */
+    private static List<Long> excluded(List<Long> ids) {
+        return ids.isEmpty() ? List.of(-1L) : ids;
+    }
+
+    private JsonNode parseJson(String json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(json);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("attributes JSON 파싱 실패 — null로 응답: {}", json, e);
+            return null;
+        }
+    }
+}
