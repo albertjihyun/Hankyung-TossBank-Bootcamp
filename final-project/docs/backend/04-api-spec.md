@@ -8,7 +8,7 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, agreeTerms(true 필수), agreePrivacy(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계(user_event 이관 + 장바구니 병합 — 02 D5·D30) |
+| A-1 | POST | /api/auth/signup | 🔓 | 회원가입. body: email, password, nickname, gender, birthDate, agreeTerms(true 필수), agreePrivacy(true 필수), guestId? — 성공 시 자동 로그인(토큰 발급) + 게스트 승계(behavior_events member_id 백필 + 장바구니 병합 — 02 D5·D30·D31) |
 | A-2 | POST | /api/auth/login | 🔓 | 일반 로그인. body: email, password, guestId? |
 | A-3 | POST | /api/auth/logout | 🔓(RT쿠키) | RT 삭제 + 쿠키 만료. AT가 만료돼도 로그아웃은 가능해야 하므로 RT 쿠키 기준(없어도 성공 응답) |
 | A-4 | POST | /api/auth/refresh | 🔓(RT쿠키) | AT 재발급 |
@@ -25,12 +25,12 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | P-1 | GET | /api/categories | 🔓 | 카테고리 트리(대분류+소분류, 02 D20). 메인 해시태그는 대분류만 사용 |
-| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 시 PRODUCT_VIEW 이벤트 적재(로그인/게스트 공통) |
+| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 이벤트는 서버 적재 없음(FE가 E-1 `product_view`로 배치 전송, §8 — 이중 집계 방지) |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만 |
-| P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계 — ORDER_CREATED 이벤트는 주문 단위라 상품별 집계 불가, 02 §4) → 부족하면 PRODUCT_VIEW 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
+| P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계, 02 §4) → 부족하면 behavior_events `product_view` 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
 | P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서). **타임아웃 연결 2s/응답 3s**(채팅용과 별도 — 메인 렌더 블로킹 방지), 실패·타임아웃·프로필 없음 시 P-4로 fallback. FastAPI가 상품 ID 목록을 주면 BE가 카드 조립(P-7과 동형) |
 | P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size |
-| P-7 | GET | /api/products/cards?ids=1,2,3 | 🔓(게스트 허용) | **추천 카드 하이드레이션** — 챗봇 추천 SSE의 `products{productId,reason}` 수신 후 FE가 카드 표시 데이터를 pull(05 §1-2-1, 03 D5 직결). 응답 item: `productId, name, brandName, price, originalPrice, imageUrl, rating, reviewCount, purchasable`. **HIDDEN·품절은 드롭**(응답에서 제외 — Top5가 <5로 줄 수 있음, FastAPI가 넉넉히 골라 대비). ids 상한 20(다건 `id IN`, INT 검증). reason은 SSE 소유라 응답에 없음 — FE가 productId로 조인 |
+| P-7 | GET | /api/products/cards?ids=1,2,3 | 🔓(게스트 허용) | **추천 카드 하이드레이션 — CH-5(추천 목록 조회)로 대체 예정(폐지 예고)**: SSE `products` 이벤트가 `products.ready(listId)`로 바뀌며 추천 카드 조회는 CH-5로 이동(05 §1-2-1) — CH-5 스키마 확정(OPEN) 전까지, 그리고 범용 다건 카드 조회 용도로 유지. 응답 item: `productId, name, brandName, price, originalPrice, imageUrl, rating, reviewCount, purchasable`. **HIDDEN·품절은 드롭**(응답에서 제외 — Top5가 <5로 줄 수 있음, FastAPI가 넉넉히 골라 대비). ids 상한 20(다건 `id IN`, INT 검증). reason은 SSE 소유라 응답에 없음 — FE가 productId로 조인 |
 
 - P-7은 **표시 데이터 전용**(주문·결제의 진실 아님 — 결제 금액 재계산은 O-1). 추천 외 범용 다건 카드 조회로도 재사용 가능.
 - P-2의 평점 통계는 review 테이블 실시간 집계(파생값 저장 금지).
@@ -41,7 +41,7 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | C-1 | GET | /api/cart | 🔓(게스트 허용) | 내(회원/게스트) 장바구니: 아이템(상품 요약, 옵션, 수량, 현재가), 합계는 FE 계산 아님 — data에 totalOriginal/totalSale/discount 포함. HIDDEN 상품 아이템은 목록에 유지하되 `purchasable=false`로 표시(합계에서 제외) — 주문 시도는 O-1이 400 |
-| C-2 | POST | /api/cart/items | 🔓(게스트 허용) | 담기. body: productId, optionId?, quantity — 동일 상품+옵션 존재 시 수량 합산. CART_ADD(manual) 이벤트. 게스트는 guest_id 쿠키가 소유 주체(없으면 발급 — 02 D30) |
+| C-2 | POST | /api/cart/items | 🔓(게스트 허용) | 담기. body: productId, optionId?, quantity — 동일 상품+옵션 존재 시 수량 합산. 담기 성공 시 행동 이벤트는 FE가 E-1 `add_to_cart`로 전송(서버 적재 없음, §8). 게스트는 guest_id 쿠키가 소유 주체(없으면 발급 — 02 D30) |
 | C-3 | PATCH | /api/cart/items/{id} | 🔓(게스트 허용) | 수량 변경. body: quantity(≥1) |
 | C-4 | DELETE | /api/cart/items/{id} | 🔓(게스트 허용) | 삭제 (복수 삭제는 FE에서 반복 호출 — 데모 규모) |
 
@@ -53,12 +53,12 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: **source = cartItemIds[] 또는 items[]{productId, optionId?, quantity} 중 정확히 하나** (장바구니 경유 vs 바로 구매 — 둘 다/둘 다 없음 400), addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성(아이템도 `PENDING` — 01 D9) → 스냅샷 복사 → mock 결제 판정 → PAID(아이템 `ORDERED` 전이·장바구니 경유분만 차감·ORDER_CREATED 이벤트) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
-| O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만. 성공 시 부수효과는 O-1의 PAID와 동일(아이템 `ORDERED` 전이·ORDER_CREATED 적재·장바구니에 같은 상품+옵션 행이 남아 있으면 삭제) |
+| O-1 | POST | /api/orders | 🔑 | 주문 생성+모의 결제 한 번에. body: **source = cartItemIds[] 또는 items[]{productId, optionId?, quantity} 중 정확히 하나** (장바구니 경유 vs 바로 구매 — 둘 다/둘 다 없음 400), addressId 또는 address 직접 입력, deliveryRequest?(02 D22), paymentMethod — 처리: PENDING 생성(아이템도 `PENDING` — 01 D9) → 스냅샷 복사 → mock 결제 판정 → PAID(아이템 `ORDERED` 전이·장바구니 경유분만 차감 — 상태 전이 기록은 order_status_logs, 01 소관) 또는 PAYMENT_FAILED. 응답: orderId, orderNo, status |
+| O-2 | POST | /api/orders/{id}/retry-payment | 🔑 | 실패 주문 재결제. body: paymentMethod — PENDING/PAYMENT_FAILED에서만. 성공 시 부수효과는 O-1의 PAID와 동일(아이템 `ORDERED` 전이·장바구니에 같은 상품+옵션 행이 남아 있으면 삭제) |
 | O-3 | GET | /api/orders | 🔑 | 내 주문 목록: 대표 상태(01 §4), 아이템 요약. query: page, size |
-| O-4 | GET | /api/orders/{id} | 🔑 | 주문 상세: 아이템별 상태, 배송지 스냅샷, 금액, 아이템별 가능 액션(canCancel/canReturn/canExchange/canReview — 01 §3 매트릭스를 서버가 계산해 내려줌) |
-| O-5 | POST | /api/order-items/{id}/claims | 🔑 | 클레임 신청. body: type(CANCEL\|RETURN\|EXCHANGE), reason? — 01 매트릭스 위반 시 400 `CLAIM_NOT_ALLOWED`, 활성 클레임 존재 시 409 |
-| O-6 | GET | /api/claims | 🔑 | 내 취소·반품·교환 내역. query: page, size |
+| O-4 | GET | /api/orders/{id} | 🔑 | 주문 상세: 아이템별 상태, 배송지 스냅샷, 금액, 아이템별 가능 액션(canCancel/canReturn/canReview — 01 §3 매트릭스를 서버가 계산해 내려줌, 교환 제거 확정으로 canExchange 없음) |
+| O-5 | POST | /api/order-items/{id}/claims | 🔑 | 취소/반품 신청. body: type(CANCEL\|RETURN — **교환 제거 확정**), reason? — 01 매트릭스 위반 시 400 `CLAIM_NOT_ALLOWED`, 활성 클레임 존재 시 409 |
+| O-6 | GET | /api/claims | 🔑 | 내 취소·반품 내역. query: page, size |
 
 - **바로 구매(items[] 경로)**: 상품 상세의 "바로 구매"는 장바구니를 거치지 않는다 — FE가 `items[]`로 O-1 직접 호출(주문서 화면은 장바구니 결제와 동일, 단일 상품만 프리필). 두 경로는 라인아이템 **출처만 다르고**(cart_item 조회 vs body), 이후 스냅샷 복사·검증·결제·상태 전이는 **같은 서비스 코드로 수렴**. 스키마 무변경 — order/order_item이 스냅샷이라 cart_item에 의존하지 않는다(02 D1의 배당금).
   - 바로 구매는 **장바구니 미접촉**: 담지도, PAID 시 차감하지도 않음(차감은 cartItemIds[] 경유분 한정).
@@ -73,13 +73,13 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/EXCHANGED/CONFIRMED + 미작성, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED` |
+| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/CONFIRMED + 미작성 — 교환 제거 확정, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED` |
 | M-2 | GET | /api/reviews/me | 🔑 | 내가 쓴 후기 목록 |
 | M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409, 자기 후기 신고 400 `REVIEW_SELF_REPORT`(02 D29) |
 | M-4 | GET | /api/wishlist | 🔑 | 찜 목록 |
-| M-5 | POST | /api/wishlist | 🔑 | 찜 추가. body: productId — 중복 409. WISHLIST_ADD 이벤트 |
+| M-5 | POST | /api/wishlist | 🔑 | 찜 추가. body: productId — 중복 409 (찜 이벤트 적재 없음 — E-1 8종에 미포함) |
 | M-6 | DELETE | /api/wishlist/{productId} | 🔑 | 찜 해제 |
-| M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (user_event 기반, 중복 제거 최신 20개) |
+| M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (behavior_events `product_view` 기반, 중복 제거 최신 20개) |
 | M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션). 삭제: 기본 배송지는 다른 배송지가 있을 때만 가능 — 등록순 가장 오래된 주소 자동 승격(같은 트랜잭션), 유일한 배송지는 삭제 불가 400 `ADDRESS_LAST_UNDELETABLE`(02 D29) |
 | M-9 | GET | /api/inquiries/me | 🔑 | 내 문의 내역(읽기 전용): 제목(02 D23), 내용, 상태, 답변 |
 | M-10 | PATCH | /api/members/me | 🔑 | 프로필 수정: nickname |
@@ -94,21 +94,46 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | CH-1 | POST | /api/chat/sessions | 🔓(게스트 허용) | 세션 발급(Redis TTL 10분) **+ 스트림 티켓(RS256/JWKS) 동시 발급**. body: `channel`(SHOPPING\|CS). 신원 확인(회원 JWT/게스트 쿠키) 후 `sub/sub_type/scope:chat:stream` 티켓 서명. 응답: `sessionId, streamTicket, llmSseUrl, expiresIn(30~60s)`. "새 대화" 버튼도 이걸 재호출(05 §1-0) |
+| CH-1b | POST | /api/chat/tickets | 🔓(게스트 허용) | **스트림 티켓만 재발급**(세션은 유지). body: sessionId — 매 메시지 전 또는 티켓 만료 401 시 호출. 세션 만료·없음이면 404 `SESSION_NOT_FOUND` → FE는 CH-1로 새 세션 발급 |
 | ~~CH-2~~ | ~~POST~~ | ~~/api/chat~~ | — | **폐기(직결)** — 추천 챗봇 메시지·SSE는 FE가 `POST {LLM_SSE_URL}/chat`(`Authorization: Bearer <티켓>`)로 FastAPI에 직접(05 §1-1). Spring 경유 아님. 게스트 무제한·개인화 미적용은 유지 |
-| ~~CH-3~~ | ~~POST~~ | ~~/api/chat/cs~~ | — | **폐기(직결)** — CS 챗봇도 동일 직결(`channel:CS` 티켓). 비로그인은 일반 안내만(주문 질문 시 로그인 유도는 LLM 측) |
+| ~~CH-3~~ | ~~POST~~ | ~~/api/chat/cs~~ | — | **폐기(직결)** — CS 챗봇도 동일 직결(`channel:CS` 티켓). 비로그인은 일반 안내만(주문 질문 시 로그인 유도는 LLM 측). 단, 직결 전환 후 문의 챗봇 자체의 폐지/유지 여부는 **OPEN(LLM 확인 중)** |
+| CH-5 | GET | /api/chat/lists/{listId} | 🔓(게스트 허용) | **(제안) 추천 목록 조회** — FE가 SSE `products.ready(listId)` 수신 후 호출. I-21 콜백으로 저장된 Top5(Redis TTL)에 BE가 카드 완결 필드(가격·정가·이미지·rating·reviewCount)를 부착해 반환(순서 = 콜백 저장 순서). **I-21과 쌍**, P-7 대체 예정. 스키마 **OPEN(LLM 협의 중)** |
 
-- 티켓 만료 시 재발급은 CH-1 재호출. 티켓 발급 앞단에 보조 rate limit 가능(05 §3).
+- 티켓 만료(401) 시 재발급은 **CH-1b**(세션 유지) → 1회 재시도. 세션까지 만료/없음(404 `SESSION_NOT_FOUND`)이면 CH-1로 새 세션. 티켓 발급 앞단에 보조 rate limit 가능(05 §3).
 
 ## 7. seller
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(user_event+order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(EXCHANGED·처리중 포함) — I-6도 동일 |
-| S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 아이템 목록 |
-| S-3 | PATCH | /api/seller/products/{id} | 🏪 | 자사 상품 상세 수정: name, summary, attributes, description, price, original_price, status — 검증 `price ≤ original_price`(02 D28), 본인 브랜드 상품 아니면 403. description은 서버측 sanitize(LLM 초안 포함 모든 입력 — XSS 차단). 에이전트 초안(05 draft 이벤트)의 "적용"도 FE가 이 API를 판매자 JWT로 호출 |
-| S-4 | POST | /api/chat/seller/sessions | 🏪 | 판매자 챗봇 **세션 + SELLER 스코프 스트림 티켓 발급**(직결 — 채팅 SSE는 FE↔FastAPI). `brandId`는 JWT 검증 후 **BE가 DB에서 도출해 티켓 claim에 박음**(클라이언트/LLM 주장 무시). 발급 후 FE가 티켓으로 FastAPI에 `channel:SELLER` SSE 연결. AI 분석(매출 이상/감소 비교/행동/이탈)은 LLM이 S-1 계열 internal 집계 콜백(I-6) 사용, 상세 수정은 초안(draft)+판매자 확인 — 05 §1-3. *(구 `POST /api/chat/seller` SSE 프록시는 직결로 폐기)* |
+| S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(**behavior_events** `product_view`/`add_to_cart` + order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(처리중 포함) — I-6도 동일 |
+| S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 **아이템 단위** 목록(자사 아이템만) — 페이지네이션(page, size) |
+| S-3 | GET | /api/seller/products | 🏪 | 자사 상품 목록(판매자 화면용) — query: status?, q?, limit, offset. I-9(챗봇용 목록)와 동형 필터 *(구 로컬 S-3의 PATCH는 S-5로 이동)* |
+| S-4 | POST | /api/chat/seller/sessions | 🏪 | 판매자 챗봇 **세션 + SELLER 스코프 스트림 티켓 발급**(직결 — 채팅 SSE는 FE↔FastAPI). `brandId`는 JWT 검증 후 **BE가 DB에서 도출해 티켓 claim에 박음**(클라이언트/LLM 주장 무시). 실제 SSE 스트림(`{AI_SERVER}/seller/chat`)은 05 §1-3 소관. AI 분석(매출 이상/퍼널/행동/이탈)은 LLM이 internal 콜백(I-6~I-16) 사용, 상품 수정은 draft + 2왕복 confirm(HITL) — 05 §1-3. *(구 `POST /api/chat/seller` SSE 프록시는 직결로 폐기)* |
+| S-5 | PATCH | /api/seller/products/{id} | 🏪 | **판매자 직접 수정(화면 경로)**: name, summary, attributes, description, price, original_price, status, stockQuantity — 검증 `price ≤ original_price`(02 D28)·`stock ≥ 0`, 본인 브랜드 상품 아니면 403. description은 서버측 sanitize(XSS 차단). 바뀐 필드마다 **product_change_logs 기록**(동일값 미기록 — I-11과 동일 규칙). **챗봇 경로(I-11)와 병존 확정(2026-07-17)** *(구 로컬 S-3에서 이동)* |
 
-## 8. admin — ⚠️ 전부 고도화 (MVP 아님)
+## 8. events (FE 행동 이벤트 배치 수집)
+
+> 행동 이벤트는 서버 부수효과 적재가 아니라 **FE 배치 전송**으로 수집한다(2026-07-17 전환). 적재 테이블 4종(behavior_events / order_status_logs / product_change_logs / account_event_logs)은 02 문서 참조 — 이 API가 쓰는 건 behavior_events.
+
+| # | Method | 경로 | 인증 | 설명 |
+|---|---|---|---|---|
+| E-1 | POST | /api/events | 🔓(인증 선택) | FE 행동 이벤트 배치 수집. body: `{"events":[{ "id":"<uuid>", "sessionKey":"...", "eventType":"...", "productId":null, "properties":{...}, "occurredAt":"..." }]}` — FE가 버퍼(10건 or 5초)로 묶어 전송. 응답 **202 즉시** |
+
+- 서버 처리 4단계: ① `member_id`는 JWT에서, `guest_id`는 쿠키에서 주입(**body의 신원 주장은 무시**) ② 아래 8종 화이트리스트 외 eventType은 폐기+경고 로그 ③ `session_start`에 ipHash 주입 ④ 배치 INSERT(`created_at`=서버 수신 시각), `client_event_id`(body의 `id`) UNIQUE로 중복 차단.
+- 실패 건은 세지 않는다 — 담기 실패·결제 실패 시 FE가 이벤트를 보내지 않음. `properties`에 개인정보 금지.
+
+| eventType (8종) | 트리거 시점 |
+|---|---|
+| session_start | 방문 세션 시작(첫 진입) — 서버가 ipHash 주입 |
+| page_view | 페이지 진입 |
+| search | 검색 실행 |
+| product_view | 상품 상세 진입 |
+| add_to_cart | 담기 **성공 콜백** |
+| checkout_start | 주문서 화면 mount(주문서 1회 = 1건) — `properties.productIds` 배열 |
+| purchase_complete | 주문 완료 페이지 — `properties.orderId`·`amount` |
+| login | 로그인 성공 |
+
+## 9. admin — ⚠️ 전부 고도화 (MVP 아님)
 
 > 2026-07-09 팀 결정: 관리자 페이지는 MVP에서 전체 제외. 클레임 완료는 자동 승인 스케줄러가 대신하고(01 D10), 문의 답변·신고 처리는 MVP 기간에 일어나지 않는다(데모에 필요한 답변 완료 건은 시드로). 아래 표는 고도화 시 구현할 명세로 유지.
 
@@ -122,25 +147,47 @@
 | AD-6 | POST | /api/admin/claims/{id}/approve | 🛡 | 승인 → 완료 상태 전이 (01 문서) |
 | AD-7 | POST | /api/admin/claims/{id}/reject | 🛡 | 거절. body: rejectReason(필수) → 신청 전 상태 복귀 |
 
-## 9. internal (LLM 전용 — 스키마 원본은 05 문서)
+## 10. internal (LLM 콜백 — 노션 「API 현재」 확정 번호 체계. 스키마 상세 협의는 05 문서)
 
 | # | Method | 경로 | 설명 |
 |---|---|---|---|
 | I-1 | GET | /internal/products/search | 추천 1왕복 후보 조회 — 정형조건 필터, **리랭킹용 최소필드**만 반환(표시 데이터 없음, 라운드1 LIMIT). 05 §I-1 |
 | I-2 | POST | /internal/cart/items | 챗봇 장바구니 담기 |
 | I-3 | GET | /internal/products/popular | 인기 상품 (무관 질문 시 카드 유지용) |
-| I-4 | GET | /internal/members/{id}/orders/status | 주문 상태 요약 (문의 챗봇용) |
+| I-4 | GET | /internal/members/{id}/orders/status | 주문 상태 요약 (문의 챗봇용) — I-19(목록)와 역할 분담 |
 | I-5 | POST | /internal/inquiries | 문의 접수 |
-| I-6 | GET | /internal/seller/{brandId}/stats | 판매자 집계 (판매자 에이전트용) |
-| I-7 | GET | /internal/seller/{brandId}/products/{productId} | 판매자 상품 상세 (수정 초안 생성용 읽기 전용 — 소유권 403, 쓰기 문 없음) |
+| I-6 | GET | /internal/seller/{brandId}/sales | 매출 시계열 — granularity daily\|weekly\|monthly\|summary, 응답에 isAnomaly·deviationPct(7일 이동평균 대비 ±30%)·statusCounts *(구 로컬 I-6 `…/stats` 대체)* |
+| I-7 | GET | /internal/seller/{brandId}/funnel | 구매전환 퍼널 4단 — 1·2단 behavior_events, 3단 checkout_start의 `properties.productIds` 포함 여부(주문서 1회=1), 4단 order_item×product×brand(정본) *(구 로컬 I-7 상품 상세는 I-9 목록으로 흡수)* |
+| I-8 | GET | /internal/account-events | 계정 이벤트 집계(**전역** — brandId 스코프 아님) — groupBy ip\|eventType\|hour, IP 마스킹, **집계 전용(raw 미반환)** |
+| I-9 | GET | /internal/seller/{brandId}/products | 자사 상품 목록 — status/q/limit/offset, displayedSalesCount = base_sales_count + order_item 집계, stockQuantity 포함 (구 I-7의 소유권 403 승계) |
+| I-10 | POST | /internal/seller/{brandId}/products | 상품 등록 — name·price·stockQuantity 필수, 검증 price ≤ originalPrice. **등록은 product_change_logs 미기록** |
+| I-11 | PATCH | /internal/seller/{brandId}/products/{productId} | 상품 수정 통합(가격·설명·상태·재고) — 바뀐 필드마다 product_change_logs 기록(동일값 미기록), 응답에 changes[]. HITL confirm 후 실행(05 §1-3), 판매자 화면 경로(S-5)와 병존 |
+| I-12 | DELETE | /internal/seller/{brandId}/products/{productId} | soft delete(status=HIDDEN) — **HITL 승인 후에만**(05 §1-3), STATUS 변경 로그 기록 |
+| I-13 | GET | /internal/seller/{brandId}/events | 행동 이벤트 조회/집계 — **본문 명세 미작성, OPEN(LLM팀 재작성 대기)** |
+| I-14 | GET | /internal/seller/{brandId}/order-events | 주문 상태 전이 로그 조회 — toStatus 복수/actorType/stats/groupBy=memberId(어뷰징 탐지), 상태 어휘는 우리 상태명 기준 |
+| I-15 | GET | /internal/seller/{brandId}/product-changes | 상품 변경 이력 — changeType/productId/기간 필터, 품절 신호 = STOCK 변경의 newValue "0" |
+| I-16 | GET | /internal/seller/{brandId}/churn | 이탈 코호트 — inactiveDays(기본 30), preChurnSignals, 마지막 로그인 = account_event_logs.LOGIN_SUCCESS |
+| I-17 | GET | /internal/products/changes | 상품 정보 배치 pull(AI 벡터DB 동기화) — since 커서+limit, items[].status ACTIVE\|DELISTED, 초기 전체 구축은 since="0". 커서 방식·attributes 스키마·리뷰 포함 여부 **OPEN(LLM 협의 중)** |
+| I-18 | GET | /internal/cart | 챗봇 장바구니 조회 — userId/guestId 메아리(게스트 허용), 응답 item에 productName·optionName 필수, 빈 장바구니도 200 |
+| I-19 | GET | /internal/members/{id}/orders | 구매 이력 목록(CS 챗봇 "내 주문 어때?") — status 단일 필터(어휘: ORDERED\|SHIPPING\|DELIVERED\|CONFIRMED\|CANCELLED\|RETURNED), 응답 camelCase·숫자 id, shippingFee 항상 0(배송비 없음 확정). I-4(요약)와 역할 분담 |
+| I-20 | POST | {LLM_BASE_URL}/events/session-end | **방향 예외: Spring→FastAPI(아웃바운드)** 세션 종료 통지 — 트리거 로그아웃/30분 유휴/새 대화, reason enum LOGOUT\|IDLE_TIMEOUT\|NEW_CONVERSATION\|TAB_CLOSE, **멱등**(없는 세션도 200 + cleared:false). sessionId는 우리가 UUID 발급 — 상대 명세의 `S-` 형식 제약은 **OPEN(UUID로 요청 중)**. 상세는 05 §2-1(아웃바운드 관례) |
+| I-21 | POST | /internal/recommendations | **(제안) 추천 목록 콜백** — FastAPI가 리랭킹 확정 Top5를 저장: `{sessionId, listId, productIds[]}`(순서 유지) → Redis TTL. **products.ready 발행 전 호출, 콜백 실패 시 products.ready 발행 금지**(05 §1-2-1). CH-5와 쌍. 스키마 **OPEN(LLM 협의 중)** |
 
-## 10. 공통 에러 코드 (초기 세트)
+- 번호 체계는 노션 「API 현재」 DB 기준(2026-07-17)으로 확정 — 구 로컬 I-6(`…/stats`)·I-7(판매자 상품 상세)은 각각 I-6(sales)·I-9(목록)로 대체/흡수.
+- I-20만 호출 방향이 반대(Spring→FastAPI) — 스키마·표기는 05의 아웃바운드 관례(05 §2-1)를 따른다.
 
-`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
+## 11. 공통 에러 코드 (초기 세트)
 
-## 11. 미결(OPEN) — 구현 전 확정 필요
+`AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED` `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `SESSION_NOT_FOUND` `INTERNAL_TOKEN_INVALID` — 구현 중 추가 시 이 목록에 반영.
 
-- [x] ~~채팅 SSE 방식~~ — **FE↔FastAPI 직결 + RS256/JWKS 단명 티켓 확정(2026-07-16, 03 D5)**. CH-1이 세션+티켓 발급, CH-2/CH-3/구 S-4 SSE 프록시 폐기. 추천 카드는 P-7로 FE가 하이드레이션
+## 12. 미결(OPEN) — 구현 전 확정 필요
+
+- [x] ~~채팅 SSE 방식~~ — **FE↔FastAPI 직결 + RS256/JWKS 단명 티켓 확정(2026-07-16, 03 D5)**. CH-1이 세션+티켓 발급, CH-2/CH-3/구 S-4 SSE 프록시 폐기. 추천 카드는 P-7로 FE가 하이드레이션 *(2026-07-17: I-21 콜백 + CH-5 목록 조회로 대체 예정 — 아래 OPEN)*
 - [ ] P-5 개인화 추천의 응답 형태 — **상품 ID 목록 + BE 카드 조립(P-7 동형)으로 제안 확정 방향**(05 §4), FastAPI 응답 스키마만 LLM 팀 확정 대기
 - [x] ~~상품 상세 "바로 구매" 지원 여부~~ — **있음 확인(2026-07-10)**. O-1 body에 items[] 경로 추가로 반영(§4), 스키마 변경 없음
 - [x] ~~최근 본 상품 "개별 삭제(X)" 여부~~ — 기능 없음 확인(2026-07-10, 02 D29 종결)
+- [ ] CH-5/I-21 추천 목록(콜백+조회) 스키마 — **OPEN(LLM 협의 중)**. 확정 시 P-7 폐지
+- [ ] CH-3(CS 챗봇) 직결 전환 후 폐지/유지 — **OPEN(LLM 확인 중)**
+- [ ] I-13(행동 이벤트 조회/집계) 본문 명세 — **OPEN(LLM팀 재작성 대기)**
+- [ ] I-17(벡터DB 동기화 배치 pull) 커서 방식·attributes 스키마·리뷰 포함 여부 — **OPEN(LLM 협의 중)**
+- [ ] I-20 sessionId 형식 — 상대 명세의 `S-` 접두 제약 vs 우리 UUID 발급 — **OPEN(UUID로 요청 중)**
