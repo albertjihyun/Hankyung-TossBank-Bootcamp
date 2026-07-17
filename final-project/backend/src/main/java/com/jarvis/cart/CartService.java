@@ -90,8 +90,8 @@ public class CartService {
         }
 
         Optional<CartItem> existing = memberId != null
-                ? cartItemRepository.findMemberLine(memberId, request.productId(), request.optionId())
-                : cartItemRepository.findGuestLine(guestId, request.productId(), request.optionId());
+                ? consolidate(cartItemRepository.findMemberLines(memberId, request.productId(), request.optionId()))
+                : consolidate(cartItemRepository.findGuestLines(guestId, request.productId(), request.optionId()));
         CartItem item;
         if (existing.isPresent()) {
             item = existing.get();
@@ -125,8 +125,8 @@ public class CartService {
     @Transactional
     public void mergeGuestCart(Long memberId, String guestId) {
         for (CartItem guestItem : cartItemRepository.findAllByGuestId(guestId)) {
-            Optional<CartItem> memberLine = cartItemRepository
-                    .findMemberLine(memberId, guestItem.getProductId(), guestItem.getOptionId());
+            Optional<CartItem> memberLine = consolidate(cartItemRepository
+                    .findMemberLines(memberId, guestItem.getProductId(), guestItem.getOptionId()));
             if (memberLine.isPresent()) {
                 memberLine.get().addQuantity(guestItem.getQuantity());
                 cartItemRepository.delete(guestItem);
@@ -134,6 +134,22 @@ public class CartService {
                 guestItem.assignTo(memberId);
             }
         }
+    }
+
+    /**
+     * 동일 상품+옵션 라인 정규화 — 첫 행(가장 오래된 id)만 남기고 나머지는 수량 합산 후 삭제(자가치유).
+     * 무옵션(option_id NULL) 상품의 동시 담기 경합으로 중복 행이 생겨도 다음 담기 때 한 행으로 수렴한다.
+     */
+    private Optional<CartItem> consolidate(List<CartItem> lines) {
+        if (lines.isEmpty()) {
+            return Optional.empty();
+        }
+        CartItem head = lines.get(0);
+        for (CartItem duplicate : lines.subList(1, lines.size())) {
+            head.addQuantity(duplicate.getQuantity());
+            cartItemRepository.delete(duplicate);
+        }
+        return Optional.of(head);
     }
 
     private void validateOption(Long productId, Long optionId) {

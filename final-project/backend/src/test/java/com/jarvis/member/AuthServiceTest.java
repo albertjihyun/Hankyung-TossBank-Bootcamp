@@ -195,12 +195,13 @@ class AuthServiceTest {
                     LocalDateTime.now().plusDays(7));
             when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
                     .thenReturn(Optional.of(stored));
+            when(refreshTokenRepository.deleteByTokenHash(TokenHasher.sha256Hex(raw))).thenReturn(1);
             when(memberRepository.findById(1L)).thenReturn(Optional.of(memberFixture(1L)));
 
             AuthResult result = authService.refresh(raw);
 
             assertThat(jwtProvider.parseAccessToken(result.accessToken()).memberId()).isEqualTo(1L);
-            verify(refreshTokenRepository).delete(stored);
+            verify(refreshTokenRepository).deleteByTokenHash(TokenHasher.sha256Hex(raw));
             ArgumentCaptor<RefreshToken> rtCaptor = ArgumentCaptor.forClass(RefreshToken.class);
             verify(refreshTokenRepository).save(rtCaptor.capture());
             assertThat(rtCaptor.getValue().getTokenHash())
@@ -230,7 +231,24 @@ class AuthServiceTest {
             assertThatThrownBy(() -> authService.refresh(raw))
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode").isEqualTo(ErrorCode.AUTH_REQUIRED);
-            verify(refreshTokenRepository).delete(stored);
+            verify(refreshTokenRepository).deleteByTokenHash(TokenHasher.sha256Hex(raw));
+        }
+
+        @Test
+        @DisplayName("동시 refresh 경합 — 조건부 삭제가 0건이면 발급 없이 401 (회전 단일성)")
+        void concurrentRotation_losesRace_throws401() {
+            String raw = "raw-refresh-token";
+            RefreshToken stored = RefreshToken.issue(1L, TokenHasher.sha256Hex(raw),
+                    LocalDateTime.now().plusDays(7));
+            when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
+                    .thenReturn(Optional.of(stored));
+            // 다른 스레드가 먼저 소비 → 이 요청의 삭제는 0건
+            when(refreshTokenRepository.deleteByTokenHash(TokenHasher.sha256Hex(raw))).thenReturn(0);
+
+            assertThatThrownBy(() -> authService.refresh(raw))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.AUTH_REQUIRED);
+            verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
         }
 
         @Test

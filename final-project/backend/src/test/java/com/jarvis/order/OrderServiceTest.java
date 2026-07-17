@@ -209,11 +209,76 @@ class OrderServiceTest {
         Order order = Order.create(1L, "MOCK_CARD", 1000, "r", "p", "z", "a1", null, null);
         ReflectionTestUtils.setField(order, "id", 1L);
         ReflectionTestUtils.setField(order, "status", OrderStatus.PAID);
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD")))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.ORDER_INVALID_TRANSITION);
+    }
+
+    @Test
+    @DisplayName("O-2 재결제 진입은 비관적 락으로 주문을 로드한다 (동시 재결제 직렬화)")
+    void retryUsesPessimisticLock() {
+        Order order = Order.create(1L, "MOCK_CARD", 24000, "r", "p", "z", "a1", null, null);
+        ReflectionTestUtils.setField(order, "id", 1L);
+        ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 7, 17, 12, 0));
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PAYMENT_FAILED);
+        when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(orderItemRepository.findAllByOrderId(1L)).thenReturn(List.of());
+        when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
+        when(cartItemRepository.findAllByMemberId(1L)).thenReturn(List.of());
+
+        orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
+
+        verify(orderRepository).findByIdForUpdate(1L);
+        verify(orderRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    @DisplayName("O-1 — 품절 로그는 전 품목 차감 성공 시에만 기록, 일부 실패로 보상 복원되면 미기록")
+    void stockOutLogOnlyOnFullSuccess() {
+        com.jarvis.product.Product second = product(20L, 5000, 5000);
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findById(20L)).thenReturn(Optional.of(second));
+        when(productOptionRepository.findAllByProductIdOrderByIdAsc(anyLong())).thenReturn(List.of());
+        when(paymentService.pay(anyString(), anyInt())).thenReturn(PaymentResult.approved());
+        // 10L 차감 성공 후 재고 0 도달(품절 로그 후보) → 20L 차감 실패로 전체 롤백
+        when(productRepository.deductStock(10L, 1)).thenReturn(1);
+        when(productRepository.findStockQuantity(10L)).thenReturn(Optional.of(0));
+        when(productRepository.deductStock(20L, 1)).thenReturn(0);
+
+        OrderCreateRequest request = new OrderCreateRequest(null,
+                List.of(new OrderCreateRequest.OrderLine(10L, null, 1),
+                        new OrderCreateRequest.OrderLine(20L, null, 1)),
+                null,
+                new OrderCreateRequest.AddressInput("김자비", "010-1234-5678", "06236", "서울", null),
+                null, "MOCK_CARD");
+        orderService.create(1L, request);
+
+        verify(productRepository).restoreStock(10L, 1);
+        verify(statusChanger).paymentFailed(any(Order.class), eq("OUT_OF_STOCK"));
+        // 허위 품절 로그가 남지 않아야 함
+        verify(productChangeLogRepository, never()).saveAll(anyList());
+        verify(productChangeLogRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("O-1 — 금액이 INT 범위를 넘으면 VALIDATION_ERROR (int 곱셈 오버플로 방지)")
+    void rejectsOverflowingAmount() {
+        com.jarvis.product.Product pricey = product(30L, 100_000_000, 100_000_000);
+        when(productRepository.findById(30L)).thenReturn(Optional.of(pricey));
+        when(productOptionRepository.findAllByProductIdOrderByIdAsc(30L)).thenReturn(List.of());
+
+        OrderCreateRequest request = new OrderCreateRequest(null,
+                List.of(new OrderCreateRequest.OrderLine(30L, null, 99)), // 9.9e9 > Integer.MAX_VALUE
+                null,
+                new OrderCreateRequest.AddressInput("김자비", "010-1234-5678", "06236", "서울", null),
+                null, "MOCK_CARD");
+        assertThatThrownBy(() -> orderService.create(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+        verify(paymentService, never()).pay(anyString(), anyInt());
     }
 }

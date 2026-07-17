@@ -84,7 +84,12 @@ public class OrderService {
     public OrderCreateResponse create(Long memberId, OrderCreateRequest request) {
         List<Line> lines = resolveLines(memberId, request);
         Shipping shipping = resolveShipping(memberId, request);
-        int totalAmount = lines.stream().mapToInt(line -> line.unitPrice() * line.quantity()).sum();
+        // long으로 합산 후 INT 컬럼 상한 검증 — 크롤링 고가 상품 × 수량으로 int 곱셈이 넘치면 금액이 음수가 된다 (02 D26④)
+        long total = lines.stream().mapToLong(line -> (long) line.unitPrice() * line.quantity()).sum();
+        if (total > Integer.MAX_VALUE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "주문 금액이 처리 가능한 범위를 초과했습니다.");
+        }
+        int totalAmount = (int) total;
 
         Order order = orderRepository.save(Order.create(memberId, request.paymentMethod(), totalAmount,
                 shipping.recipient(), shipping.phone(), shipping.zipCode(),
@@ -109,7 +114,10 @@ public class OrderService {
     /** O-2 — 실패 주문 재결제. 성공 부수효과는 O-1의 PAID와 동일 (04 §4) */
     @Transactional
     public OrderCreateResponse retryPayment(Long memberId, Long orderId, RetryPaymentRequest request) {
-        Order order = findOwnedOrder(memberId, orderId);
+        // 비관적 락으로 동시 재결제 직렬화 — 락 안에서 상태를 재확인해 이중 차감·PAID 로그 2행을 막는다 (01 §2-1)
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .filter(o -> o.getMemberId().equals(memberId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
         if (!order.isRetryable()) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_TRANSITION);
         }
@@ -276,6 +284,8 @@ public class OrderService {
 
     private boolean deductStock(Map<Long, Integer> quantitiesByProduct) {
         List<Map.Entry<Long, Integer>> applied = new ArrayList<>();
+        // 품절 로그는 버퍼에 모았다가 전 품목 차감 성공 후에만 저장 — 일부 실패로 보상 복원되면 허위 품절 로그가 남지 않도록 (02 D32·D33)
+        List<ProductChangeLog> stockOutLogs = new ArrayList<>();
         for (Map.Entry<Long, Integer> entry : quantitiesByProduct.entrySet()) {
             if (productRepository.deductStock(entry.getKey(), entry.getValue()) == 0) {
                 applied.forEach(done -> productRepository.restoreStock(done.getKey(), done.getValue()));
@@ -284,9 +294,12 @@ public class OrderService {
             applied.add(entry);
             if (productRepository.findStockQuantity(entry.getKey()).orElse(-1) == 0) {
                 // 주문에 의한 재고 -1은 미기록, 품절 전환(new_value=0)만 기록 (02 D32·D33)
-                productChangeLogRepository.save(ProductChangeLog.of(entry.getKey(), ProductChangeType.STOCK,
+                stockOutLogs.add(ProductChangeLog.of(entry.getKey(), ProductChangeType.STOCK,
                         String.valueOf(entry.getValue()), "0"));
             }
+        }
+        if (!stockOutLogs.isEmpty()) {
+            productChangeLogRepository.saveAll(stockOutLogs);
         }
         return true;
     }
