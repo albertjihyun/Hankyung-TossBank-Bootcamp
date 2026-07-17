@@ -1,5 +1,6 @@
 package com.jarvis.member;
 
+import com.jarvis.cart.CartService;
 import com.jarvis.global.auth.JwtProperties;
 import com.jarvis.global.auth.JwtProvider;
 import com.jarvis.global.auth.TokenHasher;
@@ -33,6 +34,7 @@ public class AuthService {
     private final JwtProvider jwtProvider;
     private final JwtProperties jwtProperties;
     private final JdbcTemplate jdbcTemplate;
+    private final CartService cartService;
 
     /** A-1 — 가입 + 자동 로그인 + 게스트 승계 (04) */
     @Transactional
@@ -109,20 +111,23 @@ public class AuthService {
     }
 
     /**
-     * 게스트 승계 (02 D5·D30) — converted_member_id 기록 + behavior_events member_id 백필.
-     * 장바구니 병합은 cart 도메인 생성 시(Phase 3) 이 지점에 추가한다.
+     * 게스트 승계 (02 D5·D30) — converted_member_id 기록 + behavior_events member_id 백필 + 장바구니 병합.
+     * 백필·convertTo는 최초 1회지만, 장바구니 병합은 재로그인에도 수행 —
+     * 로그아웃 후 같은 쿠키로 담은 게스트분이 다음 로그인에 따라오도록 (02 D30 "그대로 따라온다").
      */
     private void convertGuest(Long memberId, String guestId) {
         if (guestId == null || guestId.isBlank()) {
             return;
         }
         guestRepository.findById(guestId)
-                .filter(guest -> !guest.isConverted())
                 .ifPresent(guest -> {
-                    guest.convertTo(memberId);
-                    jdbcTemplate.update(
-                            "UPDATE behavior_events SET member_id = ? WHERE guest_id = ? AND member_id IS NULL",
-                            memberId, guestId);
+                    if (!guest.isConverted()) {
+                        guest.convertTo(memberId);
+                        jdbcTemplate.update(
+                                "UPDATE behavior_events SET member_id = ? WHERE guest_id = ? AND member_id IS NULL",
+                                memberId, guestId);
+                    }
+                    cartService.mergeGuestCart(memberId, guestId);
                 });
     }
 

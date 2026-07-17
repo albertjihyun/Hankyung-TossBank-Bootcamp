@@ -27,7 +27,21 @@ public enum ErrorCode {
 
     // catalog
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
-    BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "브랜드를 찾을 수 없습니다.");
+    BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "브랜드를 찾을 수 없습니다."),
+
+    // cart (04 §3 — Phase 3)
+    CART_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "장바구니 항목을 찾을 수 없습니다."),
+    CART_OPTION_REQUIRED(HttpStatus.BAD_REQUEST, "옵션을 선택해 주세요."),
+    CART_OPTION_INVALID(HttpStatus.BAD_REQUEST, "해당 상품의 옵션이 아닙니다."),
+
+    // order / claim (04 §4 — Phase 3)
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
+    ORDER_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 상품을 찾을 수 없습니다."),
+    ADDRESS_NOT_FOUND(HttpStatus.NOT_FOUND, "배송지를 찾을 수 없습니다."),
+    ORDER_PRODUCT_UNAVAILABLE(HttpStatus.BAD_REQUEST, "구매할 수 없는 상품이 포함되어 있습니다."),
+    ORDER_INVALID_TRANSITION(HttpStatus.BAD_REQUEST, "현재 상태에서 처리할 수 없는 요청입니다."),
+    CLAIM_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "현재 상태에서 취소/반품을 신청할 수 없습니다."),
+    CLAIM_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 처리 중인 신청이 있습니다.");
 
     private final HttpStatus status;
     private final String message;
