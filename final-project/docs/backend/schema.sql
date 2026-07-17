@@ -1,7 +1,7 @@
 -- ============================================================
 -- DB Schema (MariaDB 11.x / InnoDB / utf8mb4) — 공유용 DDL 스냅샷
 -- 원본(source of truth): docs/backend/02-data-model.md
---   테이블 정의·결정 근거(D1~D30)는 02 문서를 따른다.
+--   테이블 정의·결정 근거(D1~D36)는 02 문서를 따른다.
 --   02가 바뀌면 이 파일도 함께 갱신할 것 (drift 금지).
 -- 표기: Dn = 02 문서 결정 로그 번호.
 -- 공통: PK는 id BIGINT AUTO_INCREMENT (guest만 UUID CHAR(36)).
@@ -95,17 +95,20 @@ CREATE TABLE product (
     name              VARCHAR(200) NOT NULL,
     original_price    INT          NOT NULL,               -- 정가 (KRW 원 단위 정수)
     price             INT          NOT NULL,               -- 판매가 (D15). price ≤ original_price 서비스 검증 (D28). 할인율은 파생 계산
+    stock_quantity    INT          NOT NULL DEFAULT 0,     -- 재고 (D33 — D8 폐기). 주문 생성 시 조건부 UPDATE 차감·부족 시 실패, 0 도달 시 STOCK 로그 1행 (D32)
     image_url         VARCHAR(500) NOT NULL,               -- 대표 이미지 1장 — 단일 확정 (D14)
     base_sales_count  INT          NOT NULL DEFAULT 0,     -- 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계
     summary           VARCHAR(500) NULL,                   -- 주요 특징 요약
-    attributes        JSON         NULL,                   -- 축은 category.attribute_schema, 값은 자유 텍스트 (D7·D11). 재고 컬럼 없음은 의도 (D8)
+    attributes        JSON         NULL,                   -- 축은 category.attribute_schema, 값은 자유 텍스트 (D7·D11)
     description       TEXT         NULL,
     status            VARCHAR(20)  NOT NULL,               -- ON_SALE / HIDDEN
     created_at        DATETIME     NOT NULL,
-    updated_at        DATETIME     NULL,
+    updated_at        DATETIME     NOT NULL,               -- 예외적 NOT NULL — 생성 시 created_at과 동일 값 초기화, I-17 증분 커서 (D33)
     PRIMARY KEY (id),
     KEY idx_product_category (category_id),
     KEY idx_product_brand (brand_id),
+    KEY idx_product_updated (updated_at, id),              -- AI 상품 동기화 배치(I-17) 증분 커서용 (D33)
+    CONSTRAINT chk_product_stock CHECK (stock_quantity >= 0),
     CONSTRAINT fk_product_brand FOREIGN KEY (brand_id)
         REFERENCES brand (id) ON DELETE RESTRICT,
     CONSTRAINT fk_product_category FOREIGN KEY (category_id)
@@ -176,9 +179,9 @@ CREATE TABLE address (
 CREATE TABLE orders (                                      -- `order`는 SQL 예약어라 복수형
     id                BIGINT       NOT NULL AUTO_INCREMENT,
     member_id         BIGINT       NOT NULL,               -- 게스트 주문 없음 (D30 — 결제는 로그인 유도)
-    status            VARCHAR(20)  NOT NULL,               -- PENDING / PAID / PAYMENT_FAILED (01 문서)
+    status            VARCHAR(20)  NOT NULL,               -- PENDING / PAID / PAYMENT_FAILED / CANCELLED (01 문서 + D32 — 전량 취소 시 같은 트랜잭션 승격)
     payment_method    VARCHAR(30)  NOT NULL,               -- MOCK_CARD / MOCK_FAIL 등
-    total_amount      INT          NOT NULL,               -- 항상 Σ(order_item.price × quantity), 서버 계산으로만 기록 (D26④)
+    total_amount      INT          NOT NULL,               -- 항상 Σ(order_item.price × quantity), 서버 계산으로만 기록 (D26④). 배송비 항 없음 (D36)
     recipient         VARCHAR(50)  NOT NULL,               -- 이하 배송지 스냅샷 — address FK 아님 (D1)
     phone             VARCHAR(20)  NOT NULL,
     zip_code          VARCHAR(10)  NOT NULL,
@@ -203,7 +206,7 @@ CREATE TABLE order_item (
     option_name        VARCHAR(100) NULL,                  -- 스냅샷
     price              INT          NOT NULL,              -- 스냅샷: product.price + extra_price
     quantity           INT          NOT NULL,
-    status             VARCHAR(30)  NOT NULL,              -- 01 문서의 11개 상태
+    status             VARCHAR(30)  NOT NULL,              -- 01 문서의 9개 상태 (D34 — 교환 2종 제거로 11→9)
     status_changed_at  DATETIME     NOT NULL,              -- 배송 전이 스케줄러 기준 시각
     created_at         DATETIME     NOT NULL,
     updated_at         DATETIME     NULL,
@@ -217,7 +220,7 @@ CREATE TABLE order_item (
 CREATE TABLE claim (
     id             BIGINT       NOT NULL AUTO_INCREMENT,
     order_item_id  BIGINT       NOT NULL,                  -- REQUESTED 1개 제한은 서비스 검증. 재신청 대비 1:N
-    type           VARCHAR(20)  NOT NULL,                  -- CANCEL / RETURN / EXCHANGE
+    type           VARCHAR(20)  NOT NULL,                  -- CANCEL / RETURN (D34 — EXCHANGE 제거)
     status         VARCHAR(20)  NOT NULL,                  -- REQUESTED / COMPLETED / REJECTED(고도화)
     reason         VARCHAR(500) NULL,
     reject_reason  VARCHAR(500) NULL,                      -- 거절 시 필수 (고도화)
@@ -302,27 +305,81 @@ CREATE TABLE inquiry (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
--- 행동 로그 (append-only — 예외: 게스트→회원 승계 UPDATE 1회, D5)
+-- 행동 이벤트 (FE 수집, user_event 대체 — D31)
+-- append-only — 예외: 게스트→회원 승계 시 member_id 백필 UPDATE 1회 (D5)
 -- ------------------------------------------------------------
 
-CREATE TABLE user_event (
-    id          BIGINT      NOT NULL AUTO_INCREMENT,
-    member_id   BIGINT      NULL,                          -- member/guest 중 하나는 NOT NULL — 서비스 검증
-    guest_id    CHAR(36)    NULL,
-    event_type  VARCHAR(30) NOT NULL,                      -- PRODUCT_VIEW / CART_ADD / ORDER_CREATED / CHAT_QUERY / WISHLIST_ADD (02 §4)
-    product_id  BIGINT      NULL,                          -- 상품 관련 이벤트만. 의도적으로 FK 없음(로그 적재 경량화)
-    session_id  CHAR(36)    NULL,                          -- 채팅 이벤트만
-    meta        JSON        NULL,                          -- 타입별 부가정보
-    created_at  DATETIME    NOT NULL,
+CREATE TABLE behavior_events (
+    id              BIGINT      NOT NULL AUTO_INCREMENT,
+    member_id       BIGINT      NULL,                      -- 로그인 시 JWT에서 서버 주입(body 신원 무시), 비로그인 NULL. 의도적으로 FK 없음 (D31)
+    guest_id        CHAR(36)    NULL,                      -- 게스트 쿠키에서 서버 주입 — 승계용 (D5 패턴 유지)
+    session_key     VARCHAR(64) NOT NULL,                  -- FE SDK 생성, 30분 무활동 시 재발급
+    client_event_id CHAR(36)    NULL,                      -- FE가 이벤트마다 생성하는 UUID — 중복 방지 (D35)
+    event_type      VARCHAR(30) NOT NULL,                  -- 8종 화이트리스트(02 §4) — 8종 외는 수집 API가 버림. VARCHAR인 이유: 선택 이벤트 추가 시 무DDL 확장
+    product_id      BIGINT      NULL,                      -- 의도적으로 FK 없음(로그 적재 경량화)
+    properties      JSON        NULL,                      -- 타입별 부가정보. session_start의 ipHash는 서버 주입
+    created_at      DATETIME(6) NOT NULL,                  -- 서버 수신 시각 (증분 분석 커서)
     PRIMARY KEY (id),
-    KEY idx_event_member  (member_id, event_type, created_at),  -- 최근 본 상품 (D3)
-    KEY idx_event_product (product_id, event_type, created_at), -- 판매자 지표
-    CONSTRAINT fk_event_member FOREIGN KEY (member_id) REFERENCES member (id) ON DELETE RESTRICT,
-    CONSTRAINT fk_event_guest  FOREIGN KEY (guest_id)  REFERENCES guest (id)  ON DELETE RESTRICT
+    UNIQUE KEY uk_behavior_client_event (client_event_id),
+    KEY idx_behavior_member (member_id, created_at),
+    KEY idx_behavior_guest  (guest_id, created_at),
+    KEY idx_behavior_type   (event_type, created_at),
+    KEY idx_behavior_prod   (product_id, created_at),
+    KEY idx_behavior_sess   (session_key),
+    KEY idx_behavior_time   (created_at),
+    CONSTRAINT fk_behavior_guest FOREIGN KEY (guest_id) REFERENCES guest (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- 적재는 전부 FE의 POST /api/events (배치, 인증 선택) — 서버 내부 publishEvent 적재는 폐기 (D31)
+-- client_event_id 중복은 INSERT 전 검증 후 무시 — INSERT IGNORE로 퉁치면 중복 외 오류까지 삼키므로 주의 (D35)
+
+-- ------------------------------------------------------------
+-- BE 직접 로그 3종 (분석 에이전트 입력 — D32)
+-- 전부 FK 미설정(append-only 로그 경량화). 기록 지점 상세 규칙은 01 문서 소관.
+-- ------------------------------------------------------------
+
+CREATE TABLE order_status_logs (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    order_id     BIGINT       NOT NULL,                    -- FK 미설정 (append-only 로그)
+    from_status  VARCHAR(20)  NULL,                        -- 최초 생성 시 NULL
+    to_status    VARCHAR(20)  NOT NULL,                    -- 주문: PENDING/PAID/PAYMENT_FAILED/CANCELLED · 아이템 이행: SHIPPING/DELIVERED/CANCELLED/RETURNED
+    actor_type   ENUM('USER','SELLER','ADMIN','SYSTEM') NOT NULL,  -- 배송 전이=SYSTEM, 취소·반품 완료=USER(신청 주체), 결제=SYSTEM
+    reason       VARCHAR(200) NULL,                        -- 결제 실패 코드, 취소·반품 사유(claim.reason)
+    created_at   DATETIME(6)  NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_oslog_order  (order_id, created_at),
+    KEY idx_oslog_status (to_status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- ORDERED(PAID와 같은 트랜잭션)·*_REQUESTED(claim이 정본)·CONFIRMED는 미기록. 교환 어휘 없음 (D34)
+-- 같은 주문 여러 아이템의 동시 동일 전이(스케줄러 배치)는 주문 단위 1행만 (D32)
+
+CREATE TABLE product_change_logs (
+    id           BIGINT      NOT NULL AUTO_INCREMENT,
+    product_id   BIGINT      NOT NULL,                     -- FK 미설정 (append-only 로그)
+    change_type  ENUM('PRICE','STOCK','STATUS') NOT NULL,
+    old_value    VARCHAR(50) NULL,
+    new_value    VARCHAR(50) NULL,                         -- 품절 신호 = STOCK new_value 0 (SOLD_OUT 상태 미도입)
+    created_at   DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_pclog_prod (product_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- 전후 값 동일 시 미기록. 주문에 의한 재고 -1도 미기록(order_item으로 복원) — 수동 조정·품절/재입고 전환만 (D32)
+
+CREATE TABLE account_event_logs (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    member_id   BIGINT      NULL,                          -- 없는 계정 로그인 시도는 NULL + IP (무차별 대입 탐지 재료)
+    event_type  ENUM('SIGNUP','LOGIN_SUCCESS','LOGIN_FAIL','LOGOUT','WITHDRAW') NOT NULL,
+    ip_address  VARCHAR(45) NULL,                          -- IPv6 수용
+    created_at  DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_aclog_member (member_id, created_at),
+    KEY idx_aclog_ip     (ip_address, created_at),
+    KEY idx_aclog_type   (event_type, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Spring Security AuthenticationSuccess/FailureHandler에서 적재. "마지막 로그인" 단일 출처 = LOGIN_SUCCESS (D32)
 
 -- ============================================================
 -- ERD에 없는 것들은 누락이 아니라 결정 (02 §7):
---   재고(D8) · 평점 평균/리뷰 수 컬럼(D9) · 개인화 프로필(D13 — LLM팀 소유)
---   채팅 세션(D12 — Redis TTL 휘발) · 상품 이미지 테이블(D14 — image_url 단일)
+--   평점 평균/리뷰 수 컬럼(D9) · 개인화 프로필(D13 — LLM팀 소유)
+--   채팅 세션(D12 존속분 — Redis TTL 휘발) · 상품 이미지 테이블(D14 — image_url 단일)
+--   재고는 D33으로 도입됨(D8 폐기) — product.stock_quantity
 -- ============================================================

@@ -117,8 +117,8 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
-- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회 포함), `POST /api/chat/sessions`(CH-1 티켓 발급), `/api/cart/**`(게스트 쿠키 허용 — 02 D30)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
-- 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 30일** — 세션 쿠키면 브라우저 닫는 순간 게스트 장바구니가 증발하므로 명시 필수). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·user_event의 guest_id FK가 전제하는 선행 조건). **쿠키 발급 전 게스트 행동(PRODUCT_VIEW 등)은 미추적** — 감수(2026-07-09 확인).
+- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회 포함), `POST /api/chat/sessions`(CH-1 티켓 발급)·`POST /api/chat/tickets`(CH-1b)·`GET /api/chat/lists/**`(CH-5 추천 목록), `/api/cart/**`(게스트 쿠키 허용 — 02 D30), `POST /api/events`(E-1 수집 — 인증 선택: JWT 있으면 검증)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
+- 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 30일** — 세션 쿠키면 브라우저 닫는 순간 게스트 장바구니가 증발하므로 명시 필수). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·behavior_events의 guest_id FK가 전제하는 선행 조건). 쿠키 발급 전 게스트 행동은 `session_key`로 **익명 추적은 되지만**(02 D31) guest_id가 없어 가입 승계 대상은 아님 — 감수(2026-07-17 갱신).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
 
@@ -149,9 +149,9 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 - **타임아웃**: FastAPI↔Spring `/internal` 콜백 3s(05 §3). 스트림 수명·하트비트 정합은 FastAPI 소관(§8). 자동 재시도 없음(LLM 중복 비용 방지) — 재시도는 FE 버튼.
 - **후속 반영됨**: 이 전환으로 D-분산6/D-분산8(§1-2)·§7 ③·§8·04(티켓 발급 + `GET /api/products/cards`)·05 갱신. ERD는 티켓 stateless라 변경 없음.
 
-### D6. user_event 적재는 Spring 이벤트 + @Async + AFTER_COMMIT
+### ~~D6. user_event 적재는 Spring 이벤트 + @Async + AFTER_COMMIT~~ (2026-07-17 이벤트 수집 전환으로 폐기 → 02 D31·D32)
 
-- 서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @TransactionalEventListener(phase = AFTER_COMMIT)`가 INSERT. 본 트랜잭션과 **양방향** 분리: 로그 실패가 주문 트랜잭션을 못 깨고(@Async), 롤백된 트랜잭션의 유령 이벤트도 안 남는다(AFTER_COMMIT). 일반 `@EventListener`는 발행 즉시 실행돼 주문이 롤백돼도 `ORDER_CREATED`가 적재됨 — 판매자 지표가 조용히 오염되므로 금지 (2026-07-09 설계 재검토).
+- ~~서비스 레이어에서 `ApplicationEventPublisher.publishEvent()` → `@Async @TransactionalEventListener(phase = AFTER_COMMIT)`가 INSERT.~~ 행동 이벤트는 이제 **FE가 수집 API(`POST /api/events`, E-1)로 배치 전송**하고 서버는 `behavior_events`에 적재만 한다(02 D31) — 서버 내부 발행 경로 자체가 사라짐. BE가 직접 남기는 로그는 성격이 달라 @Async가 **부적합**: `order_status_logs`·`product_change_logs`는 도메인 로직과 **같은 트랜잭션**(로그 누락이 구조적으로 불가능해야 함 — 01 D12), `account_event_logs`는 Spring Security 성공/실패 핸들러에서 INSERT. 기존 근거(롤백 유령 이벤트 방지)는 같은-트랜잭션 방식에선 자동 충족.
 
 ### D7. 모든 DB 접근은 Spring만 — LLM에 read-only DB 접근도 주지 않는다 (2026-07-09 팀 합의)
 
@@ -171,7 +171,7 @@ com.jarvis
 │   ├── config/          # Security, Redis, WebClient, Async, Scheduling
 │   ├── auth/            # JWT provider·필터, OAuth 핸들러, 게스트 쿠키
 │   ├── response/        # ApiResponse envelope, ErrorCode enum, GlobalExceptionHandler
-│   └── event/           # user_event 발행·리스너
+│   └── event/           # 이벤트 수집 API(E-1)·behavior_events 적재
 ├── member    ├── brand     ├── category  ├── product
 ├── cart      ├── order     ├── claim     ├── review
 ├── wishlist  ├── address   ├── inquiry
@@ -251,18 +251,19 @@ com.jarvis
 
 **① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MariaDB → envelope 응답. FastAPI 무관.
 
-**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고는 미모델링, 02 D8) → INSERT → `publishEvent(CART_ADD via=api)` ┄@Async┄ user_event(별도 트랜잭션) → cartItemId envelope.
+**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고 확인·차감은 주문 시점, 02 D33) → INSERT → cartItemId envelope. (`add_to_cart` 행동 이벤트는 서버가 아니라 **FE가 성공 콜백에서 E-1로 전송** — 02 D31)
 
 **③ 에이전트 조회 추천 (직결 + 2왕복 리랭킹, D5·05 §1)** — FE가 `POST /api/chat/sessions`(CH-1)로 세션과 함께 **스트림 티켓**을 받고(Spring이 신원 검증 후 RS256 서명·발급) → FE가 그 티켓으로 **FastAPI에 직접 SSE 연결** → FastAPI가 발화에서 **정형조건(가격·카테고리·색상·재고·판매상태)** 과 **의미조건(원룸에 적합·공부하기 좋은…)** 을 추출 →
   - **[1왕복 · 후보 조회]** 정형조건만 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB에서 후보 조회. **정형 진실(가격·재고·상태)은 여기서 확정** — 이후 벡터DB가 낡아도 살 수 없는 상품이 안 섞임. 응답은 **리랭킹용 최소필드(productId·name·summary·attributes·tags)**, **라운드1 LIMIT 상한**으로 후보 폭발(느슨한 대분류) 방지.
   - **[리랭킹]** FastAPI가 **자기 소유 벡터DB(productId·attributes·embedding)** 로 의미조건 리랭킹 → **top-K(20~30)만** LLM에 태워 추천 이유·채팅 응답 생성 → **Top5** 선정(하이드레이션에서 재고/HIDDEN 드롭 대비 넉넉히 고름).
-  - **[SSE 발행]** `token`(응답 텍스트)·`conditions`(칩)·`products{items:[{productId, reason}]}`(**ID+이유만**, 카드 필드 없음)·`done`.
-  - **[2왕복 · FE pull 하이드레이션]** FE가 `products` 이벤트 수신을 **트리거**로 `GET /api/products/cards?ids=1,2,…`(P-7, Spring) 호출 → 카드 필드(가격·정가·썸네일·재고·평점·reviewCount)를 **BE 자기 DB에서** 받아 productId로 조인해 우측 패널 렌더. (SSE는 단방향이라 "결과 준비됨" 신호도 같은 열린 소켓의 이벤트로 전달 — FE는 폴링하지 않음.)
+  - **[목록 저장 콜백]** FastAPI가 Top5 확정 후 `POST /internal/recommendations`(I-21 — sessionId·listId·productIds 순서 유지) 콜백 → Spring이 Redis TTL 저장. **콜백 성공 후에만** SSE `products.ready` 발행(실패 시 발행 금지 — FE가 빈 목록을 조회하지 않게). *스키마 OPEN(LLM 협의)*
+  - **[SSE 발행]** `token`(응답 텍스트)·`conditions`(칩)·`suggestions`/`budget`(해당 시)·`products.ready{listId}`(**상관키만**, 카드 필드 없음)·`done`.
+  - **[2왕복 · FE pull 하이드레이션]** FE가 `products.ready` 수신을 **트리거**로 `GET /api/chat/lists/{listId}`(CH-5, Spring) 호출 → 카드 필드(가격·정가·썸네일·재고·평점·reviewCount)를 **BE 자기 DB에서** 받아 순서 그대로 우측 패널 렌더. 추천 이유(reason)는 SSE로 직접 옴 — 목록 API에 없음. (구 `products{id,reason}` + P-7 하이드레이션 방식은 이것으로 대체 — P-7 폐지 예고. SSE는 단방향이라 "결과 준비됨" 신호도 같은 열린 소켓의 이벤트로 전달 — FE는 폴링하지 않음.)
   - 게스트면 티켓 `sub_type:guest`, 개인화 없이 동일 흐름. **SELLER 채널**은 변종(brandId는 서버 유도, I-6 사용).
 
 **④ 에이전트 쓰기(담기)** — ③처럼 FastAPI가 SSE를 붙든 채 상품·옵션·수량 확정 후 `POST /internal/cart/items` 콜백(`X-Internal-Token`, userId/guestId는 **티켓 `sub`의 메아리**) → InternalController가 **②와 같은 CartService.addItem** 호출 → 결과 3갈래: 성공→cartItemId→`action{CART_ADDED}` (게스트도 guestId로 담기 성공 — 02 D30, 로그인 유도는 결제 시점); 옵션필요→400 `CART_OPTION_REQUIRED`+options→"어떤 색?" 되물음; 그 외 검증 실패→사유 안내. 자동 재시도 없음(중복 담기 방지).
 
-**⑤ 판매자 조회(대시보드)** — FE `GET /api/seller/summary`(Bearer) → 시큐리티 필터가 JWT+`SELLER` 확인 → SellerController가 **토큰 memberId에서 brandId 유도**(주장받지 않음) → SellerService 집계(매출·주문수는 order_item, 조회/담김/판매수는 user_event; 복잡 집계만 JdbcTemplate) → WHERE에 brandId 박혀 남의 데이터는 쿼리 단계에서 안 나옴 → envelope. (S-2도 동형.)
+**⑤ 판매자 조회(대시보드)** — FE `GET /api/seller/summary`(Bearer) → 시큐리티 필터가 JWT+`SELLER` 확인 → SellerController가 **토큰 memberId에서 brandId 유도**(주장받지 않음) → SellerService 집계(매출·주문수는 order_item, 조회/담김수는 behavior_events의 product_view·add_to_cart — 02 D31; 복잡 집계만 JdbcTemplate) → WHERE에 brandId 박혀 남의 데이터는 쿼리 단계에서 안 나옴 → envelope. (S-2도 동형.)
 
 **⑥ 판매자 쓰기(상품수정)** — FE `PATCH /api/seller/products/{id}`(Bearer) → JWT+`SELLER` → SellerProductService가 **먼저 소유권 검사**(상품의 브랜드 == 내 brandId, 아니면 403) → UPDATE(`status=HIDDEN` 비노출 포함). ②엔 없던 소유권 스텝이 결정적.
 
