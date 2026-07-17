@@ -187,6 +187,49 @@ com.jarvis
 
 - **internal 컨트롤러는 자체 로직을 갖지 않고 도메인 서비스를 재사용한다.** 같은 행위(예: 담기)는 같은 서비스 메서드 하나로 — `/api`와 `/internal`은 신뢰 모델이 다른 입구일 뿐, 검증·처리 로직은 서비스 레이어에서 공유. (검증이 컨트롤러에 있으면 입구를 낼 때마다 복붙된다 — 01 체크리스트와 같은 맥락)
 
+### 3-1. 코드 컨벤션 (2026-07-17 신설)
+
+> §3이 "어디에 두나"라면 여기는 "클래스 하나를 어떻게 쓰나". 전 Phase 공통 — 구현 세션은 이 규약과 다르게 짜지 않는다.
+
+**Controller — 번역기 이상 금지**
+- 역할은 3개뿐: `@Valid` 요청 DTO 바인딩 → 서비스 호출 → `ApiResponse` 반환. 컨트롤러에 if 분기가 나타나면 서비스로 내릴 신호.
+- 인증 주체(userId/guestId)는 `@AuthenticationPrincipal`·ArgumentResolver로만 받는다 — 요청 body의 신원 주장은 불신(§7 "신원은 서버가 채운다"의 코드 버전).
+- try-catch 금지 — 예외는 전부 `GlobalExceptionHandler`(§6).
+
+**Service — 트랜잭션과 규칙의 집**
+- 클래스에 `@Transactional(readOnly = true)`, 쓰기 메서드에만 `@Transactional` 오버라이드 — 실수로 새는 더티체킹 쓰기 차단 + 읽기 최적화.
+- 검증 경계: **형식**(이메일 포맷, 8자+영문숫자)은 요청 DTO의 Bean Validation, **상태·자격**(중복, 전이 가능, 소유권)은 서비스. 이 경계가 무너지면 `/internal` 입구를 낼 때 검증이 복붙된다(§3 internal 항과 같은 근거).
+- 타 도메인 접근은 그 도메인의 **서비스를 경유** — 타 도메인 Repository 직접 주입 금지(도메인 규칙 우회 방지).
+- 실패는 null/boolean 반환이 아니라 **`BusinessException(ErrorCode)` 계열 throw** — D2 envelope 매핑과 자동 정합.
+
+**Entity — setter 없는 도메인**
+- `@Setter`/`@Data` 금지, `@NoArgsConstructor(access = PROTECTED)`, 생성은 정적 팩토리 또는 빌더.
+- 상태 변경은 의도가 드러나는 엔티티 메서드로(`member.changePassword(...)`) — 01 상태 머신의 전이 검증을 담는 전제.
+- `@Enumerated(EnumType.STRING)` 고정(ORDINAL은 enum 순서 변경 = 데이터 파손). `createdAt/updatedAt`은 `BaseTimeEntity` + JPA Auditing 공통화.
+- 연관관계는 기본 **단방향 `@ManyToOne(fetch = LAZY)`**, 양방향은 실사용처가 있을 때만. 도메인 경계를 넘는 참조는 객체 대신 id 보관 허용 — 조인 그래프가 전 도메인으로 번지는 것 방지.
+
+**DTO — record + 요청/응답 분리**
+- Java record, API 단위 네이밍(`SignupRequest`/`SignupResponse`) — 범용 `XxxDto` 금지(어느 API의 모양인지 이름으로 식별).
+- 요청 DTO를 응답에 재사용 금지. 엔티티→응답 변환은 `XxxResponse.from(entity)` 정적 팩토리로 모은다(서비스에 getter 나열 매핑 금지).
+- Bean Validation은 요청 DTO에, 실패는 D2의 `VALIDATION_ERROR + fields[]`로 핸들러가 일괄 변환.
+
+**공통**
+- 의존성은 생성자 주입만(`@RequiredArgsConstructor`), 필드 `@Autowired` 금지.
+- 조회 네이밍: 없으면 예외를 던짐 → `getXxx`, 없을 수 있음(Optional) → `findXxx`. 혼용 금지.
+
+**Spring Security 구현 규약**
+- **필터에서 터진 401/403도 envelope로.** 필터 체인은 `GlobalExceptionHandler`(디스패처 서블릿 안) 바깥이라 그냥 두면 스프링 기본 응답이 나간다 → `AuthenticationEntryPoint`(401)/`AccessDeniedHandler`(403)가 직접 envelope JSON을 쓴다. D2의 401 2종 분리는 JWT 필터가 부재/만료를 구분해 request attribute로 넘기고 EntryPoint가 `AUTH_REQUIRED`/`AUTH_TOKEN_EXPIRED`로 분기.
+- **`SessionCreationPolicy.STATELESS` + csrf/formLogin/httpBasic disable**(JWT·세션 미사용). 단 **RT 쿠키(refresh·logout)는 CSRF 표면이 남는다** → RT 쿠키에 `SameSite=Strict` 부여로 봉쇄(FE·BE 동일 사이트라 부작용 없음, D3의 `Path=/api/auth` 최소화와 세트).
+- **인증 선택 경로**(E-1 등 "permitAll이지만 JWT 있으면 검증"): JWT 필터는 permitAll 여부와 무관하게 "토큰 없으면 통과, 있으면 파싱해 SecurityContext 세팅, 파싱 실패 시 실패 처리"로 동작하는 구조로 짠다.
+- **account_event_logs 적재 지점**: A-2 로그인은 formLogin이 아니라 컨트롤러 방식(AuthenticationManager 직접 호출)이라 Security Success/FailureHandler가 자동 발화하지 않음 → **AuthService의 성공/실패 지점에서 직접 적재**(02 D32의 "핸들러에 심음"을 이 지점으로 구체화 — 02에 주석 반영).
+
+**JPA 구현 규약**
+- **`spring.jpa.open-in-view: false`** — 지연 로딩은 트랜잭션(서비스) 안에서 끝낸다. 기본값(on)은 커넥션을 응답 렌더링까지 점유하고 LazyInitializationException을 컨트롤러에서 만나게 함.
+- **`ddl-auto: validate`** — 스키마 원본은 02/schema.sql(사람이 적용·리뷰), JPA는 스키마를 만들지도 바꾸지도 않는다. 로컬 최초 기동은 schema.sql 수동 적용(또는 compose init 스크립트).
+- 전역 LAZY(Entity 항) 전제에서 **목록 조회의 N+1은 fetch join/`@EntityGraph`로 해소** — 리뷰 기준: 쿼리 로그에서 같은 SELECT가 행 수만큼 반복되면 N+1.
+- 수정은 "조회 → 엔티티 메서드 호출 → 커밋 시 더티체킹". `save()` 재호출로 UPDATE하지 않는다.
+- ID 전략은 `IDENTITY`(MariaDB auto_increment 정합). Hibernate 배치 INSERT 제약은 감수 — 대량 시드는 JdbcTemplate batch 허용(§4와 일관).
+
 ## 4. 기술 스택 & 버전
 
 | 항목 | 선택 | 근거 |
@@ -230,6 +273,9 @@ com.jarvis
 - [ ] Spring→FastAPI 호출(P-5 추천·세션 정리)에 타임아웃이 있는가 (P-5 연결 2s/응답 3s — 채팅 60s는 직결이라 Spring 소관 아님)
 - [ ] 스트림 티켓이 **RS256**으로 서명되고 private key는 env/keystore에만 있는가(JWKS로 public만 노출), 신원(userId/guestId/brandId)은 **서버가 채워** 티켓 claim에 박히는가(클라이언트 주장 무시)
 - [ ] 추천 목록 조회(`GET /api/chat/lists/{listId}` CH-5 — 확정 전엔 P-7)가 다건 `id IN` 조회에 인덱스를 타는가, HIDDEN/품절을 드롭하는가
+- [ ] 필터발 401/403이 envelope 형식인가 (EntryPoint/AccessDeniedHandler — §3-1), 401 2종이 구분되는가
+- [ ] `open-in-view: false`·`ddl-auto: validate`인가 (§3-1)
+- [ ] 엔티티에 `@Setter`가 없고, 엔티티→응답 변환이 `XxxResponse.from()`에 모여 있는가 (§3-1)
 - [ ] 시크릿이 코드·yml에 리터럴로 없는가
 - [ ] 배포 compose에서 nginx만 `ports:` publish이고 나머지는 `expose`인가 (spring 8080 외부 노출 = nginx 우회 뒷문)
 - [ ] internal 컨트롤러가 도메인 서비스를 재사용하는가 (로직 복제 금지)
