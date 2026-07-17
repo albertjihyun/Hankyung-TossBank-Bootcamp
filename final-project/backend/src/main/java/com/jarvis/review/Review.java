@@ -16,8 +16,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Phase 2는 조회 전용(P-2 평점 집계·P-3 목록) — 작성/신고(M-1·M-3)는 Phase 4.
  * member_id NULL = 크롤링 리뷰, author_name 필수 (02 D19).
+ * 본인 후기는 등록만 — 수정·삭제 API 없음 (02 D29).
  */
 @Entity
 @Table(name = "review")
@@ -53,4 +53,17 @@ public class Review extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ReviewStatus status;
+
+    /** M-1 회원 후기 — 자격 검증(DELIVERED/CONFIRMED + 미작성)은 서비스에서 (01 §3) */
+    public static Review write(Long orderItemId, Long productId, Long memberId,
+                               int rating, String content) {
+        Review review = new Review();
+        review.orderItemId = orderItemId;
+        review.productId = productId;
+        review.memberId = memberId;
+        review.rating = rating;
+        review.content = content;
+        review.status = ReviewStatus.VISIBLE;
+        return review;
+    }
 }
