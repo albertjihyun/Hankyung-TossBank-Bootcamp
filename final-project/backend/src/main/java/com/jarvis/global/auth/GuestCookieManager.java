@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,12 @@ public class GuestCookieManager {
 
     public static final String COOKIE_NAME = "guest_id";
     private static final Duration MAX_AGE = Duration.ofDays(30);
+
+    private final boolean secure;
+
+    public GuestCookieManager(@Value("${app.cookie.secure:true}") boolean secure) {
+        this.secure = secure;
+    }
 
     public Optional<String> resolve(HttpServletRequest request) {
         Cookie[] cookies = request.getCookies();
@@ -34,6 +41,7 @@ public class GuestCookieManager {
     public void write(HttpServletResponse response, String guestId) {
         ResponseCookie cookie = ResponseCookie.from(COOKIE_NAME, guestId)
                 .httpOnly(true)
+                .secure(secure)
                 .path("/")
                 .maxAge(MAX_AGE)
                 .sameSite("Lax")
