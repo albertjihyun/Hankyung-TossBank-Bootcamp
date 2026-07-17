@@ -111,13 +111,16 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 { "success": false, "error": { "code": "ORDER_INVALID_TRANSITION", "message": "배송중인 상품은 취소할 수 없습니다." } }
 ```
 - 에러 `code`는 `<도메인>_<사유>` 대문자 스네이크. message는 사용자 노출 가능한 한국어 문장.
+- **필드 검증 실패(400)는 `VALIDATION_ERROR` + `fields` 배열** — `error.fields: [{field, message}]`로 어느 필드가 왜 틀렸는지 명시 (2026-07-17 FE 요청, A-1 등 폼 API 공통).
+- **401 코드 2종 분리** (2026-07-17 FE 요청): `AUTH_REQUIRED`(토큰 없음 — FE는 로그인 유도) / `AUTH_TOKEN_EXPIRED`(만료 — FE는 refresh 후 1회 재시도). 구분 없이 쓰던 기존 표기는 폐기.
+- **날짜 직렬화**: 모든 날짜·시각 필드는 ISO 8601 + 타임존 오프셋(`2026-07-10T14:23:00+09:00`) — Jackson 직렬화 설정으로 전역 적용 (2026-07-17 FE 요청, 아래 타임존 항 참조).
 - HTTP 상태: 400(검증/전이 위반) 401(미인증) 403(권한) 404(없음) 409(중복: 이메일, 재신청 등) 500.
 
 ### D3. 인증은 JWT AT(30분) + RT(14일, DB 저장)
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
-- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회 포함), `POST /api/chat/sessions`(CH-1 티켓 발급)·`POST /api/chat/tickets`(CH-1b)·`GET /api/chat/lists/**`(CH-5 추천 목록), `/api/cart/**`(게스트 쿠키 허용 — 02 D30), `POST /api/events`(E-1 수집 — 인증 선택: JWT 있으면 검증)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
+- Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회(폐지 예고, CH-5 대체) 포함), `POST /api/chat/sessions`(CH-1 티켓 발급)·`POST /api/chat/tickets`(CH-1b)·`GET /api/chat/lists/**`(CH-5 추천 목록), `/api/cart/**`(게스트 쿠키 허용 — 02 D30), `POST /api/events`(E-1 수집 — 인증 선택: JWT 있으면 검증)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
 - 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 30일** — 세션 쿠키면 브라우저 닫는 순간 게스트 장바구니가 증발하므로 명시 필수). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·behavior_events의 guest_id FK가 전제하는 선행 조건). 쿠키 발급 전 게스트 행동은 `session_key`로 **익명 추적은 되지만**(02 D31) guest_id가 없어 가입 승계 대상은 아님 — 감수(2026-07-17 갱신).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다
@@ -226,7 +229,7 @@ com.jarvis
 - [ ] `/internal/**`에 서비스 토큰 필터가 걸려 있고, FE 경로에서 접근 불가한가
 - [ ] Spring→FastAPI 호출(P-5 추천·세션 정리)에 타임아웃이 있는가 (P-5 연결 2s/응답 3s — 채팅 60s는 직결이라 Spring 소관 아님)
 - [ ] 스트림 티켓이 **RS256**으로 서명되고 private key는 env/keystore에만 있는가(JWKS로 public만 노출), 신원(userId/guestId/brandId)은 **서버가 채워** 티켓 claim에 박히는가(클라이언트 주장 무시)
-- [ ] `GET /api/products/cards?ids=`(P-7)가 다건 `id IN` 조회에 인덱스를 타는가, HIDDEN/품절을 드롭하는가
+- [ ] 추천 목록 조회(`GET /api/chat/lists/{listId}` CH-5 — 확정 전엔 P-7)가 다건 `id IN` 조회에 인덱스를 타는가, HIDDEN/품절을 드롭하는가
 - [ ] 시크릿이 코드·yml에 리터럴로 없는가
 - [ ] 배포 compose에서 nginx만 `ports:` publish이고 나머지는 `expose`인가 (spring 8080 외부 노출 = nginx 우회 뒷문)
 - [ ] internal 컨트롤러가 도메인 서비스를 재사용하는가 (로직 복제 금지)
@@ -251,7 +254,7 @@ com.jarvis
 
 **① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MariaDB → envelope 응답. FastAPI 무관.
 
-**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고 확인·차감은 주문 시점, 02 D33) → INSERT → cartItemId envelope. (`add_to_cart` 행동 이벤트는 서버가 아니라 **FE가 성공 콜백에서 E-1로 전송** — 02 D31)
+**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고 차감은 결제 성공 시점, 02 D33) → INSERT → cartItemId envelope. (`add_to_cart` 행동 이벤트는 서버가 아니라 **FE가 성공 콜백에서 E-1로 전송** — 02 D31)
 
 **③ 에이전트 조회 추천 (직결 + 2왕복 리랭킹, D5·05 §1)** — FE가 `POST /api/chat/sessions`(CH-1)로 세션과 함께 **스트림 티켓**을 받고(Spring이 신원 검증 후 RS256 서명·발급) → FE가 그 티켓으로 **FastAPI에 직접 SSE 연결** → FastAPI가 발화에서 **정형조건(가격·카테고리·색상·재고·판매상태)** 과 **의미조건(원룸에 적합·공부하기 좋은…)** 을 추출 →
   - **[1왕복 · 후보 조회]** 정형조건만 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB에서 후보 조회. **정형 진실(가격·재고·상태)은 여기서 확정** — 이후 벡터DB가 낡아도 살 수 없는 상품이 안 섞임. 응답은 **리랭킹용 최소필드(productId·name·summary·attributes·tags)**, **라운드1 LIMIT 상한**으로 후보 폭발(느슨한 대분류) 방지.
@@ -267,7 +270,7 @@ com.jarvis
 
 **⑥ 판매자 쓰기(상품수정)** — FE `PATCH /api/seller/products/{id}`(Bearer) → JWT+`SELLER` → SellerProductService가 **먼저 소유권 검사**(상품의 브랜드 == 내 brandId, 아니면 403) → UPDATE(`status=HIDDEN` 비노출 포함). ②엔 없던 소유권 스텝이 결정적.
 
-**⑦ 판매자 에이전트(챗봇)** — FE가 `POST /api/chat/seller`(S-4)로 JWT+`SELLER`+세션 검증 후 **SELLER 스코프 스트림 티켓**을 받아(brandId는 **서버가 계정에서 유도**해 티켓 claim에 박음 — 클라이언트/LLM 주장 불가) → FE가 티켓으로 FastAPI에 직접 SSE 연결(`channel:SELLER`) → 분석에 수치 필요 시 `GET /internal/seller/{brandId}/stats` 콜백(brandId는 **티켓 claim의 메아리**, FastAPI 툴 인자 아님) → InternalController가 ⑤와 같은 집계 서비스로 **집계값만** 반환(raw 로그·임의 쿼리 권한 없음 → text2SQL 실패·타 판매자 접근 원천 차단) → FastAPI가 분석 답변 `token`(+차트용 구조화 데이터) SSE 발행. ※ **판매자용 구조화 이벤트(예: `stats`) 스키마는 05에 미정 — LLM 팀 합의 필요(05 §4).**
+**⑦ 판매자 에이전트(챗봇)** — FE가 `POST /api/chat/seller/sessions`(S-4)로 JWT+`SELLER`+세션 검증 후 **SELLER 스코프 스트림 티켓**을 받아(brandId는 **서버가 계정에서 유도**해 티켓 claim에 박음 — 클라이언트/LLM 주장 불가) → FE가 티켓으로 FastAPI에 직접 SSE 연결(`channel:SELLER`) → 분석에 수치 필요 시 `GET /internal/seller/{brandId}/sales` 등 집계 콜백(I-6~I-16 — brandId는 **티켓 claim의 메아리**, FastAPI 툴 인자 아님) → InternalController가 ⑤와 같은 집계 서비스로 **집계값만** 반환(raw 로그·임의 쿼리 권한 없음 → text2SQL 실패·타 판매자 접근 원천 차단) → FastAPI가 분석 답변 `token`(+차트용 구조화 데이터) SSE 발행. ※ **판매자용 구조화 이벤트(예: `stats`) 스키마는 05에 미정 — LLM 팀 합의 필요(05 §4).**
 
 ## 8. SSE 성능·안정성 지형 (결정됨 vs 열림)
 
@@ -284,4 +287,4 @@ com.jarvis
 - **동시 스트림 상한**: FastAPI 1대(D-분산8)의 async 이벤트 루프가 감당하는 동시 SSE 수. 채팅은 외부 LLM 대기(I/O)가 대부분이라 한 대가 다수 감당하지만 천장은 존재 → 넘으면 `LLM_UNAVAILABLE` degrade + rate limit(05 §3).
 - **느린 클라이언트/백프레셔**: FastAPI가 빨리 뱉는데 클라가 느리면 FastAPI 메모리에 적체 → 상한·드롭 정책 필요.
 
-> **BE 측 남는 숙제**: 티켓 발급 엔드포인트(04)의 발급 지연·키 회전, `GET /api/products/cards`(P-7)의 배치 조회 성능(다건 id IN 조회 인덱스).
+> **BE 측 남는 숙제**: 티켓 발급 엔드포인트(04)의 발급 지연·키 회전, 추천 목록 조회(CH-5 — 확정 전 P-7)의 배치 조회 성능(다건 id IN 조회 인덱스).

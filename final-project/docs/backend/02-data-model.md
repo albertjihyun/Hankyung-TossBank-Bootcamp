@@ -4,7 +4,7 @@
 > DB: MariaDB 11.x (AWS RDS for MariaDB), utf8mb4 · InnoDB. JPA 엔티티는 이 문서의 테이블 정의를 그대로 따른다.
 > 공유용 DDL 스냅샷: [schema.sql](schema.sql) — 이 문서(§3)가 원본이며, §3 변경 시 함께 갱신할 것.
 > 2026-07-09: 노션 「상품 참고」「로그 참고」(7/9 공유) 대조 설계 세션 — D8~D13 추가, `spec` 컬럼을 `attributes`로 개칭(D11).
-> 2026-07-17: 이벤트 수집 명세 합의(로그/분석 팀 + 백엔드, 구두 확정) — user_event→behavior_events 교체(D31), BE 직접 로그 3종 신설(D32), 재고 도입(D33 — D8 폐기), 교환 제거(D34). D31~D36 추가.
+> 2026-07-17: 이벤트 수집 명세 합의(로그/분석 팀 + 백엔드, 구두 확정) — user_event→behavior_events 교체(D31), BE 직접 로그 3종 신설(D32), 재고 도입(D33 — D8 폐기), 교환 제거(D34). D31~D37 추가(D37: 주문 아이템 정가 스냅샷 — FE 반영).
 
 ## 1. 결정 로그
 
@@ -79,7 +79,7 @@
 
 - **문제**: 「상품 참고」는 `rating_avg`/`review_count`/`total_review_count`를 product 고정 컬럼(자주 필터/정렬)으로 제안. 현행 원칙은 파생값 저장 금지(조회 시 집계).
 - **선택지**: (A) 조회 시 review 집계(현행) (B) product에 반정규화 컬럼 + 리뷰 쓰기 시 갱신
-- **기준**: ① 규모 — 상품 300+·리뷰 수천(시드) 수준에서 페이지당 20개 서브쿼리 집계는 ms 단위 ② 정합 비용 — (B)는 리뷰 등록/숨김(HIDDEN)/삭제(DELETED) 3개 경로 전부에 갱신 로직이 필요, 하나라도 새면 조용히 drift(JPA 벌크 연산·동시 쓰기에서 특히) ③ 정렬 소비처 실재 — 인기 신호(브랜드 홈 인기순, 인기 상품 P-4)는 평점이 아니라 판매·조회(order_item, user_event) 집계로 이미 정의됨. 평점은 카드·상세 **표시용**뿐, 평점 정렬/필터 UI 없음.
+- **기준**: ① 규모 — 상품 300+·리뷰 수천(시드) 수준에서 페이지당 20개 서브쿼리 집계는 ms 단위 ② 정합 비용 — (B)는 리뷰 등록/숨김(HIDDEN)/삭제(DELETED) 3개 경로 전부에 갱신 로직이 필요, 하나라도 새면 조용히 drift(JPA 벌크 연산·동시 쓰기에서 특히) ③ 정렬 소비처 실재 — 인기 신호(브랜드 홈 인기순, 인기 상품 P-4)는 평점이 아니라 판매·조회(order_item, behavior_events — 2026-07-17 D31로 교체) 집계로 이미 정의됨. 평점은 카드·상세 **표시용**뿐, 평점 정렬/필터 UI 없음.
 - **선택**: (A) 유지. 「상품 참고」의 전제(수만 상품 + 필드 단위 필터·정렬 UI)가 우리 MVP에 없음 — 참고 문서와 다르게 가는 근거를 남긴다.
 - **트레이드오프**: 상품 목록 조회마다 집계 조인 비용 → 페이지네이션(≤30)으로 상수 규모 유지. 병목이 실측되면 그때 컬럼 추가 + backfill 1쿼리로 전환(전환 비용 낮음).
 
@@ -253,7 +253,7 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 ### D33. 재고를 모델링한다 — product.stock_quantity (D8 폐기 — 2026-07-17)
 
 - **문제**: D8(재고 미모델링)의 근거는 "재고의 소비처가 없다"였는데 소비처가 생겼다 — 판매자 에이전트의 재고 조정(internal I-11)과 재고 변경 로그(D32 STOCK)가 재고 실체를 요구.
-- **선택**: `stock_quantity INT NOT NULL DEFAULT 0` + `CHECK (stock_quantity >= 0)`. 주문 생성 시 조건부 UPDATE(`SET stock_quantity = stock_quantity - n WHERE stock_quantity >= n`)로 차감·부족 시 실패 — D8 트레이드오프가 예고한 확장 패턴 그대로(01 §6과 동일, 분산 3대에서도 안전). 차감으로 0 도달 시 STOCK 로그(new_value 0) 1행(D32).
+- **선택**: `stock_quantity INT NOT NULL DEFAULT 0` + `CHECK (stock_quantity >= 0)`. **결제 성공(PAID 전이)과 같은 트랜잭션**에서 조건부 UPDATE(`SET stock_quantity = stock_quantity - n WHERE stock_quantity >= n`)로 차감(2026-07-17 확정 — 미결제 주문이 재고를 점유하지 않게), 차감 실패 시 결제 실패(PAYMENT_FAILED, reason OUT_OF_STOCK) 처리 — D8 트레이드오프가 예고한 확장 패턴 그대로(01 §6과 동일, 분산 3대에서도 안전). 차감으로 0 도달 시 STOCK 로그(new_value 0) 1행(D32). 취소/반품 시 복원은 MVP 미구현(감수 — 시드 재고 100).
 - **함께 확정**: `product.updated_at`을 NOT NULL로(생성 시 created_at과 동일 값으로 초기화) + `KEY idx_product_updated (updated_at, id)` — AI 상품 동기화 배치(I-17)의 증분 커서용. 커서 최종 방식은 LLM 팀 협의 **OPEN**이지만 인덱스는 어느 방식이든 필요.
 - **트레이드오프**: D8이 피하려던 리스크 부활 — 추천 상품이 품절이면 핵심 데모 플로우(추천→담기→구매)가 막힘 → 시드에서 재고를 넉넉히 초기화해 완화. 초기 재고: 크롤링 1만 개+ 상품 전부 **일괄 100** (2026-07-17 확정) — 시드 파이프라인이 INSERT 시 채운다. 크롤링 원본 재고는 신뢰할 수 없어 베이스라인으로 쓰지 않음.
 
@@ -272,6 +272,14 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 
 - 지금까지 암묵(피그마 검토의 "배송비 표기 제거")이던 것을 명문화: **전 주문 배송비 0원**, `orders.total_amount = Σ(order_item.price × quantity)`(D26 ④와 동일식)에는 배송비 항이 없는 것이 사양이다.
 - 배송비 도입 시 컬럼 추가와 함께 총액 정의를 재정의한다 — 그 전까지 총액 계산에 배송비 변수를 두지 않는다.
+
+### D37. order_item에 정가 스냅샷(original_price)을 추가한다 (2026-07-17 FE 반영)
+
+- **문제**: 주문 화면에 할인 표시(정가 대비 할인율)가 필요(FE 요청). order_item 스냅샷엔 판매가(price)만 있어 정가를 어디서 가져올지 정해야 함.
+- **선택지**: (A) product.original_price를 조회 시점 조인 (B) 주문 생성 시 정가도 스냅샷 컬럼으로 저장
+- **기준**: 스냅샷 원칙 — 주문서는 주문 시점의 사실을 보존한다(product_name·price와 동일 원칙). (A)는 주문 후 판매자가 정가를 바꾸면 과거 주문의 할인 표시가 어긋난다.
+- **선택**: (B). `original_price INT NOT NULL` — 주문 생성 시 `product.original_price + extra_price` 저장. O-4 응답에 포함.
+- **트레이드오프**: 컬럼 1개 증가. 기존 스냅샷 3종과 같은 시점·같은 트랜잭션에 채워져 추가 비용 사실상 없음.
 
 > **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료, D36으로 명문화) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
 
@@ -378,6 +386,7 @@ erDiagram
         varchar product_name "스냅샷"
         varchar option_name "스냅샷"
         int price "스냅샷"
+        int original_price "정가 스냅샷(D37)"
         int quantity
         varchar status "01 문서 9개 상태(D34)"
         datetime status_changed_at
@@ -547,7 +556,7 @@ JPA 매핑 규약: Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariad
 | name | VARCHAR(200) | NOT NULL | |
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
 | price | INT | NOT NULL | 판매가 (D15). `price ≤ original_price` 서비스 검증(D28). 할인율은 파생 계산(저장 금지) |
-| stock_quantity | INT | NOT NULL DEFAULT 0, CHECK ≥ 0 | 재고 (D33 — D8 폐기). 주문 생성 시 조건부 UPDATE 차감·부족 시 실패, 0 도달 시 STOCK 로그 1행(D32) |
+| stock_quantity | INT | NOT NULL DEFAULT 0, CHECK ≥ 0 | 재고 (D33 — D8 폐기). 결제 성공(PAID)과 같은 트랜잭션에서 조건부 UPDATE 차감·부족 시 결제 실패, 0 도달 시 STOCK 로그 1행(D32). 복원 MVP 미구현 |
 | image_url | VARCHAR(500) | NOT NULL | 대표 이미지 1장 (D14 — 단일 확정) |
 | base_sales_count | INT | NOT NULL DEFAULT 0 | 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계 |
 | summary | VARCHAR(500) | NULL | 주요 특징 요약 |
@@ -611,6 +620,7 @@ JPA 매핑 규약: Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariad
 | product_name | VARCHAR(200) | NOT NULL | 스냅샷 |
 | option_name | VARCHAR(100) | NULL | 스냅샷 |
 | price | INT | NOT NULL | 스냅샷: product.price + extra_price |
+| original_price | INT | NOT NULL | 스냅샷: 주문 시점 product.original_price + extra_price — 주문 화면 할인 표시용 (D37, 2026-07-17 FE 요청) |
 | quantity | INT | NOT NULL | |
 | status | VARCHAR(30) | NOT NULL | 01 문서의 9개 상태 (D34 — 교환 2종 제거로 11→9. 결제 전 `PENDING` — 01 D9, 구매확정 `CONFIRMED` — 01 D8) |
 | status_changed_at | DATETIME | NOT NULL | 스케줄러 전이 기준 시각 |
@@ -760,7 +770,7 @@ FE만 적재하는 **8종 화이트리스트** — 8종 외는 수집 API가 버
 - [ ] guest → member 승계 시 behavior_events의 member_id가 백필되는가 (D5·D31)
 - [ ] guest → member 승계 시 cart_item이 병합되는가 (D30 — 동일 상품+옵션 수량 합산·상한 99, 행동 이벤트 승계와 같은 트랜잭션)
 - [ ] 시드 상품의 attributes 키가 소속 category.attribute_schema와 일치하는가 (D11)
-- [ ] 주문 생성이 재고를 조건부 UPDATE로 차감하고, 부족 시 실패·0 도달 시 STOCK 로그 1행을 남기는가 (D33·D32)
+- [ ] 결제 성공 처리(PAID 전이)가 재고를 같은 트랜잭션의 조건부 UPDATE로 차감하고, 부족 시 결제 실패(OUT_OF_STOCK)·0 도달 시 STOCK 로그 1행을 남기는가 (D33·D32)
 - [ ] 주문 상태 전이가 order_status_logs에 기록되는가 — 배치 전이는 주문 단위 1행, actor 규칙 준수 (D32 — 기록 지점 상세는 01)
 - [ ] product_change_logs가 전후 동일 값·주문에 의한 재고 -1을 기록하지 않는가 (D32)
 - [ ] 로그인 성공/실패가 Security 핸들러에서 account_event_logs로 적재되는가 — 없는 계정 시도는 member_id NULL + IP (D32)
