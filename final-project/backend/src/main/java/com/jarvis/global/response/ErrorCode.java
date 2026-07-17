@@ -41,7 +41,17 @@ public enum ErrorCode {
     ORDER_PRODUCT_UNAVAILABLE(HttpStatus.BAD_REQUEST, "구매할 수 없는 상품이 포함되어 있습니다."),
     ORDER_INVALID_TRANSITION(HttpStatus.BAD_REQUEST, "현재 상태에서 처리할 수 없는 요청입니다."),
     CLAIM_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "현재 상태에서 취소/반품을 신청할 수 없습니다."),
-    CLAIM_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 처리 중인 신청이 있습니다.");
+    CLAIM_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 처리 중인 신청이 있습니다."),
+
+    // mypage (04 §5 — Phase 4)
+    REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "후기를 찾을 수 없습니다."),
+    REVIEW_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "후기를 작성할 수 없는 주문 상품입니다."),
+    REVIEW_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 후기를 작성한 주문 상품입니다."),
+    REVIEW_SELF_REPORT(HttpStatus.BAD_REQUEST, "본인 후기는 신고할 수 없습니다."),
+    REVIEW_REPORT_DUPLICATE(HttpStatus.CONFLICT, "이미 신고한 후기입니다."),
+    WISHLIST_DUPLICATE(HttpStatus.CONFLICT, "이미 찜한 상품입니다."),
+    WISHLIST_NOT_FOUND(HttpStatus.NOT_FOUND, "찜한 상품이 아닙니다."),
+    ADDRESS_LAST_UNDELETABLE(HttpStatus.BAD_REQUEST, "유일한 배송지는 삭제할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

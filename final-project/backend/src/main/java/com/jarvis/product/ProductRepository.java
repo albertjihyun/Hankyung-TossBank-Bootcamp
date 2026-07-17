@@ -98,6 +98,17 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                      @Param("excludedIds") List<Long> excludedIds,
                                      @Param("limit") int limit);
 
+    /** M-7 — behavior_events product_view 재활용(02 D3), 상품별 최신 1건·최신순. FK 미설정이라 product 조인으로 유령 id 제거 */
+    @Query(value = """
+            SELECT be.product_id FROM behavior_events be
+            JOIN product p ON p.id = be.product_id
+            WHERE be.event_type = 'product_view' AND be.member_id = :memberId
+            GROUP BY be.product_id
+            ORDER BY MAX(be.created_at) DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> findRecentViewedIds(@Param("memberId") Long memberId, @Param("limit") int limit);
+
     /** P-4 3순위 — 최신순 채움 (04 §2) */
     @Query(value = """
             SELECT p.id FROM product p

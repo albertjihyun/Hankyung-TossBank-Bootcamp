@@ -73,14 +73,14 @@
 
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
-| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격(DELIVERED/CONFIRMED + 미작성 — 교환 제거 확정, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED` |
+| M-1 | POST | /api/reviews | 🔑 | 후기 작성. body: orderItemId, rating(1~5), content — 자격 상태(DELIVERED/CONFIRMED — 교환 제거 확정, 01 §3) 위반 400 `REVIEW_NOT_ALLOWED`, 이미 작성한 아이템은 409 `REVIEW_ALREADY_EXISTS`(다른 *_ALREADY_*와 동일하게 CONFLICT로 분리 — Phase 4 구현 확정), 남의 아이템 404 |
 | M-2 | GET | /api/reviews/me | 🔑 | 내가 쓴 후기 목록 — **MVP 제외**(FE 화면 없음, 07-17. 스펙은 유지·구현 보류) |
-| M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409, 자기 후기 신고 400 `REVIEW_SELF_REPORT`(02 D29) |
-| M-4 | GET | /api/wishlist | 🔑 | 찜 목록 |
-| M-5 | POST | /api/wishlist | 🔑 | 찜 추가. body: productId — 중복 409 (찜 이벤트 적재 없음 — E-1 8종에 미포함) |
-| M-6 | DELETE | /api/wishlist/{productId} | 🔑 | 찜 해제 |
-| M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (behavior_events `product_view` 기반, 중복 제거 최신 20개) |
-| M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션). 삭제: 기본 배송지는 다른 배송지가 있을 때만 가능 — 등록순 가장 오래된 주소 자동 승격(같은 트랜잭션), 유일한 배송지는 삭제 불가 400 `ADDRESS_LAST_UNDELETABLE`(02 D29) |
+| M-3 | POST | /api/reviews/{id}/reports | 🔑 | 후기 신고. body: reason — 중복 신고 409 `REVIEW_REPORT_DUPLICATE`, 자기 후기 신고 400 `REVIEW_SELF_REPORT`(02 D29), 없는 후기 404 `REVIEW_NOT_FOUND` |
+| M-4 | GET | /api/wishlist | 🔑 | 찜 목록 — 카드 공통 모양(P-7 동형), 최근 찜 순. HIDDEN도 유지(`purchasable=false`) — 개인 목록은 장바구니(C-1)와 동일 원칙(Phase 4 구현 확정) |
+| M-5 | POST | /api/wishlist | 🔑 | 찜 추가. body: productId — 중복 409 `WISHLIST_DUPLICATE` (찜 이벤트 적재 없음 — E-1 8종에 미포함) |
+| M-6 | DELETE | /api/wishlist/{productId} | 🔑 | 찜 해제 — 찜하지 않은 상품 404 `WISHLIST_NOT_FOUND` |
+| M-7 | GET | /api/products/recent | 🔑 | 최근 본 상품 (behavior_events `product_view` 기반, 중복 제거 최신 20개) — 카드 공통 모양, HIDDEN 유지(M-4와 동일 원칙) |
+| M-8 | GET/POST/PATCH/DELETE | /api/addresses(/{id}) | 🔑 | 배송지 CRUD. is_default 지정 시 기존 기본 해제(같은 트랜잭션). **첫 배송지는 요청값과 무관하게 기본 지정**(주소가 있으면 기본이 정확히 1개 — Phase 4 구현 확정). PATCH는 부분 수정(null 유지), is_default는 true 지정만 가능(해제는 다른 주소를 기본 지정). 삭제: 기본 배송지는 다른 배송지가 있을 때만 가능 — 등록순 가장 오래된 주소 자동 승격(같은 트랜잭션), 유일한 배송지는 삭제 불가 400 `ADDRESS_LAST_UNDELETABLE`(02 D29) |
 | M-9 | GET | /api/inquiries/me | 🔑 | 내 문의 내역(읽기 전용): 제목(02 D23), 내용, 상태, 답변 |
 | M-10 | PATCH | /api/members/me | 🔑 | 프로필 수정: nickname — **MVP 제외**(FE 화면 없음, 07-17. 스펙은 유지·구현 보류) |
 
@@ -178,7 +178,7 @@
 
 ## 11. 공통 에러 코드 (초기 세트)
 
-`VALIDATION_ERROR`(400 — `error.fields[{field,message}]` 동반, 03 규약) `AUTH_REQUIRED`(401 — 토큰 없음, 로그인 유도) `AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED`(401 — 만료, refresh 후 1회 재시도. AUTH_REQUIRED와 분리 — 07-17 FE) `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `BRAND_NOT_FOUND`(404 — Phase 2 추가) `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `CART_ITEM_NOT_FOUND`(404 — Phase 3 추가) `ORDER_NOT_FOUND` `ORDER_ITEM_NOT_FOUND` `ADDRESS_NOT_FOUND`(각 404 — Phase 3 추가) `ORDER_PRODUCT_UNAVAILABLE`(400 — 대상 상품 미판매/HIDDEN, Phase 3 추가) `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `SESSION_NOT_FOUND` `SESSION_FORBIDDEN` `INTERNAL_TOKEN_INVALID` `RESOURCE_NOT_FOUND`(404 — 미존재 경로/공통, Phase 0) `INTERNAL_ERROR`(500 — 공통, Phase 0) — 구현 중 추가 시 이 목록에 반영. **날짜 규약**: 모든 날짜·시각 필드는 ISO 8601 + 타임존 오프셋(`2026-07-10T14:23:00+09:00` — 03 규약, 07-17 FE).
+`VALIDATION_ERROR`(400 — `error.fields[{field,message}]` 동반, 03 규약) `AUTH_REQUIRED`(401 — 토큰 없음, 로그인 유도) `AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED`(401 — 만료, refresh 후 1회 재시도. AUTH_REQUIRED와 분리 — 07-17 FE) `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `BRAND_NOT_FOUND`(404 — Phase 2 추가) `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `CART_ITEM_NOT_FOUND`(404 — Phase 3 추가) `ORDER_NOT_FOUND` `ORDER_ITEM_NOT_FOUND` `ADDRESS_NOT_FOUND`(각 404 — Phase 3 추가) `ORDER_PRODUCT_UNAVAILABLE`(400 — 대상 상품 미판매/HIDDEN, Phase 3 추가) `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS`(409) `REVIEW_SELF_REPORT` `REVIEW_NOT_FOUND`(404 — Phase 4 추가) `REVIEW_REPORT_DUPLICATE`(409 — Phase 4 추가) `WISHLIST_DUPLICATE`(409 — Phase 4 추가) `WISHLIST_NOT_FOUND`(404 — Phase 4 추가) `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `SESSION_NOT_FOUND` `SESSION_FORBIDDEN` `INTERNAL_TOKEN_INVALID` `RESOURCE_NOT_FOUND`(404 — 미존재 경로/공통, Phase 0) `INTERNAL_ERROR`(500 — 공통, Phase 0) — 구현 중 추가 시 이 목록에 반영. **날짜 규약**: 모든 날짜·시각 필드는 ISO 8601 + 타임존 오프셋(`2026-07-10T14:23:00+09:00` — 03 규약, 07-17 FE).
 
 ## 12. 미결(OPEN) — 구현 전 확정 필요
 

@@ -12,8 +12,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 배송지 (02 §3) — Phase 3에서는 O-1 addressId 참조용 엔티티만.
- * CRUD(M-8)·기본 배송지 규칙(02 D29)은 Phase 4에서 추가한다.
+ * 배송지 (02 §3) — 기본 배송지 회원당 1개는 서비스 레이어가 보장 (02 D29).
+ * 주문은 스냅샷 복사라 수정·삭제가 기존 주문에 영향 없음 (02 D1).
  */
 @Entity
 @Table(name = "address")
@@ -48,4 +48,37 @@ public class Address extends BaseTimeEntity {
 
     @Column(name = "is_default", nullable = false)
     private boolean isDefault;
+
+    public static Address create(Long memberId, String label, String recipient, String phone,
+                                 String zipCode, String address1, String address2, boolean isDefault) {
+        Address address = new Address();
+        address.memberId = memberId;
+        address.label = label;
+        address.recipient = recipient;
+        address.phone = phone;
+        address.zipCode = zipCode;
+        address.address1 = address1;
+        address.address2 = address2;
+        address.isDefault = isDefault;
+        return address;
+    }
+
+    /** M-8 PATCH — null 필드는 유지 */
+    public void update(String label, String recipient, String phone,
+                       String zipCode, String address1, String address2) {
+        if (label != null) this.label = label;
+        if (recipient != null) this.recipient = recipient;
+        if (phone != null) this.phone = phone;
+        if (zipCode != null) this.zipCode = zipCode;
+        if (address1 != null) this.address1 = address1;
+        if (address2 != null) this.address2 = address2;
+    }
+
+    public void markDefault() {
+        this.isDefault = true;
+    }
+
+    public void unmarkDefault() {
+        this.isDefault = false;
+    }
 }
