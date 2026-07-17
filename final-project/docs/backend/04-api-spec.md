@@ -25,11 +25,11 @@
 | # | Method | 경로 | 인증 | 설명 |
 |---|---|---|---|---|
 | P-1 | GET | /api/categories | 🔓 | 카테고리 트리(대분류+소분류, 02 D20). 메인 해시태그는 대분류만 사용. 카테고리 아이콘은 **FE 정적 매핑**(BE 미제공 — 07-17 확정) |
-| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 이벤트는 서버 적재 없음(FE가 E-1 `product_view`로 배치 전송, §8 — 이중 집계 방지) |
+| P-2 | GET | /api/products/{id} | 🔓 | 상품 상세: 대표 이미지(단일 — 02 D14), 옵션 목록, 정가/판매가, summary/attributes/description, 브랜드 요약, 평점 통계(평균·개수) — 조회 이벤트는 서버 적재 없음(FE가 E-1 `product_view`로 배치 전송, §8 — 이중 집계 방지). **HIDDEN도 404가 아니라 응답**(`purchasable=false`) — 장바구니가 HIDDEN 아이템을 유지(C-1)하므로 상세 링크가 죽으면 안 됨(07-17 구현 확정). 목록(P-4/P-6/P-7)에서는 제외 |
 | P-3 | GET | /api/products/{id}/reviews | 🔓 | 후기 목록. query: page, size, sort(latest\|rating) — status=VISIBLE만. **page=0 응답에만 `distribution{5..1}`(별점 분포) 포함**(리뷰 0개면 0값 채운 객체), page≥1은 생략 — FE가 0페이지 값 재사용 (07-17 FE) |
 | P-4 | GET | /api/products/popular | 🔓 | 인기 상품 N개(기본 12): 최근 7일 판매수(order_item×PAID 주문 집계, 02 §4) → 부족하면 behavior_events `product_view` 수 → 그래도 부족하면 최신순으로 채움 (비로그인 메인·신규 회원 fallback 공용) |
 | P-5 | GET | /api/products/recommended | 🔑 | "OO님을 위한 추천". LLM 프로필 기반 — 내부적으로 FastAPI 추천 API 호출(05 문서). **타임아웃 연결 2s/응답 3s**(채팅용과 별도 — 메인 렌더 블로킹 방지), 실패·타임아웃·프로필 없음 시 P-4로 fallback. FastAPI가 상품 ID 목록을 주면 BE가 카드 조립(P-7과 동형) |
-| P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size |
+| P-6 | GET | /api/brands/{id} | 🔓 | 브랜드 소개 + 상품 목록. query: category?, sort(popular\|latest\|price_asc\|price_desc), page, size. 응답에 **`categories`(해당 브랜드 판매 중 상품의 소분류 목록)** 포함 — 브랜드홈 필터 축(02 D20)을 FE가 페이지 목록만으로는 못 만들어서(07-17 구현 확정). popular 정렬 = 표시 판매량(base_sales_count + order_item×PAID 집계 — 02 D18) |
 | P-7 | GET | /api/products/cards?ids=1,2,3 | 🔓(게스트 허용) | **추천 카드 하이드레이션 — CH-5(추천 목록 조회)로 대체 예정(폐지 예고)**: SSE `products` 이벤트가 `products.ready(listId)`로 바뀌며 추천 카드 조회는 CH-5로 이동(05 §1-2-1) — CH-5 스키마 확정(OPEN) 전까지, 그리고 범용 다건 카드 조회 용도로 유지. 응답 item: `productId, name, brandName, price, originalPrice, imageUrl, rating, reviewCount, purchasable`. **HIDDEN·품절은 드롭**(응답에서 제외 — Top5가 <5로 줄 수 있음, FastAPI가 넉넉히 골라 대비). ids 상한 20(다건 `id IN`, INT 검증). reason은 SSE 소유라 응답에 없음 — FE가 productId로 조인 |
 
 - P-7은 **표시 데이터 전용**(주문·결제의 진실 아님 — 결제 금액 재계산은 O-1). 추천 외 범용 다건 카드 조회로도 재사용 가능.
@@ -178,7 +178,7 @@
 
 ## 11. 공통 에러 코드 (초기 세트)
 
-`VALIDATION_ERROR`(400 — `error.fields[{field,message}]` 동반, 03 규약) `AUTH_REQUIRED`(401 — 토큰 없음, 로그인 유도) `AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED`(401 — 만료, refresh 후 1회 재시도. AUTH_REQUIRED와 분리 — 07-17 FE) `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `SESSION_NOT_FOUND` `SESSION_FORBIDDEN` `INTERNAL_TOKEN_INVALID` `RESOURCE_NOT_FOUND`(404 — 미존재 경로/공통, Phase 0) `INTERNAL_ERROR`(500 — 공통, Phase 0) — 구현 중 추가 시 이 목록에 반영. **날짜 규약**: 모든 날짜·시각 필드는 ISO 8601 + 타임존 오프셋(`2026-07-10T14:23:00+09:00` — 03 규약, 07-17 FE).
+`VALIDATION_ERROR`(400 — `error.fields[{field,message}]` 동반, 03 규약) `AUTH_REQUIRED`(401 — 토큰 없음, 로그인 유도) `AUTH_LOGIN_FAILED` `AUTH_TOKEN_EXPIRED`(401 — 만료, refresh 후 1회 재시도. AUTH_REQUIRED와 분리 — 07-17 FE) `AUTH_FORBIDDEN` `MEMBER_EMAIL_DUPLICATE` `PRODUCT_NOT_FOUND` `BRAND_NOT_FOUND`(404 — Phase 2 추가) `CART_OPTION_REQUIRED` `CART_OPTION_INVALID` `ORDER_INVALID_TRANSITION` `CLAIM_NOT_ALLOWED` `CLAIM_ALREADY_REQUESTED` `REVIEW_NOT_ALLOWED` `REVIEW_ALREADY_EXISTS` `REVIEW_SELF_REPORT` `ADDRESS_LAST_UNDELETABLE` `CHAT_SESSION_EXPIRED` `SESSION_NOT_FOUND` `SESSION_FORBIDDEN` `INTERNAL_TOKEN_INVALID` `RESOURCE_NOT_FOUND`(404 — 미존재 경로/공통, Phase 0) `INTERNAL_ERROR`(500 — 공통, Phase 0) — 구현 중 추가 시 이 목록에 반영. **날짜 규약**: 모든 날짜·시각 필드는 ISO 8601 + 타임존 오프셋(`2026-07-10T14:23:00+09:00` — 03 규약, 07-17 FE).
 
 ## 12. 미결(OPEN) — 구현 전 확정 필요
 

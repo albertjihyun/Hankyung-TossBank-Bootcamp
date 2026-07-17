@@ -1,0 +1,84 @@
+package com.jarvis.product;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    Page<Product> findAllByBrandIdAndStatus(Long brandId, ProductStatus status, Pageable pageable);
+
+    Page<Product> findAllByBrandIdAndCategoryIdAndStatus(Long brandId, Long categoryId,
+                                                         ProductStatus status, Pageable pageable);
+
+    /** P-6 브랜드홈 필터 축 — 판매 중 상품이 속한 소분류 (02 D20) */
+    @Query("""
+            select distinct p.categoryId from Product p
+            where p.brandId = :brandId and p.status = com.jarvis.product.ProductStatus.ON_SALE
+            """)
+    List<Long> findCategoryIdsByBrand(@Param("brandId") Long brandId);
+
+    /**
+     * P-6 popular 정렬 — 표시 판매량 = base_sales_count + order_item×PAID 집계 (02 D18).
+     * order 도메인은 Phase 3 — 엔티티 없이 테이블 집계라 네이티브 (03 §4 JdbcTemplate 허용과 같은 근거).
+     */
+    @Query(value = """
+            SELECT p.* FROM product p
+            LEFT JOIN (SELECT oi.product_id AS pid, SUM(oi.quantity) AS sold
+                       FROM order_item oi
+                       JOIN orders o ON o.id = oi.order_id AND o.status = 'PAID'
+                       GROUP BY oi.product_id) s ON s.pid = p.id
+            WHERE p.brand_id = :brandId
+              AND p.status = 'ON_SALE'
+              AND (:categoryId IS NULL OR p.category_id = :categoryId)
+            ORDER BY (p.base_sales_count + COALESCE(s.sold, 0)) DESC, p.id DESC
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM product p
+            WHERE p.brand_id = :brandId
+              AND p.status = 'ON_SALE'
+              AND (:categoryId IS NULL OR p.category_id = :categoryId)
+            """,
+            nativeQuery = true)
+    Page<Product> findBrandProductsOrderByPopularity(@Param("brandId") Long brandId,
+                                                     @Param("categoryId") Long categoryId,
+                                                     Pageable pageable);
+
+    /** P-4 1순위 — 최근 7일 판매수 상위 (04 §2) */
+    @Query(value = """
+            SELECT oi.product_id FROM order_item oi
+            JOIN orders o ON o.id = oi.order_id AND o.status = 'PAID' AND o.paid_at >= :since
+            JOIN product p ON p.id = oi.product_id AND p.status = 'ON_SALE'
+            GROUP BY oi.product_id
+            ORDER BY SUM(oi.quantity) DESC, oi.product_id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> findPopularIdsBySales(@Param("since") LocalDateTime since, @Param("limit") int limit);
+
+    /** P-4 2순위 — behavior_events product_view 수 (04 §2) */
+    @Query(value = """
+            SELECT be.product_id FROM behavior_events be
+            JOIN product p ON p.id = be.product_id AND p.status = 'ON_SALE'
+            WHERE be.event_type = 'product_view' AND be.created_at >= :since
+              AND be.product_id NOT IN (:excludedIds)
+            GROUP BY be.product_id
+            ORDER BY COUNT(*) DESC, be.product_id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> findPopularIdsByViews(@Param("since") LocalDateTime since,
+                                     @Param("excludedIds") List<Long> excludedIds,
+                                     @Param("limit") int limit);
+
+    /** P-4 3순위 — 최신순 채움 (04 §2) */
+    @Query(value = """
+            SELECT p.id FROM product p
+            WHERE p.status = 'ON_SALE' AND p.id NOT IN (:excludedIds)
+            ORDER BY p.id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> findLatestIds(@Param("excludedIds") List<Long> excludedIds, @Param("limit") int limit);
+}
