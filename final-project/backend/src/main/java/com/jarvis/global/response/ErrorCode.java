@@ -59,7 +59,12 @@ public enum ErrorCode {
 
     // internal (03 D4 — Phase 5)
     INTERNAL_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "서비스 토큰이 유효하지 않습니다."),
-    NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, "아직 제공하지 않는 기능입니다.");
+    NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, "아직 제공하지 않는 기능입니다."),
+
+    // seller (04 §7·§10 — Phase 6)
+    SELLER_BRAND_NOT_FOUND(HttpStatus.NOT_FOUND, "판매자에 연결된 브랜드가 없습니다."),
+    PRODUCT_PRICE_INVALID(HttpStatus.BAD_REQUEST, "판매가는 정가를 넘을 수 없습니다."),
+    PRODUCT_CATEGORY_INVALID(HttpStatus.BAD_REQUEST, "상품은 소분류 카테고리에만 등록할 수 있습니다.");
 
     private final HttpStatus status;
     private final String message;
