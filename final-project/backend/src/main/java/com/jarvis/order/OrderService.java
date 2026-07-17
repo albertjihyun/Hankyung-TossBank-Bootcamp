@@ -7,6 +7,8 @@ import com.jarvis.cart.CartItemRepository;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
 import com.jarvis.order.PaymentService.PaymentResult;
+import com.jarvis.order.dto.InternalOrderListResponse;
+import com.jarvis.order.dto.InternalOrderStatusResponse;
 import com.jarvis.order.dto.OrderCreateRequest;
 import com.jarvis.order.dto.OrderCreateResponse;
 import com.jarvis.order.dto.OrderDetailResponse;
@@ -46,6 +48,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class OrderService {
 
     static final String OUT_OF_STOCK = "OUT_OF_STOCK";
+
+    private static final int CHAT_LIST_LIMIT = 20; // I-4/I-19 조회 상한 (05 — 챗봇 인용용, 페이지네이션 없음)
+    private static final Set<String> CHAT_STATUS_VOCAB = Set.of(
+            "ORDERED", "SHIPPING", "DELIVERED", "CONFIRMED", "CANCELLED", "RETURNED");
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -126,6 +132,45 @@ public class OrderService {
                         .collect(Collectors.groupingBy(OrderItem::getOrderId));
         return OrderListResponse.from(orders, itemsByOrder,
                 imageUrls(itemsByOrder.values().stream().flatMap(List::stream).toList()));
+    }
+
+    /** I-4 — 최근 주문 상태 요약 (05 §I-4) — 문의 챗봇 전용, I-19(목록)와 역할 분담 */
+    public InternalOrderStatusResponse statusSummary(Long memberId, int recent) {
+        var orders = orderRepository.findAllByMemberIdOrderByIdDesc(
+                memberId, PageRequest.of(0, Math.min(Math.max(recent, 1), CHAT_LIST_LIMIT)));
+        return InternalOrderStatusResponse.from(orders.getContent(), itemsByOrder(orders.getContent()));
+    }
+
+    /** I-19 — CS 챗봇 구매 이력 목록 (05 §I-19) — status는 우리 상태명 단일 필터(아이템 기준) */
+    public InternalOrderListResponse listForChat(Long memberId, String status) {
+        OrderItemStatus filter = parseChatStatus(status);
+        var orders = orderRepository.findAllByMemberIdOrderByIdDesc(
+                memberId, PageRequest.of(0, CHAT_LIST_LIMIT));
+        Map<Long, List<OrderItem>> itemsByOrder = itemsByOrder(orders.getContent());
+        List<Order> filtered = filter == null ? orders.getContent()
+                : orders.getContent().stream()
+                        .filter(order -> itemsByOrder.getOrDefault(order.getId(), List.<OrderItem>of())
+                                .stream().anyMatch(item -> item.getStatus() == filter))
+                        .toList();
+        return InternalOrderListResponse.from(filtered, itemsByOrder);
+    }
+
+    private Map<Long, List<OrderItem>> itemsByOrder(List<Order> orders) {
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        return orderIds.isEmpty() ? Map.of()
+                : orderItemRepository.findAllByOrderIdIn(orderIds).stream()
+                        .collect(Collectors.groupingBy(OrderItem::getOrderId));
+    }
+
+    /** I-19 status 어휘 (05 §I-19) — 우리 상태명 6종만 허용, 그 외 400 */
+    private static OrderItemStatus parseChatStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        if (!CHAT_STATUS_VOCAB.contains(status)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+        return OrderItemStatus.valueOf(status);
     }
 
     /** O-4 — 가능 액션(canCancel/canReturn/canReview)은 01 §3 매트릭스를 서버가 계산 */

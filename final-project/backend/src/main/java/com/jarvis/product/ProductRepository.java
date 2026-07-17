@@ -109,6 +109,35 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             """, nativeQuery = true)
     List<Long> findRecentViewedIds(@Param("memberId") Long memberId, @Param("limit") int limit);
 
+    /**
+     * I-1 라운드1 후보 조회 (05 §I-1) — 정형 진실(가격·재고·판매상태)은 여기서 확정,
+     * 살 수 없는 상품은 후보에서 제외. LIMIT은 Pageable(라운드1 상한 — 후보 폭발 방지).
+     * applyCategory=false면 categoryIds는 센티널(빈 IN 방지) — excluded()와 같은 관성.
+     */
+    @Query("""
+            select p from Product p
+            where p.status = com.jarvis.product.ProductStatus.ON_SALE
+              and p.stockQuantity > 0
+              and (:applyCategory = false or p.categoryId in :categoryIds)
+              and (:brandId is null or p.brandId = :brandId)
+              and (:minPrice is null or p.price >= :minPrice)
+              and (:maxPrice is null or p.price <= :maxPrice)
+              and (:keyword is null
+                   or lower(p.name) like lower(concat('%', :keyword, '%'))
+                   or lower(p.summary) like lower(concat('%', :keyword, '%'))
+                   or lower(p.attributes) like lower(concat('%', :keyword, '%')))
+              and (:color is null or lower(p.attributes) like lower(concat('%', :color, '%')))
+            order by p.baseSalesCount desc, p.id desc
+            """)
+    List<Product> searchCandidates(@Param("keyword") String keyword,
+                                   @Param("applyCategory") boolean applyCategory,
+                                   @Param("categoryIds") List<Long> categoryIds,
+                                   @Param("brandId") Long brandId,
+                                   @Param("minPrice") Integer minPrice,
+                                   @Param("maxPrice") Integer maxPrice,
+                                   @Param("color") String color,
+                                   Pageable pageable);
+
     /** P-4 3순위 — 최신순 채움 (04 §2) */
     @Query(value = """
             SELECT p.id FROM product p

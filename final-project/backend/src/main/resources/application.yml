@@ -44,3 +44,17 @@ app:
     delivery-minutes: 5
     confirm-minutes: 10
     claim-approve-minutes: 5
+  # 채팅 세션·스트림 티켓 (03 D5, 05 §1-0)
+  chat:
+    session-ttl-minutes: 10
+  stream-ticket:
+    private-key: ${STREAM_TICKET_PRIVATE_KEY} # RS256 private key — base64(PKCS#8 DER), Spring만 보관 (03 §5)
+    kid: ${STREAM_TICKET_KID}
+    ttl-seconds: 60
+  # internal 서비스 토큰 (03 D4 — FastAPI와 .env로 공유)
+  internal:
+    token: ${INTERNAL_TOKEN}
+  # Spring→FastAPI 아웃바운드 (03 §5) — base-url 빈 값이면 통지 skip(FastAPI 미기동 로컬)
+  llm:
+    base-url: ${LLM_BASE_URL:}
+    sse-url: ${LLM_SSE_URL:http://localhost:8000} # CH-1 응답 llmSseUrl — FE가 직결할 공개 URL
