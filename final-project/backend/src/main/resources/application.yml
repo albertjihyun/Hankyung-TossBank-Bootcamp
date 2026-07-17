@@ -10,7 +10,7 @@ spring:
     driver-class-name: org.mariadb.jdbc.Driver
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate  # 스키마 원본은 docs/backend/schema.sql — JPA는 만들지도 바꾸지도 않음 (03 §3-1)
     open-in-view: false
     properties:
       hibernate:
@@ -30,6 +30,12 @@ management:
     web:
       exposure:
         include: health
+
+# 인증 (03 D3 — AT 30분 / RT 14일, 시크릿은 환경변수)
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-minutes: 30
+  refresh-token-days: 14
 
 # mock 전이 간격 (01 §6 — 환경변수 아님, yml 기본값)
 app:

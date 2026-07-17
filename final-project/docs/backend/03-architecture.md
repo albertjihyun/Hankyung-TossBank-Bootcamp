@@ -120,6 +120,7 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 - 일반(이메일) 로그인만. **OAuth는 MVP 제외**(2026-07-07 팀 결정, 고도화 후보) — 도입 시 Spring Security OAuth2 Client를 같은 JWT 발급 구조 위에 얹는다(토큰 체계 변경 없음).
 - AT는 `Authorization: Bearer`, RT는 HttpOnly 쿠키(`Path=/api/auth` — 전송 범위 최소화). 재발급: `POST /api/auth/refresh`. 로그아웃도 RT 쿠키 기준 — AT 만료 상태에서 로그아웃이 막히면 안 됨(04 A-3).
+- **RT 형식은 서명 토큰(JWT)이 아니라 불투명 랜덤 256bit** (2026-07-17 Phase 1 구현 결정): RT의 진실은 어차피 DB 행(02 D6·D17)이라 자체 서명 검증이 무의미하고, claim이 없어 유출 시 노출 정보도 없다. 검증은 SHA-256 해시 대조 + expires_at 확인으로만. 재발급 시 회전(기존 행 삭제 + 새 토큰 발급).
 - Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**` — P-7 카드 조회(폐지 예고, CH-5 대체) 포함), `POST /api/chat/sessions`(CH-1 티켓 발급)·`POST /api/chat/tickets`(CH-1b)·`GET /api/chat/lists/**`(CH-5 추천 목록), `/api/cart/**`(게스트 쿠키 허용 — 02 D30), `POST /api/events`(E-1 수집 — 인증 선택: JWT 있으면 검증)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
 - 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 30일** — 세션 쿠키면 브라우저 닫는 순간 게스트 장바구니가 증발하므로 명시 필수). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·behavior_events의 guest_id FK가 전제하는 선행 조건). 쿠키 발급 전 게스트 행동은 `session_key`로 **익명 추적은 되지만**(02 D31) guest_id가 없어 가입 승계 대상은 아님 — 감수(2026-07-17 갱신).
 
