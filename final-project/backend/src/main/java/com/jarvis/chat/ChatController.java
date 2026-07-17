@@ -1,13 +1,17 @@
 package com.jarvis.chat;
 
+import com.jarvis.brand.Brand;
 import com.jarvis.chat.dto.ChatSessionRequest;
 import com.jarvis.chat.dto.ChatSessionResponse;
 import com.jarvis.chat.dto.RecommendationListResponse;
 import com.jarvis.chat.dto.TicketReissueRequest;
 import com.jarvis.global.auth.AuthUser;
 import com.jarvis.global.auth.GuestCookieManager;
+import com.jarvis.global.response.BusinessException;
+import com.jarvis.global.response.ErrorCode;
 import com.jarvis.member.GuestService;
 import com.jarvis.global.response.ApiResponse;
+import com.jarvis.seller.SellerBrandResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -33,17 +37,32 @@ public class ChatController {
     private final RecommendationListService recommendationListService;
     private final GuestCookieManager guestCookieManager;
     private final GuestService guestService;
+    private final SellerBrandResolver sellerBrandResolver;
 
-    /** CH-1 — "새 대화" 버튼도 이걸 재호출 (05 §1-0) */
+    /** CH-1 — "새 대화" 버튼도 이걸 재호출 (05 §1-0). SELLER 채널은 S-4 별도 입구 전용 */
     @PostMapping("/sessions")
     public ApiResponse<ChatSessionResponse> createSession(@Valid @RequestBody ChatSessionRequest request,
                                                           @AuthenticationPrincipal AuthUser authUser,
                                                           HttpServletRequest httpRequest,
                                                           HttpServletResponse httpResponse) {
+        if (request.channel() == ChatChannel.SELLER) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
         ChatIdentity identity = authUser != null
                 ? ChatIdentity.member(authUser.memberId())
                 : guestIdentity(httpRequest, httpResponse);
         return ApiResponse.success(chatSessionService.issueSession(identity, request.channel()));
+    }
+
+    /**
+     * S-4 (04 §7) — 판매자 챗봇 세션 + SELLER 스코프 티켓. /api/chat/seller/**는 ROLE_SELLER 가드,
+     * brandId는 JWT 검증 후 DB에서 도출해 티켓 claim에 박는다(클라이언트/LLM 주장 무시).
+     */
+    @PostMapping("/seller/sessions")
+    public ApiResponse<ChatSessionResponse> createSellerSession(@AuthenticationPrincipal AuthUser authUser) {
+        Brand brand = sellerBrandResolver.resolve(authUser.memberId());
+        return ApiResponse.success(chatSessionService.issueSellerSession(
+                ChatIdentity.member(authUser.memberId()), brand.getId()));
     }
 
     /** CH-1b — 티켓 만료 401 시 FE가 호출 후 1회 재시도 (05 §1-0) */

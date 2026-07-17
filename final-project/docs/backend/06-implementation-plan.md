@@ -45,6 +45,7 @@ review(M-1·M-3 — **M-2는 MVP 제외**, FE 화면 없음 07-17) + P-3 실데�
 
 S-1~S-5 + **판매자 internal 콜백(I-6~I-16 — Phase 5에서 이관, I-13은 스텁)**, 시드 데이터 최종분(02 §5 규모, LLM팀 합의 형식 — 재고 100), behavior_events·로그 테이블 더미 생성 스크립트, 전 구간 통합 점검.
 - **완료**: 판매자 계정으로 summary가 0이 아닌 지표 반환. 대표 데모 시나리오(추천→담아줘→주문→반품→자동 승인 확인→문의 챗봇) 리허설 1회 통과.
+- **(2026-07-18 구현 확정)** I-6~I-16 응답 스키마는 05 §I-6b(BE 확정 — LLM 합의 대기). change log는 ENUM 3종(PRICE=판매가/STOCK/STATUS)만 기록, 그 외 필드는 I-11 응답 changes[]로만. S-4 티켓 claim에 `channel:SELLER`+`brand_id` 추가(CH-1로는 SELLER 발급 불가, CH-1b 재발급도 유지). 시드 최종분 중 크롤링 1만+ 적재는 LLM팀 파이프라인 소관 — BE는 `scripts/seed-phase6.sql`(판매자 2호·구매자 5·주문 9건·로그 3종·behavior_events 570여 건, 날짜는 NOW() 상대값)로 대시보드 데모를 보장.
 
 ## 일정 감각
 

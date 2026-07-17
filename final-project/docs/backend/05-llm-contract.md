@@ -168,7 +168,23 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 
 ### I-6. 판매자 매출 시계열 `GET /internal/seller/{brandId}/sales?granularity=daily|weekly|monthly|summary` *(구 `…/stats` 대체 — 2026-07-17 재번호)*
 - 응답: 매출/주문수 시계열 + `statusCounts`, 이상 감지 `isAnomaly`·`deviationPct`(7일 이동평균 대비 ±30%). **LLM에 raw 주문 로그를 주지 않고 집계만 준다** — text2SQL류의 실패 모드(잘못된 쿼리, 타 판매자 데이터 접근)를 계약 수준에서 차단.
-- 나머지 판매자 분석 콜백 — I-7(구매전환 퍼널 4단)·I-8(계정 이벤트 집계: **전역**·IP 마스킹·집계 전용)·I-13(행동 이벤트 조회/집계 — **본문 명세 미작성, OPEN(LLM팀 재작성 대기)**)·I-14(주문 상태 전이 로그)·I-15(상품 변경 이력 — 품절 신호 = STOCK newValue "0")·I-16(이탈 코호트) — 은 04 §10 표가 확정 목록. 스키마 상세 합의 시 이 문서에 절 추가.
+- 나머지 판매자 분석 콜백 — I-7(구매전환 퍼널 4단)·I-8(계정 이벤트 집계: **전역**·IP 마스킹·집계 전용)·I-13(행동 이벤트 조회/집계 — **본문 명세 미작성, OPEN(LLM팀 재작성 대기)**)·I-14(주문 상태 전이 로그)·I-15(상품 변경 이력 — 품절 신호 = STOCK newValue "0")·I-16(이탈 코호트) — 은 04 §10 표가 확정 목록. 상세 스키마는 아래 §I-6b(2026-07-18 BE 구현 확정 — LLM 합의 시 갱신).
+
+### I-6b. 판매자 콜백 구현 스키마 (2026-07-18 BE 확정 — LLM 합의 대기, 합의 시 이 절이 정본으로 승격)
+
+공통: 기간 파라미터 `from`/`to`(ISO date, 생략 시 최근 30일), 목록 `limit` 기본 100·최대 500. 매출·판매수 집계 규칙은 04 §7 S-1과 동일(PAID 주문의 order_item 중 PENDING/CANCELLED/RETURNED 제외).
+
+- **I-6** `…/sales?granularity=daily|weekly|monthly|summary&from&to` → `{brandId, granularity, from, to, totalSales, totalOrderCount, totalSalesCount, statusCounts{상태:건수}, series[{period, sales, orderCount, salesCount, deviationPct, isAnomaly}]}`. `summary`면 series 없음. 기간 기본값: daily 30일 / weekly 12주 / monthly 12개월. **이상 감지**: 빈 구간 0 채움 후 직전 ≤7개 구간 이동평균 대비 ±30%(`deviationPct` %, 표본 3개 미만이면 null·false). 단 ① 매출 0원 구간은 이상 판정 제외(저볼륨에서 무판매일 전부가 -100% 판정되는 노이즈 방지 — deviationPct는 그대로 반환) ② 이동평균 0에서 매출 발생 시 deviationPct null + isAnomaly true. period 표기 daily `2026-07-18` / weekly `2026-W29`(ISO) / monthly `2026-07`.
+- **I-7** `…/funnel?from&to` → `{brandId, from, to, stages[{stage, count, conversionRate}]}` — stage 4종 `product_view/add_to_cart/checkout_start/purchase`, conversionRate는 직전 단 대비 %(첫 단 null). 3단은 checkout_start `properties.productIds`에 자사 상품 포함 여부(주문서 1회=1), 4단은 order_item×product×brand의 PAID 주문 distinct 수.
+- **I-8** `/internal/account-events?groupBy=ip|eventType|hour&eventType?&from&to` → `{groupBy, eventType, from, to, buckets[{key, count}]}` — ip는 마스킹(`203.0.113.xxx`, IPv6 프리픽스 2그룹)·상위 100개, hour는 `2026-07-18T02:00` 시각 버킷 오름차순.
+- **I-9** `…/products?status?&q?&limit&offset` — offset은 limit 배수 그리드로 스냅(offset/limit 페이지 변환, 기본 limit 20). 응답 item은 §I-9 본문 그대로.
+- **I-10** 등록 body: `name·price·stockQuantity` 필수 + **`categoryId` 필수(DB 제약 — 소분류(leaf) 아니면 400 `PRODUCT_CATEGORY_INVALID`)**. `originalPrice` 생략 시 price(무할인), `imageUrl` 생략 시 플레이스홀더, `status` 생략 시 ON_SALE. 응답 `{productId}`.
+- **I-11** 수정 body(전 필드 optional, 최소 1개): `name, summary, attributes(JSON), description, price, originalPrice, status(ON_SALE|HIDDEN), stockQuantity`. 응답 `{productId, changes[{field, before, after}]}`(실제 바뀐 필드만). **change log는 어휘 3종(PRICE=판매가·STOCK·STATUS)만 기록** — originalPrice·name 등 그 외 필드 변경은 changes[]로만 반환(02 product_change_logs ENUM 고정). description은 서버 sanitize 후 저장.
+- **I-12** 삭제 → `status=HIDDEN` 전환 + STATUS 로그. **이미 HIDDEN이면 no-op 200(재confirm 멱등 — §1-3 ③)**.
+- **I-14** `…/order-events?toStatus?(콤마 복수)&actorType?&from&to&stats?&groupBy=memberId?&limit` → `{brandId, from, to, items[{orderId, fromStatus, toStatus, actorType, reason, createdAt}], statusCounts?(stats=true), memberCounts?[{memberId, count}](groupBy=memberId)}` — 브랜드 스코프 = 자사 아이템 포함 주문.
+- **I-15** `…/product-changes?changeType?(PRICE|STOCK|STATUS)&productId?&from&to&limit` → `{brandId, from, to, items[{productId, changeType, oldValue, newValue, createdAt}]}` 최신순.
+- **I-16** `…/churn?inactiveDays=30` → `{brandId, inactiveDays, customerCount, churnedCount, churnRate, churned[{memberId, lastLoginAt, orderCount, totalSpent, preChurnSignals{productViews, cartAdds, searches}}]}` — **코호트 = 자사 PAID 구매 고객 중 LOGIN_SUCCESS 이력 보유 회원**(이력 없는 회원은 판정 불가라 제외), 이탈 = 마지막 로그인이 inactiveDays 이전, 목록은 오래된 순 상한 50, preChurnSignals는 마지막 로그인 이전 30일 behavior_events 집계.
+- **S-4 티켓**: 기존 claim(§1-0)에 `channel:"SELLER"`, `brand_id:<long>` 추가. CH-1(`/api/chat/sessions`)로는 SELLER 채널 발급 불가(400) — 입구는 S-4뿐. CH-1b 재발급도 세션에 보관된 brandId로 SELLER 티켓 유지.
 
 ### I-9. 자사 상품 목록 `GET /internal/seller/{brandId}/products` *(구 I-7 판매자 상품 상세를 흡수)* + 쓰기 I-10/I-11/I-12
 - 응답 item: `productId, name, summary, attributes(JSON), description, price, originalPrice, status, stockQuantity, displayedSalesCount(base_sales_count + order_item 집계)` — query: status/q/limit/offset. 수정 초안(draft) 생성의 읽기 소스(I-1은 추천 리랭킹용으로 슬림하므로 여기서 명시).

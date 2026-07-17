@@ -29,6 +29,15 @@ public class ChatSessionService {
 
     /** CH-1 — 세션 + 티켓 동시 발급. 같은 신원의 기존 세션은 "새 대화"로 정리(I-20 통지) */
     public ChatSessionResponse issueSession(ChatIdentity identity, ChatChannel channel) {
+        return issue(identity, channel, null);
+    }
+
+    /** S-4 — SELLER 세션 (04 §7). brandId를 세션 값에 보관해 CH-1b 재발급도 SELLER 티켓 유지 */
+    public ChatSessionResponse issueSellerSession(ChatIdentity identity, Long brandId) {
+        return issue(identity, ChatChannel.SELLER, brandId);
+    }
+
+    private ChatSessionResponse issue(ChatIdentity identity, ChatChannel channel, Long brandId) {
         String ownerKey = ownerKey(identity);
         String previousSessionId = redisTemplate.opsForValue().get(ownerKey);
         if (previousSessionId != null) {
@@ -37,10 +46,11 @@ public class ChatSessionService {
         }
         String sessionId = UUID.randomUUID().toString();
         Duration ttl = sessionTtl();
-        redisTemplate.opsForValue().set(sessionKey(sessionId),
-                identity.subType() + DELIMITER + identity.sub() + DELIMITER + channel.name(), ttl);
+        String value = identity.subType() + DELIMITER + identity.sub() + DELIMITER + channel.name()
+                + (brandId != null ? DELIMITER + brandId : "");
+        redisTemplate.opsForValue().set(sessionKey(sessionId), value, ttl);
         redisTemplate.opsForValue().set(ownerKey, sessionId, ttl);
-        return response(sessionId, identity);
+        return response(sessionId, identity, brandId);
     }
 
     /**
@@ -62,7 +72,8 @@ public class ChatSessionService {
         Duration ttl = sessionTtl();
         redisTemplate.expire(sessionKey(sessionId), ttl);
         redisTemplate.expire(ownerKey(identity), ttl);
-        return response(sessionId, identity);
+        Long brandId = parts.length >= 4 ? Long.valueOf(parts[3]) : null;
+        return response(sessionId, identity, brandId);
     }
 
     /** 로그아웃 등 종료 트리거 — 활성 세션이 있으면 삭제 + I-20 통지 (05 §2-1) */
@@ -77,9 +88,12 @@ public class ChatSessionService {
         llmNotifyClient.notifySessionEnd(sessionId, reason);
     }
 
-    private ChatSessionResponse response(String sessionId, ChatIdentity identity) {
-        return new ChatSessionResponse(sessionId, ticketProvider.createTicket(identity),
-                llmProperties.sseUrl(), ticketProvider.ttlSeconds());
+    private ChatSessionResponse response(String sessionId, ChatIdentity identity, Long brandId) {
+        String ticket = brandId != null
+                ? ticketProvider.createSellerTicket(identity, brandId)
+                : ticketProvider.createTicket(identity);
+        return new ChatSessionResponse(sessionId, ticket, llmProperties.sseUrl(),
+                ticketProvider.ttlSeconds());
     }
 
     private Duration sessionTtl() {

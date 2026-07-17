@@ -35,6 +35,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT p.stockQuantity FROM Product p WHERE p.id = :id")
     Optional<Integer> findStockQuantity(@Param("id") Long id);
 
+    /** S-1 상품별 지표 조인용 — 판매자 브랜드는 시드 규모가 작아 전건 로드 (04 §7) */
+    List<Product> findAllByBrandId(Long brandId);
+
     Page<Product> findAllByBrandIdAndStatus(Long brandId, ProductStatus status, Pageable pageable);
 
     Page<Product> findAllByBrandIdAndCategoryIdAndStatus(Long brandId, Long categoryId,
@@ -137,6 +140,21 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                    @Param("maxPrice") Integer maxPrice,
                                    @Param("color") String color,
                                    Pageable pageable);
+
+    /**
+     * S-3/I-9 자사 상품 목록 (04 §7·§10) — HIDDEN도 노출(본인 화면), 정렬은 Pageable
+     * (latest=id desc / price_asc / price_desc). 표시 판매량은 별도 집계 부착.
+     */
+    @Query("""
+            select p from Product p
+            where p.brandId = :brandId
+              and (:status is null or p.status = :status)
+              and (:q is null or lower(p.name) like lower(concat('%', :q, '%')))
+            """)
+    Page<Product> findSellerProducts(@Param("brandId") Long brandId,
+                                     @Param("status") ProductStatus status,
+                                     @Param("q") String q,
+                                     Pageable pageable);
 
     /** P-4 3순위 — 최신순 채움 (04 §2) */
     @Query(value = """
