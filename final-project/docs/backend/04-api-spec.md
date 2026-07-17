@@ -108,7 +108,7 @@
 | S-1 | GET | /api/seller/summary | 🏪 | 자사 요약: 기간별 매출/주문수(order_item 집계), 상품별 조회수·담김수·판매수(**behavior_events** `product_view`/`add_to_cart` + order_item) query: from, to. **집계 규칙**: 매출·판매수 = PAID 주문의 order_item 중 `PENDING`/`CANCELLED`/`RETURNED` 제외(처리중 포함) — I-6도 동일 |
 | S-2 | GET | /api/seller/orders | 🏪 | 자사 상품이 포함된 주문 **아이템 단위** 목록(자사 아이템만) — 페이지네이션(page, size) |
 | S-3 | GET | /api/seller/products | 🏪 | 자사 상품 목록(판매자 화면용) — query: status?, q?, limit, offset. I-9(챗봇용 목록)와 동형 필터 *(구 로컬 S-3의 PATCH는 S-5로 이동)* |
-| S-4 | POST | /api/chat/seller/sessions | 🏪 | 판매자 챗봇 **세션 + SELLER 스코프 스트림 티켓 발급**(직결 — 채팅 SSE는 FE↔FastAPI). `brandId`는 JWT 검증 후 **BE가 DB에서 도출해 티켓 claim에 박음**(클라이언트/LLM 주장 무시). 실제 SSE 스트림(`{AI_SERVER}/seller/chat`)은 05 §1-3 소관. AI 분석(매출 이상/퍼널/행동/이탈)은 LLM이 internal 콜백(I-6~I-16) 사용, 상품 수정은 draft + 2왕복 confirm(HITL) — 05 §1-3. *(구 `POST /api/chat/seller` SSE 프록시는 직결로 폐기)* |
+| S-4 | POST | /api/chat/seller/sessions | 🏪 | 판매자 챗봇 **세션 + SELLER 스코프 스트림 티켓 발급**(직결 — 채팅 SSE는 FE↔FastAPI). `brandId`는 JWT 검증 후 **BE가 DB에서 도출해 티켓 claim에 박음**(클라이언트/LLM 주장 무시). 실제 SSE 스트림은 05 §1-3 소관 — 주소 표기는 **OPEN**(`{AI_SERVER}/seller/chat` 별도 경로 vs 공용 `/chat`+`channel:SELLER`, LLM 확인 중). AI 분석(매출 이상/퍼널/행동/이탈)은 LLM이 internal 콜백(I-6~I-16) 사용, 상품 수정은 draft + 2왕복 confirm(HITL) — 05 §1-3. *(구 `POST /api/chat/seller` SSE 프록시는 직결로 폐기)* |
 | S-5 | PATCH | /api/seller/products/{id} | 🏪 | **판매자 직접 수정(화면 경로)**: name, summary, attributes, description, price, original_price, status, stockQuantity — 검증 `price ≤ original_price`(02 D28)·`stock ≥ 0`, 본인 브랜드 상품 아니면 403. description은 서버측 sanitize(XSS 차단). 바뀐 필드마다 **product_change_logs 기록**(동일값 미기록 — I-11과 동일 규칙). **챗봇 경로(I-11)와 병존 확정(2026-07-17)** *(구 로컬 S-3에서 이동)* |
 
 ## 8. events (FE 행동 이벤트 배치 수집)
