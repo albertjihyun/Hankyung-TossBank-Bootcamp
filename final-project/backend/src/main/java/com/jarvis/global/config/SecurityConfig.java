@@ -4,6 +4,7 @@ import com.jarvis.global.auth.EnvelopeAccessDeniedHandler;
 import com.jarvis.global.auth.EnvelopeAuthenticationEntryPoint;
 import com.jarvis.global.auth.JwtAuthenticationFilter;
 import com.jarvis.global.auth.JwtProperties;
+import com.jarvis.internal.InternalTokenFilter;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -33,6 +34,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final InternalTokenFilter internalTokenFilter;
     private final EnvelopeAuthenticationEntryPoint authenticationEntryPoint;
     private final EnvelopeAccessDeniedHandler accessDeniedHandler;
 
@@ -59,6 +61,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/chat/sessions", "/api/chat/tickets").permitAll()
                         .requestMatchers("/api/chat/lists/**").permitAll() // CH-5
                         .requestMatchers("/.well-known/**").permitAll() // JWKS (Phase 5)
+                        // /internal은 시큐리티가 아니라 InternalTokenFilter가 지킨다 (03 D4 — 3중 방어의 앱 층)
+                        .requestMatchers("/internal/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         // 역할 가드
@@ -68,7 +72,8 @@ public class SecurityConfig {
                                 "/api/reviews/**", "/api/wishlist/**", "/api/addresses/**",
                                 "/api/inquiries/**", "/api/members/**").hasRole("USER")
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(internalTokenFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

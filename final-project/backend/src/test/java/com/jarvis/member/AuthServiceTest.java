@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jarvis.cart.CartService;
+import com.jarvis.chat.ChatSessionService;
 import com.jarvis.global.auth.JwtProperties;
 import com.jarvis.global.auth.JwtProvider;
 import com.jarvis.global.auth.TokenHasher;
@@ -45,6 +46,7 @@ class AuthServiceTest {
     @Mock AccountEventLogger accountEventLogger;
     @Mock JdbcTemplate jdbcTemplate;
     @Mock CartService cartService;
+    @Mock ChatSessionService chatSessionService;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final JwtProperties jwtProperties = new JwtProperties(SECRET, 30, 14);
@@ -55,7 +57,8 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         authService = new AuthService(memberRepository, guestRepository, refreshTokenRepository,
-                accountEventLogger, passwordEncoder, jwtProvider, jwtProperties, jdbcTemplate, cartService);
+                accountEventLogger, passwordEncoder, jwtProvider, jwtProperties, jdbcTemplate,
+                cartService, chatSessionService);
     }
 
     private SignupRequest signupRequest(String guestId) {

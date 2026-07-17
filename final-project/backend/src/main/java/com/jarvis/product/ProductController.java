@@ -35,6 +35,15 @@ public class ProductController {
         return ApiResponse.success(productService.getPopular(size));
     }
 
+    /**
+     * P-7 — 추천 카드 하이드레이션 (04 §2, CH-5 확정 시 폐지 예고 + 범용 다건 카드 조회로 유지).
+     * ids 상한 20, HIDDEN·품절 드롭. 표시 데이터 전용 — 결제 금액의 진실은 O-1 재계산.
+     */
+    @GetMapping("/cards")
+    public ApiResponse<List<ProductCardResponse>> cards(@RequestParam List<Long> ids) {
+        return ApiResponse.success(productService.getPublicCards(ids));
+    }
+
     /** M-7 — 🔑 USER 가드 (SecurityConfig의 /api/products/recent 선행 매칭) */
     @GetMapping("/recent")
     public ApiResponse<List<ProductCardResponse>> recent(@AuthenticationPrincipal AuthUser authUser) {

@@ -140,7 +140,9 @@ public class CartService {
         List<ProductOption> options = productOptionRepository.findAllByProductIdOrderByIdAsc(productId);
         if (optionId == null) {
             if (!options.isEmpty()) {
-                throw new BusinessException(ErrorCode.CART_OPTION_REQUIRED);
+                // options 목록을 detail로 동반 — LLM 되물음용 (05 §I-2), FE도 동일 수신
+                throw new BusinessException(ErrorCode.CART_OPTION_REQUIRED, Map.of("options",
+                        options.stream().map(com.jarvis.cart.dto.CartOptionDetail::from).toList()));
             }
             return;
         }

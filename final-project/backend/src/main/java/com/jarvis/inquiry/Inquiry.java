@@ -50,4 +50,14 @@ public class Inquiry extends BaseTimeEntity {
 
     @Column(name = "answered_at")
     private LocalDateTime answeredAt;
+
+    /** I-5 접수 (05 §I-5) — 제목·내용은 LLM 생성 (02 D23) */
+    public static Inquiry receive(Long memberId, String title, String content) {
+        Inquiry inquiry = new Inquiry();
+        inquiry.memberId = memberId;
+        inquiry.title = title;
+        inquiry.content = content;
+        inquiry.status = InquiryStatus.PENDING;
+        return inquiry;
+    }
 }
