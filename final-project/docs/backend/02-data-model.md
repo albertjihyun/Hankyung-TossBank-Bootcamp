@@ -253,7 +253,7 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 ### D33. 재고를 모델링한다 — product.stock_quantity (D8 폐기 — 2026-07-17)
 
 - **문제**: D8(재고 미모델링)의 근거는 "재고의 소비처가 없다"였는데 소비처가 생겼다 — 판매자 에이전트의 재고 조정(internal I-11)과 재고 변경 로그(D32 STOCK)가 재고 실체를 요구.
-- **선택**: `stock_quantity INT NOT NULL DEFAULT 0` + `CHECK (stock_quantity >= 0)`. 주문 생성 시 조건부 UPDATE(`SET stock_quantity = stock_quantity - n WHERE stock_quantity >= n`)로 차감·부족 시 실패 — D8 트레이드오프가 예고한 확장 패턴 그대로(01 §6과 동일, 분산 3대에서도 안전). 차감으로 0 도달 시 STOCK 로그(new_value 0) 1행(D32).
+- **선택**: `stock_quantity INT NOT NULL DEFAULT 0` + `CHECK (stock_quantity >= 0)`. **결제 성공(PAID 전이)과 같은 트랜잭션**에서 조건부 UPDATE(`SET stock_quantity = stock_quantity - n WHERE stock_quantity >= n`)로 차감(2026-07-17 확정 — 미결제 주문이 재고를 점유하지 않게), 차감 실패 시 결제 실패(PAYMENT_FAILED, reason OUT_OF_STOCK) 처리 — D8 트레이드오프가 예고한 확장 패턴 그대로(01 §6과 동일, 분산 3대에서도 안전). 차감으로 0 도달 시 STOCK 로그(new_value 0) 1행(D32). 취소/반품 시 복원은 MVP 미구현(감수 — 시드 재고 100).
 - **함께 확정**: `product.updated_at`을 NOT NULL로(생성 시 created_at과 동일 값으로 초기화) + `KEY idx_product_updated (updated_at, id)` — AI 상품 동기화 배치(I-17)의 증분 커서용. 커서 최종 방식은 LLM 팀 협의 **OPEN**이지만 인덱스는 어느 방식이든 필요.
 - **트레이드오프**: D8이 피하려던 리스크 부활 — 추천 상품이 품절이면 핵심 데모 플로우(추천→담기→구매)가 막힘 → 시드에서 재고를 넉넉히 초기화해 완화. 초기 재고: 크롤링 1만 개+ 상품 전부 **일괄 100** (2026-07-17 확정) — 시드 파이프라인이 INSERT 시 채운다. 크롤링 원본 재고는 신뢰할 수 없어 베이스라인으로 쓰지 않음.
 
@@ -547,7 +547,7 @@ JPA 매핑 규약: Hibernate `MariaDBDialect` + MariaDB Connector/J(`jdbc:mariad
 | name | VARCHAR(200) | NOT NULL | |
 | original_price | INT | NOT NULL | 정가 (KRW, 원 단위 정수) |
 | price | INT | NOT NULL | 판매가 (D15). `price ≤ original_price` 서비스 검증(D28). 할인율은 파생 계산(저장 금지) |
-| stock_quantity | INT | NOT NULL DEFAULT 0, CHECK ≥ 0 | 재고 (D33 — D8 폐기). 주문 생성 시 조건부 UPDATE 차감·부족 시 실패, 0 도달 시 STOCK 로그 1행(D32) |
+| stock_quantity | INT | NOT NULL DEFAULT 0, CHECK ≥ 0 | 재고 (D33 — D8 폐기). 결제 성공(PAID)과 같은 트랜잭션에서 조건부 UPDATE 차감·부족 시 결제 실패, 0 도달 시 STOCK 로그 1행(D32). 복원 MVP 미구현 |
 | image_url | VARCHAR(500) | NOT NULL | 대표 이미지 1장 (D14 — 단일 확정) |
 | base_sales_count | INT | NOT NULL DEFAULT 0 | 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계 |
 | summary | VARCHAR(500) | NULL | 주요 특징 요약 |
@@ -760,7 +760,7 @@ FE만 적재하는 **8종 화이트리스트** — 8종 외는 수집 API가 버
 - [ ] guest → member 승계 시 behavior_events의 member_id가 백필되는가 (D5·D31)
 - [ ] guest → member 승계 시 cart_item이 병합되는가 (D30 — 동일 상품+옵션 수량 합산·상한 99, 행동 이벤트 승계와 같은 트랜잭션)
 - [ ] 시드 상품의 attributes 키가 소속 category.attribute_schema와 일치하는가 (D11)
-- [ ] 주문 생성이 재고를 조건부 UPDATE로 차감하고, 부족 시 실패·0 도달 시 STOCK 로그 1행을 남기는가 (D33·D32)
+- [ ] 결제 성공 처리(PAID 전이)가 재고를 같은 트랜잭션의 조건부 UPDATE로 차감하고, 부족 시 결제 실패(OUT_OF_STOCK)·0 도달 시 STOCK 로그 1행을 남기는가 (D33·D32)
 - [ ] 주문 상태 전이가 order_status_logs에 기록되는가 — 배치 전이는 주문 단위 1행, actor 규칙 준수 (D32 — 기록 지점 상세는 01)
 - [ ] product_change_logs가 전후 동일 값·주문에 의한 재고 -1을 기록하지 않는가 (D32)
 - [ ] 로그인 성공/실패가 Security 핸들러에서 account_event_logs로 적재되는가 — 없는 계정 시도는 member_id NULL + IP (D32)

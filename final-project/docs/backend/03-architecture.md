@@ -251,7 +251,7 @@ com.jarvis
 
 **① 유저 직접 조회** — FE `GET /api/products` → nginx → Spring: 시큐리티 필터(상품조회는 permitAll 통과) → 컨트롤러 → 서비스 → 리포지토리 → MariaDB → envelope 응답. FastAPI 무관.
 
-**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고 확인·차감은 주문 시점, 02 D33) → INSERT → cartItemId envelope. (`add_to_cart` 행동 이벤트는 서버가 아니라 **FE가 성공 콜백에서 E-1로 전송** — 02 D31)
+**② 유저 직접 쓰기(담기)** — FE `POST /api/cart/items`(Bearer AT, 게스트는 guest_id 쿠키 — 02 D30) → 시큐리티 필터가 JWT 검증해 userId 확정(게스트는 쿠키가 주체) → CartController → **CartService.addItem** 검증(상품·옵션·수량 — 재고 차감은 결제 성공 시점, 02 D33) → INSERT → cartItemId envelope. (`add_to_cart` 행동 이벤트는 서버가 아니라 **FE가 성공 콜백에서 E-1로 전송** — 02 D31)
 
 **③ 에이전트 조회 추천 (직결 + 2왕복 리랭킹, D5·05 §1)** — FE가 `POST /api/chat/sessions`(CH-1)로 세션과 함께 **스트림 티켓**을 받고(Spring이 신원 검증 후 RS256 서명·발급) → FE가 그 티켓으로 **FastAPI에 직접 SSE 연결** → FastAPI가 발화에서 **정형조건(가격·카테고리·색상·재고·판매상태)** 과 **의미조건(원룸에 적합·공부하기 좋은…)** 을 추출 →
   - **[1왕복 · 후보 조회]** 정형조건만 `GET /internal/products/search` 콜백 → InternalController가 ProductService 재사용해 MariaDB에서 후보 조회. **정형 진실(가격·재고·상태)은 여기서 확정** — 이후 벡터DB가 낡아도 살 수 없는 상품이 안 섞임. 응답은 **리랭킹용 최소필드(productId·name·summary·attributes·tags)**, **라운드1 LIMIT 상한**으로 후보 폭발(느슨한 대분류) 방지.
