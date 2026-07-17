@@ -29,6 +29,26 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.validationError(fields));
     }
 
+    // @Validated 쿼리/경로 파라미터 검증 실패 (P-3 sort 등) → 400 VALIDATION_ERROR
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConstraintViolation(
+            jakarta.validation.ConstraintViolationException e) {
+        List<ApiResponse.FieldErrorDetail> fields = e.getConstraintViolations().stream()
+                .map(v -> new ApiResponse.FieldErrorDetail(
+                        String.valueOf(v.getPropertyPath()), v.getMessage()))
+                .toList();
+        return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.getStatus())
+                .body(ApiResponse.validationError(fields));
+    }
+
+    // 파라미터 타입 불일치(숫자 자리에 문자 등) → 400 VALIDATION_ERROR
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.getStatus())
+                .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
+    }
+
     // body 파싱 실패(JSON 문법 오류, enum 불일치 등)도 400 VALIDATION_ERROR로 통일
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnreadable(
