@@ -145,7 +145,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - **역할**: 추천 2왕복 중 **라운드1** — 정형조건으로 MariaDB 후보를 좁혀 **리랭킹용 최소필드**만 반환(1-2-1). 표시 데이터는 안 준다(CH-5 카드 부착 담당).
 - query: `keyword?`(상품명+summary+attributes LIKE), `categoryName?`, `minPrice?`, `maxPrice?`, `brandName?`, `color?`/기타 정형 속성?, `size`(**라운드1 LIMIT — 기본 50 / 최대 200**, 후보 폭발 방지). **정형 진실(가격 범위·재고·판매상태 필터)은 Spring SQL에서 적용** — 살 수 없는 상품은 후보에서 제외.
 - `categoryName` 해석(02 D20 — 2단 계층): **대분류명이면 하위 소분류 전체를 포함해 검색**, 소분류명이면 해당 소분류만. 메인 해시태그가 대분류(#패션)라 LLM이 대분류명을 보내는 게 기본 경로 — 대분류 지정이 0건이 되는 일이 없어야 한다
-- 응답 item (**리랭킹용 최소**): `productId, name, summary, attributes(JSON), tags?, categoryName, brandName`. ⚠️ **display 필드(`price·originalPrice·imageUrl·rating·reviewCount·options`)는 제거 — 카드 조회(CH-5, 구 P-7)로 이동.** FastAPI는 여기서 받은 `productId`로 자기 벡터DB의 embedding을 찾아 의미 리랭킹한다.
+- 응답 item (**리랭킹용 최소**): `productId, name, summary, attributes(JSON), tags?, categoryName, brandName`. ⚠️ **display 필드(`price·originalPrice·imageUrl·rating·reviewCount·options`)는 제거 — 카드 조회(CH-5 — 스키마 확정 전까지 P-7 유지)로 이동.** FastAPI는 여기서 받은 `productId`로 자기 벡터DB의 embedding을 찾아 의미 리랭킹한다.
 - attributes까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7). 카테고리별 속성 축의 정의는 `category.attribute_schema`(02 D11) — 시드 데이터·벡터DB attributes·LLM 프롬프트가 같은 축을 공유한다.
 
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
