@@ -11,6 +11,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
+    /** O-4 canReview 계산용 — 아이템당 후기 1개 (01 §3, 02 D4) */
+    @Query("select r.orderItemId from Review r where r.orderItemId in :orderItemIds")
+    List<Long> findOrderItemIdsIn(@Param("orderItemIds") Collection<Long> orderItemIds);
+
     String SELECT_ROW = """
             select new com.jarvis.review.dto.ReviewRow(
                 r.id, r.rating, r.content, r.authorName, m.nickname, r.createdAt)
