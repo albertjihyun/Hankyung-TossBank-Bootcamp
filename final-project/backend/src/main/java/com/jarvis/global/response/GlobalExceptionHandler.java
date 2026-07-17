@@ -29,6 +29,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.validationError(fields));
     }
 
+    // body 파싱 실패(JSON 문법 오류, enum 불일치 등)도 400 VALIDATION_ERROR로 통일
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadable(
+            org.springframework.http.converter.HttpMessageNotReadableException e) {
+        return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.getStatus())
+                .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
+    }
+
     // 존재하지 않는 경로도 envelope 형식 404 (06 Phase 0 완료 조건)
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException e) {
