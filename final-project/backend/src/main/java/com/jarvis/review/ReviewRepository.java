@@ -15,6 +15,9 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @Query("select r.orderItemId from Review r where r.orderItemId in :orderItemIds")
     List<Long> findOrderItemIdsIn(@Param("orderItemIds") Collection<Long> orderItemIds);
 
+    /** M-1 미작성 자격 검증 (01 §3) */
+    boolean existsByOrderItemId(Long orderItemId);
+
     String SELECT_ROW = """
             select new com.jarvis.review.dto.ReviewRow(
                 r.id, r.rating, r.content, r.authorName, m.nickname, r.createdAt)
