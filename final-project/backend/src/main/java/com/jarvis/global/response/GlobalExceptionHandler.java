@@ -64,6 +64,15 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
+    // DB 제약(UNIQUE 등) 위반 → 409. check-then-act가 경합에 진 순간(가입 이메일·찜·리뷰 신고 등)을 500 대신 409로 (02 D26)
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException e) {
+        log.warn("Data integrity violation (동시성 경합 또는 중복)", e);
+        return ResponseEntity.status(ErrorCode.RESOURCE_CONFLICT.getStatus())
+                .body(ApiResponse.error(ErrorCode.RESOURCE_CONFLICT));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         log.error("Unexpected error", e);

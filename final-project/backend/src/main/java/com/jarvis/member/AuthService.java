@@ -77,15 +77,19 @@ public class AuthService {
         if (refreshToken == null) {
             throw new BusinessException(ErrorCode.AUTH_REQUIRED);
         }
-        RefreshToken stored = refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(refreshToken))
+        String tokenHash = TokenHasher.sha256Hex(refreshToken);
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_REQUIRED));
         if (stored.isExpired(LocalDateTime.now())) {
-            refreshTokenRepository.delete(stored);
+            refreshTokenRepository.deleteByTokenHash(tokenHash);
+            throw new BusinessException(ErrorCode.AUTH_REQUIRED);
+        }
+        // 회전 단일성: 조건부 삭제가 정확히 1건일 때만 재발급 — 동시 refresh는 한쪽만 성공, 나머지는 재로그인 유도 (02 D6)
+        if (refreshTokenRepository.deleteByTokenHash(tokenHash) != 1) {
             throw new BusinessException(ErrorCode.AUTH_REQUIRED);
         }
         Member member = memberRepository.findById(stored.getMemberId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_REQUIRED));
-        refreshTokenRepository.delete(stored);
         return issueTokens(member);
     }
 

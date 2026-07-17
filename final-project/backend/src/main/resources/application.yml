@@ -39,6 +39,10 @@ jwt:
 
 # mock 전이 간격 (01 §6 — 환경변수 아님, yml 기본값)
 app:
+  # 인증/게스트 쿠키 Secure 속성 (03 D3) — 운영은 HTTPS라 true. localhost는 secure context라 http에서도 전송됨.
+  # 비-localhost origin으로 로컬 테스트 시에만 APP_COOKIE_SECURE=false로 내릴 수 있음.
+  cookie:
+    secure: ${APP_COOKIE_SECURE:true}
   mock:
     shipping-minutes: 5
     delivery-minutes: 5
