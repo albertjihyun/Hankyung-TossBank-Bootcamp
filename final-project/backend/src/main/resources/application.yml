@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: jarvis-backend
+  profiles:
+    default: local
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+  jackson:
+    time-zone: Asia/Seoul
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+# mock 전이 간격 (01 §6 — 환경변수 아님, yml 기본값)
+app:
+  mock:
+    shipping-minutes: 5
+    delivery-minutes: 5
+    confirm-minutes: 10
+    claim-approve-minutes: 5
