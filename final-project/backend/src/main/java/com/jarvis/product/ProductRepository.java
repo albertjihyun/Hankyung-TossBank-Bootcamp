@@ -4,11 +4,36 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    /**
+     * 재고 조건부 차감 (02 D33) — 결제 성공(PAID 전이)과 같은 트랜잭션에서만 호출.
+     * 0건 매치 = 재고 부족 → 결제 실패(OUT_OF_STOCK) 처리. updated_at 갱신은 I-17 증분 커서용.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Product p SET p.stockQuantity = p.stockQuantity - :qty, p.updatedAt = CURRENT_TIMESTAMP
+            WHERE p.id = :id AND p.stockQuantity >= :qty
+            """)
+    int deductStock(@Param("id") Long id, @Param("qty") int qty);
+
+    /** 차감 실패 시 같은 트랜잭션 내 보상 복원 — 취소/반품 복원(MVP 미구현)과 무관 */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Product p SET p.stockQuantity = p.stockQuantity + :qty, p.updatedAt = CURRENT_TIMESTAMP
+            WHERE p.id = :id
+            """)
+    int restoreStock(@Param("id") Long id, @Param("qty") int qty);
+
+    /** 차감 직후 잔여 확인 — 0 도달 시 product_change_logs STOCK 기록 (02 D33) */
+    @Query("SELECT p.stockQuantity FROM Product p WHERE p.id = :id")
+    Optional<Integer> findStockQuantity(@Param("id") Long id);
 
     Page<Product> findAllByBrandIdAndStatus(Long brandId, ProductStatus status, Pageable pageable);
 
