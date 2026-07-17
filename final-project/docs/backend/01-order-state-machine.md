@@ -8,8 +8,8 @@
 기능 정의에서 상태 머신이 필요한 지점:
 
 - 결제 화면: 모의 결제, **결제 실패(모의 실패 케이스 포함) 시 안내 및 재시도**
-- 마이페이지 주문 내역: **주문 건별 배송 상태 값 표시**, 후기 작성(**배송완료 상태의 주문 상품만**), 환불/반품/교환 신청
-- 마이페이지 취소·반품·교환 내역: **신청 건 목록 및 처리 상태 조회**
+- 마이페이지 주문 내역: **주문 건별 배송 상태 값 표시**, 후기 작성(**배송완료 상태의 주문 상품만**), 취소/반품 신청
+- 마이페이지 취소·반품 내역: **신청 건 목록 및 처리 상태 조회** (교환은 D11로 MVP 제외)
 - 문의 챗봇: "내 주문 어떻게 됐어?" → **주문 상태 값 기반 답변** (상태 문자열이 곧 LLM 콜백 응답)
 - 클레임 처리 진행: MVP는 **스케줄러 자동 승인**(D10). 관리자 페이지는 MVP 전체 제외(2026-07-09 팀 결정) — 수동 승인/거절은 고도화
 
@@ -74,7 +74,7 @@
 - **선택**: (B). `DELIVERED`에서 스케줄러가 확정 대기 시간(`app.mock.confirm-minutes`, 기본 10분) 경과 시 자동 전이. 사용자 수동 "구매확정" 버튼은 시안에 없어 미도입(고도화 후보). CONFIRMED는 **종결** — 반품·교환 불가, **후기는 가능**(최종 수령 상태이므로).
 - **트레이드오프**: 반품·교환 시연은 DELIVERED 후 확정 전이 전에 해야 함 → 간격이 설정값이라 리허설 때 조정. 확정 전 반품 신청(`RETURN_REQUESTED`)된 아이템은 상태가 이미 바뀌어 조건부 UPDATE에서 자연 제외됨.
 
-### D6. 상태는 이력 테이블 없이 현재 값만 저장한다
+### ~~D6. 상태는 이력 테이블 없이 현재 값만 저장한다~~ (2026-07-17 분석 에이전트의 이력 소비 확정으로 일부 번복 → D12)
 
 - **문제**: 상태 변경 이력(언제 SHIPPING이 됐나)을 별도 테이블로 남길지.
 - **기준**: 소비처가 있는가 — 배송 타임라인 UI가 없고(주문 내역에 "상태 값 표시"만), 판매자 지표는 user_event 로그로 커버.
@@ -95,6 +95,22 @@
 - **선택**: 배송 mock(D4)과 같은 패턴 — 스케줄러가 `*_REQUESTED` 상태로 `app.mock.claim-approve-minutes`(기본 5분) 경과한 클레임을 자동 승인(완료 전이). **거절 플로우는 MVP에서 발생하지 않는다**(관리자와 함께 고도화 — claim 스키마의 `REJECTED`/`reject_reason`은 유지, 자동 승인 시 `processed_by`는 NULL).
 - **트레이드오프**: "신청 → 처리중 → 완료" 사이클은 시연되지만 거절·반려 시나리오는 불가. 관리자 API(04 §8, 고도화)를 붙이는 순간 자동 승인 잡만 끄면 수동 처리로 자연 전환.
 
+### D11. 교환(EXCHANGE) 기능을 제거한다 (MVP 범위 축소 — 2026-07-17 팀 결정)
+
+- **문제**: 교환은 D5 때부터 "승인 시 재배송 사이클 없이 상태만 `EXCHANGED`로 종결"하는 단순화 상태였고, 관리자 제외(D10) 이후에는 자동 승인으로 상태만 닫히는 흐름이 됐다. 취소·반품과 구별되는 데모 가치가 있는지 재검토가 필요했다.
+- **선택지**: (A) 현행 유지 — 상태만 종결되는 교환 (B) 교환 제거 — 배송 전에는 취소, 배송 후에는 반품(환불)의 2종만
+- **기준**: 데모 가치 + 분석 어휘. 교환 승인은 재배송 사이클이 없어 시연상 반품과 구별이 안 되고, 분석 에이전트의 로그 어휘(D12)에서도 교환 제외가 확정됐다.
+- **선택**: (B). OrderItem 상태에서 `EXCHANGE_REQUESTED`/`EXCHANGED` 삭제(11개 → 9개), claim `type`은 `CANCEL`/`RETURN` 2종. claim 스키마의 `EXCHANGE` 값 제거는 02 데이터 모델과 동기(02 쪽에도 반영됨). D5·D10 등 기존 결정 본문의 교환 언급은 역사 기록으로 그대로 두고, 현행 규칙 표·다이어그램에서만 제거한다.
+- **트레이드오프**: 교환 시나리오 시연 불가. 대신 규칙이 "배송 전에는 취소, 배송 후에는 반품(환불)"로 단순·명확해지고, 필요해지면 claim `type` 값 복원 + 상태 2개 추가로 되살릴 수 있다.
+
+### D12. 주문 상태 전이 로그(order_status_logs)를 도입한다 (D6 일부 번복 — 2026-07-17)
+
+- **문제**: D6은 "소비처가 없다"는 이유로 이력 테이블을 두지 않았는데, 분석 에이전트(매출 이상·전환·이탈·어뷰징)가 상태 전이 이력을 소비하게 되면서 전제가 깨졌다.
+- **선택지**: (A) user_event 로그로 우회 (B) 상태 UPDATE 지점마다 로그 INSERT를 개별 삽입 (C) 상태 변경을 단일 서비스로 모으고 같은 트랜잭션에서 로그 INSERT
+- **기준**: 로그 누락을 코드 리뷰가 아니라 구조로 차단할 수 있는가. (B)는 전이 지점이 추가될 때마다 INSERT를 빠뜨릴 수 있고, 누락은 분석 결과를 조용히 왜곡한다.
+- **선택**: (C). `order_status_logs` 테이블 신설(정의는 02 §3). 상태 UPDATE와 로그 INSERT를 **단일 서비스(OrderStatusChanger)에서 같은 트랜잭션**으로 묶어 로그 누락을 구조적으로 차단한다. 기록 지점과 규칙은 §6.5.
+- **트레이드오프**: 모든 상태 전이가 OrderStatusChanger를 경유해야 하는 제약(우회 UPDATE 금지). 대신 D6의 YAGNI가 예고한 "필요해지는 순간 추가"가 온 것이라 방향은 일관된다.
+
 ---
 
 ## 2. 상태 정의
@@ -106,9 +122,12 @@
 | `PENDING` | 주문 생성됨, 결제 전 | 결제 화면에서 "결제하기" 요청 시 생성 |
 | `PAID` | 모의 결제 성공 | mock PG 승인 |
 | `PAYMENT_FAILED` | 모의 결제 실패 | mock PG 거절. 재시도 가능 |
+| `CANCELLED` | 소속 아이템 전량 취소됨 | 마지막 아이템 `CANCELLED` 전이와 같은 트랜잭션 (D12 — 주문 단위 로그 1행, §6.5) |
 
 - 모의 결제 실패 트리거: 결제 수단 선택지에 **"테스트: 결제 실패"** 옵션을 둔다(선택 시 무조건 실패). 그 외 수단은 무조건 성공. 이유: 실패 케이스를 시연자가 의도적으로 재현할 수 있어야 하고, 랜덤 실패는 데모를 망친다.
-- `PAID` 이후 Order.status는 다시 변하지 않는다. 취소/반품에 의한 "전체 환불됨" 같은 파생 표현은 아이템 상태에서 계산한다(§4).
+- `PAID` 이후 Order.status는 **전량 취소 단 하나의 예외**를 빼면 다시 변하지 않는다 — 소속 아이템이 전부 `CANCELLED`가 되는 순간 같은 트랜잭션에서 `CANCELLED`로 전이. 그 밖의 취소/반품에 의한 파생 표현("일부 환불됨" 등)은 아이템 상태에서 계산한다(§4).
+- 미입금 자동취소 배치는 도입하지 않는다 — `PENDING`/`PAYMENT_FAILED` 주문은 그대로 방치(D3의 쓰레기 주문 결정 유지). `CANCELLED`는 사용자 취소 전용.
+- 주문 생성(O-1) 시 `product.stock_quantity` 차감이 선행되며, 재고 부족이면 주문 생성 자체가 실패한다(02의 재고 도입 — 02 D8 폐기). 재고 차감 자체는 order_status_logs 기록 대상이 아니다(product_change_logs 규칙 — 02 소관).
 
 ### 2-2. OrderItem.status (이행 + 클레임 수준)
 
@@ -116,16 +135,17 @@
                  (결제 성공, D9)        (스케줄러 5분)        (스케줄러 5분)              (스케줄러 10분, D8)
    [주문 생성] ─▶ PENDING ─▶ ORDERED ────────────▶ SHIPPING ────────────▶ DELIVERED ────────────▶ CONFIRMED
                                │                                            │
-                               │ 취소 신청                                    │ 반품 신청          │ 교환 신청
-                               ▼                                            ▼                  ▼
-                        CANCEL_REQUESTED                            RETURN_REQUESTED   EXCHANGE_REQUESTED
-                               │ 자동 승인(D10)                               │ 자동 승인           │ 자동 승인
-                               ▼                                            ▼                  ▼
-                           CANCELLED                                    RETURNED           EXCHANGED
+                               │ 취소 신청                                    │ 반품 신청
+                               ▼                                            ▼
+                        CANCEL_REQUESTED                            RETURN_REQUESTED
+                               │ 자동 승인(D10)                               │ 자동 승인
+                               ▼                                            ▼
+                           CANCELLED                                    RETURNED
 
    ※ 결제 실패 시 아이템은 PENDING으로 잔존(재결제 성공 시 ORDERED 전이 — D9)
    ※ 거절(신청 전 상태 복귀·재신청)은 관리자 페이지와 함께 고도화(D10) — 스키마의 REJECTED는 유지
-   ※ 구매확정(CONFIRMED) 후에는 반품·교환 불가, 후기는 가능 (D8)
+   ※ 구매확정(CONFIRMED) 후에는 반품 불가, 후기는 가능 (D8)
+   ※ 교환 분기는 D11로 제거 — 배송 전에는 취소, 배송 후에는 반품(환불)
 ```
 
 | 상태 | 의미 | 종결 상태? |
@@ -134,13 +154,11 @@
 | `ORDERED` | 결제 완료, 배송 전 | ✕ |
 | `SHIPPING` | 배송 중 | ✕ |
 | `DELIVERED` | 배송 완료 | ✕ (클레임/후기의 출발점) |
-| `CONFIRMED` | 구매확정 — 반품·교환 마감 (D8) | ✔ |
+| `CONFIRMED` | 구매확정 — 반품 마감 (D8) | ✔ |
 | `CANCEL_REQUESTED` | 취소 신청 접수 | ✕ |
 | `CANCELLED` | 취소 완료 | ✔ |
 | `RETURN_REQUESTED` | 반품 신청 접수 | ✕ |
 | `RETURNED` | 반품 완료 | ✔ |
-| `EXCHANGE_REQUESTED` | 교환 신청 접수 | ✕ |
-| `EXCHANGED` | 교환 완료 | ✔ |
 
 ### 2-3. 허용 전이 표 (이 표에 없는 전이는 전부 400)
 
@@ -152,13 +170,10 @@
 | `DELIVERED` | `CONFIRMED` | 스케줄러 (확정 대기 경과, D8) |
 | `ORDERED` | `CANCEL_REQUESTED` | 사용자 취소 신청 |
 | `DELIVERED` | `RETURN_REQUESTED` | 사용자 반품 신청 |
-| `DELIVERED` | `EXCHANGE_REQUESTED` | 사용자 교환 신청 |
 | `CANCEL_REQUESTED` | `CANCELLED` | 자동 승인 스케줄러 (D10 — 고도화: 관리자 승인) |
 | `RETURN_REQUESTED` | `RETURNED` | 자동 승인 스케줄러 (D10) |
-| `EXCHANGE_REQUESTED` | `EXCHANGED` | 자동 승인 스케줄러 (D10) |
 | `CANCEL_REQUESTED` | `ORDERED` | (고도화) 관리자 거절 — 신청 전 상태 복귀. MVP 미노출 |
 | `RETURN_REQUESTED` | `DELIVERED` | (고도화) 관리자 거절 |
-| `EXCHANGE_REQUESTED` | `DELIVERED` | (고도화) 관리자 거절 |
 
 주의: `SHIPPING` 상태에서는 취소도 반품도 불가(배송 중 공백 구간). 의도된 규칙 — 실제 커머스와 동일하며, 데모에선 5분만 기다리면 DELIVERED가 된다.
 
@@ -166,20 +181,18 @@
 
 ## 3. 상태별 가능 액션 매트릭스 (서버가 검증해야 하는 규칙)
 
-| OrderItem 상태 | 취소 신청 | 반품 신청 | 교환 신청 | 후기 작성 |
-|---|---|---|---|---|
-| `PENDING` | ✕ | ✕ | ✕ | ✕ |
-| `ORDERED` | ✔ | ✕ | ✕ | ✕ |
-| `SHIPPING` | ✕ | ✕ | ✕ | ✕ |
-| `DELIVERED` | ✕ | ✔ | ✔ | ✔ |
-| `*_REQUESTED` | ✕ | ✕ | ✕ | ✕ |
-| `CANCELLED` / `RETURNED` | ✕ | ✕ | ✕ | ✕ |
-| `EXCHANGED` | ✕ | ✕ | ✕ | ✔ |
-| `CONFIRMED` | ✕ | ✕ | ✕ | ✔ |
+| OrderItem 상태 | 취소 신청 | 반품 신청 | 후기 작성 |
+|---|---|---|---|
+| `PENDING` | ✕ | ✕ | ✕ |
+| `ORDERED` | ✔ | ✕ | ✕ |
+| `SHIPPING` | ✕ | ✕ | ✕ |
+| `DELIVERED` | ✕ | ✔ | ✔ |
+| `*_REQUESTED` | ✕ | ✕ | ✕ |
+| `CANCELLED` / `RETURNED` | ✕ | ✕ | ✕ |
+| `CONFIRMED` | ✕ | ✕ | ✔ |
 
 - `PENDING`(결제 전) 아이템은 취소 대상도 아니다 — 결제 전 이탈은 클레임이 아니라 주문 방치(D3의 쓰레기 주문)로 처리.
-- 후기 작성 조건 = `DELIVERED` / `EXCHANGED` / `CONFIRMED` + **해당 OrderItem으로 작성한 후기가 아직 없음** (아이템당 후기 1개).
-- `EXCHANGED`에서 후기 허용 이유: 교환 완료 = 상품을 최종 수령한 상태이므로.
+- 후기 작성 조건 = `DELIVERED` / `CONFIRMED` + **해당 OrderItem으로 작성한 후기가 아직 없음** (아이템당 후기 1개).
 - 이 매트릭스는 프론트 버튼 노출 규칙이자 백엔드 검증 규칙이다. **프론트가 숨겨도 백엔드는 반드시 재검증한다** (LLM 콜백 등 다른 경로로 같은 API가 호출되기 때문).
 
 ---
@@ -191,9 +204,9 @@
 규칙 (위에서부터 첫 매칭):
 1. `Order.status == PENDING` → "결제 대기"
 2. `Order.status == PAYMENT_FAILED` → "결제 실패"
-3. 아이템 중 `*_REQUESTED` 존재 → "취소/반품/교환 처리중"
+3. 아이템 중 `*_REQUESTED` 존재 → "취소/반품 처리중"
 4. 아이템 전부 `CONFIRMED` → "구매확정" (D8)
-5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`EXCHANGED`/`CONFIRMED` 혼합) → "처리 완료"
+5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`CONFIRMED` 혼합) → "처리 완료"
 6. 아이템 중 `ORDERED` 존재 → "배송 준비중"
 7. 아이템 중 `SHIPPING` 존재 → "배송중"
 8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → "배송 완료"
@@ -204,10 +217,10 @@
 
 ## 5. 클레임 신청 데이터
 
-클레임은 상태 전이만으로는 부족하다 — "취소·반품·교환 내역" 화면이 신청 건 목록을 요구하므로 신청 레코드가 필요하다.
+클레임은 상태 전이만으로는 부족하다 — "취소·반품 내역" 화면이 신청 건 목록을 요구하므로 신청 레코드가 필요하다.
 
 `claim` 테이블 (상세 스키마는 02 데이터 모델 문서):
-- `type`: `CANCEL` / `RETURN` / `EXCHANGE`
+- `type`: `CANCEL` / `RETURN` 2종 — `EXCHANGE` 값은 D11로 제거(02와 동기)
 - `status`: `REQUESTED` / `COMPLETED` / `REJECTED` — OrderItem.status와 항상 같은 트랜잭션에서 동기 전이. `REJECTED`는 고도화(관리자) 전용 — MVP는 자동 승인만(D10)
 - `reason`: 신청 사유 텍스트 (선택 입력), `reject_reason`: 거절 사유 (고도화 — 거절 시 필수)
 - `processed_by` / `processed_at`: 처리 주체와 시각 — 자동 승인은 `processed_by` NULL (D10)
@@ -221,18 +234,39 @@
 
 | 잡 | 주기 | 동작 |
 |---|---|---|
-| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED`. `DELIVERED` 중 10분 경과 → `CONFIRMED` (D8 — 반품/교환 신청 중인 아이템은 상태가 `*_REQUESTED`라 WHERE에서 자연 제외). **`PENDING`(결제 전) 아이템은 대상 아님(D9)** — 출발 상태가 `ORDERED`뿐이라 자연 제외 |
-| 클레임 자동 승인 | 1분마다 | `*_REQUESTED` 중 신청 후 `claim-approve-minutes` 경과 → 완료 상태(`CANCELLED`/`RETURNED`/`EXCHANGED`) 전이 + claim `COMPLETED` — 같은 트랜잭션 (D10) |
+| 배송 전이 | 1분마다 | `ORDERED` 중 `status_changed_at`이 5분 경과 → `SHIPPING`. `SHIPPING` 중 5분 경과 → `DELIVERED`. `DELIVERED` 중 10분 경과 → `CONFIRMED` (D8 — 반품 신청 중인 아이템은 상태가 `*_REQUESTED`라 WHERE에서 자연 제외). **`PENDING`(결제 전) 아이템은 대상 아님(D9)** — 출발 상태가 `ORDERED`뿐이라 자연 제외 |
+| 클레임 자동 승인 | 1분마다 | `*_REQUESTED` 중 신청 후 `claim-approve-minutes` 경과 → 완료 상태(`CANCELLED`/`RETURNED`) 전이 + claim `COMPLETED` — 같은 트랜잭션 (D10) |
 
 - 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`, `app.mock.confirm-minutes`, `app.mock.claim-approve-minutes`로 설정. 기본 5/5/10/5분.
 - 구현: Spring `@Scheduled` + **조건부 UPDATE**(`SET status=<다음 상태>, status_changed_at=NOW() WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치). **SET 절의 `status_changed_at=NOW()` 갱신은 필수** — 빠뜨리면 옛 타임스탬프 기준으로 다음 틱에 연쇄 전이돼(ORDERED→SHIPPING→DELIVERED가 2분 만에) mock 간격이 무의미해진다.
 - **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 `user_event` 적재·알림 등)를 추가할 땐 분산 락이 필수.
 
+## 6.5 주문 상태 전이 로그 — order_status_logs 기록 지점 (D12)
+
+테이블 정의는 02 §3. 상태 UPDATE와 로그 INSERT는 **OrderStatusChanger에서 같은 트랜잭션**(D12) — 이 표에 없는 경로로 상태를 바꾸는 코드는 리뷰에서 거부한다.
+
+| 지점 | from → to | actor | reason |
+|---|---|---|---|
+| O-1 주문 생성 | NULL → PENDING | SYSTEM | — |
+| 모의결제 실패 | PENDING → PAYMENT_FAILED | SYSTEM | 실패 코드 |
+| 결제 성공 | PENDING → PAID | SYSTEM | — (아이템 ORDERED 전이는 PAID와 동시라 별도 기록 없음) |
+| 배송 전이 스케줄러 | ORDERED→SHIPPING, SHIPPING→DELIVERED | SYSTEM | — |
+| 취소 완료(자동 승인) | (신청 전 상태) → CANCELLED | **USER** | claim.reason |
+| 반품 완료(자동 승인) | (신청 전 상태) → RETURNED | **USER** | claim.reason |
+| 전량 취소 시 주문 | orders.status → CANCELLED | USER | — |
+
+규칙:
+1. `*_REQUESTED`(신청 접수)는 로그에 기록하지 않는다 — 신청의 정본은 claim 테이블.
+2. `CONFIRMED` 전이는 기록하지 않는다 — 분석 미사용. 추후 필요 시 어휘에 편입.
+3. actor는 승인 주체가 아니라 **신청 주체** 기준 — 자동 승인 스케줄러가 실행해도 `USER`. 이탈 원인 분석이 "누가 원해서 일어났나"를 소비하기 때문.
+4. 같은 주문의 여러 아이템이 같은 전이를 동시에 겪으면(배치) 주문 단위 1행만 남긴다.
+5. 배송 전이는 전부 `SYSTEM` — 판매자 발송 기능이 없다(실 택배 연동 불가, 사업자 등록 필요).
+
 ## 7. 구현 체크리스트 (검토자용)
 
 - [ ] 전이 표(§2-3)에 없는 상태 변경 요청이 400으로 거부되는가
 - [ ] 액션 매트릭스(§3)가 서비스 레이어에서 검증되는가 (컨트롤러/프론트 아님)
-- [ ] 후기 작성이 DELIVERED/EXCHANGED/CONFIRMED + 미작성 아이템에서만 되는가 (D8)
+- [ ] 후기 작성이 DELIVERED/CONFIRMED + 미작성 아이템에서만 되는가 (D8, D11)
 - [ ] `PENDING`(결제 전) 아이템이 스케줄러·클레임·후기 대상에서 전부 제외되는가 (D9)
 - [ ] 클레임 신청 시 claim 레코드 생성과 아이템 상태 전이가 한 트랜잭션인가 (아이템 전이는 조건부 UPDATE — §5)
 - [ ] 클레임 자동 승인이 신청 N분 후 일어나고, claim.status와 아이템 상태가 같은 트랜잭션에서 전이되는가 (D10)
@@ -241,3 +275,7 @@
 - [ ] 스케줄러 UPDATE가 `status_changed_at`을 함께 갱신하는가 (§6 — 연쇄 전이 방지)
 - [ ] 대표 상태(§4)가 DB에 저장되지 않고 계산되는가
 - [ ] 스케줄러 간격이 설정값으로 조정되는가
+- [ ] 상태 전이 시 order_status_logs가 같은 트랜잭션에서 남는가 (OrderStatusChanger 경유 — D12, §6.5)
+- [ ] 전량 취소 시 orders.status가 CANCELLED로 전이되고 주문 단위 로그 1행이 남는가 (§2-1, §6.5)
+- [ ] `*_REQUESTED`·`CONFIRMED` 전이가 로그에 남지 않는가 (§6.5 규칙 1·2)
+- [ ] 취소/반품 완료 로그의 actor가 USER이고 reason이 claim.reason인가 (§6.5 규칙 3)
