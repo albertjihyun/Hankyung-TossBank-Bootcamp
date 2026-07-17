@@ -71,4 +71,58 @@ public class Product extends BaseTimeEntity {
     public boolean isPurchasable() {
         return status == ProductStatus.ON_SALE && stockQuantity > 0;
     }
+
+    /** I-10 등록 (04 §10) — base_sales_count는 크롤링 전용이라 0 고정 (02 D18) */
+    public static Product create(Long brandId, Long categoryId, String name, int originalPrice,
+                                 int price, int stockQuantity, String imageUrl, String summary,
+                                 String attributes, String description, ProductStatus status) {
+        Product product = new Product();
+        product.brandId = brandId;
+        product.categoryId = categoryId;
+        product.name = name;
+        product.originalPrice = originalPrice;
+        product.price = price;
+        product.stockQuantity = stockQuantity;
+        product.imageUrl = imageUrl;
+        product.baseSalesCount = 0;
+        product.summary = summary;
+        product.attributes = attributes;
+        product.description = description;
+        product.status = status;
+        return product;
+    }
+
+    // S-5/I-11 공용 수정 (04 §7·§10) — 검증(price ≤ originalPrice 등)·change log는 SellerProductService 소관
+
+    public void changeName(String name) {
+        this.name = name;
+    }
+
+    public void changeSummary(String summary) {
+        this.summary = summary;
+    }
+
+    public void changeAttributes(String attributes) {
+        this.attributes = attributes;
+    }
+
+    public void changeDescription(String description) {
+        this.description = description;
+    }
+
+    public void changePrice(int price) {
+        this.price = price;
+    }
+
+    public void changeOriginalPrice(int originalPrice) {
+        this.originalPrice = originalPrice;
+    }
+
+    public void changeStatus(ProductStatus status) {
+        this.status = status;
+    }
+
+    public void changeStockQuantity(int stockQuantity) {
+        this.stockQuantity = stockQuantity;
+    }
 }

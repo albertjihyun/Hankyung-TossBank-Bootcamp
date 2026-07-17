@@ -24,9 +24,12 @@ public class StreamTicketProvider {
     public static final String ISSUER = "jarvis-spring-auth";
     public static final String AUDIENCE = "jarvis-fastapi-ai";
     public static final String SCOPE_CHAT_STREAM = "chat:stream";
+    public static final String CHANNEL_SELLER = "SELLER";
 
     private static final String CLAIM_SUB_TYPE = "sub_type";
     private static final String CLAIM_SCOPE = "scope";
+    private static final String CLAIM_CHANNEL = "channel";
+    private static final String CLAIM_BRAND_ID = "brand_id";
 
     private final RSAPrivateCrtKey privateKey;
     private final RSAPublicKey publicKey;
@@ -50,14 +53,27 @@ public class StreamTicketProvider {
 
     /** 티켓 claim은 05 §1-0 고정 — sub/sub_type/iss/aud/scope/exp */
     public String createTicket(ChatIdentity identity) {
+        return buildTicket(identity, null);
+    }
+
+    /** S-4 SELLER 스코프 티켓 (04 §7) — brandId는 BE가 DB에서 도출한 값만(클라이언트/LLM 주장 무시) */
+    public String createSellerTicket(ChatIdentity identity, Long brandId) {
+        return buildTicket(identity, brandId);
+    }
+
+    private String buildTicket(ChatIdentity identity, Long brandId) {
         Date now = new Date();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .header().keyId(kid).and()
                 .subject(identity.sub())
                 .claim(CLAIM_SUB_TYPE, identity.subType())
                 .issuer(ISSUER)
                 .audience().add(AUDIENCE).and()
-                .claim(CLAIM_SCOPE, SCOPE_CHAT_STREAM)
+                .claim(CLAIM_SCOPE, SCOPE_CHAT_STREAM);
+        if (brandId != null) {
+            builder.claim(CLAIM_CHANNEL, CHANNEL_SELLER).claim(CLAIM_BRAND_ID, brandId);
+        }
+        return builder
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + ttl.toMillis()))
                 .signWith(privateKey, Jwts.SIG.RS256)
