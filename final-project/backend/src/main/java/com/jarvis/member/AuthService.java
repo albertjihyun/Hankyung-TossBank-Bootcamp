@@ -1,6 +1,9 @@
 package com.jarvis.member;
 
 import com.jarvis.cart.CartService;
+import com.jarvis.chat.ChatIdentity;
+import com.jarvis.chat.ChatSessionService;
+import com.jarvis.chat.SessionEndReason;
 import com.jarvis.global.auth.JwtProperties;
 import com.jarvis.global.auth.JwtProvider;
 import com.jarvis.global.auth.TokenHasher;
@@ -35,6 +38,7 @@ public class AuthService {
     private final JwtProperties jwtProperties;
     private final JdbcTemplate jdbcTemplate;
     private final CartService cartService;
+    private final ChatSessionService chatSessionService;
 
     /** A-1 — 가입 + 자동 로그인 + 게스트 승계 (04) */
     @Transactional
@@ -95,6 +99,9 @@ public class AuthService {
                 .ifPresent(stored -> {
                     refreshTokenRepository.delete(stored);
                     accountEventLogger.log(stored.getMemberId(), AccountEventType.LOGOUT, clientIp);
+                    // 채팅 세션 정리 + I-20 통지 (05 §2-1 — 트리거: 로그아웃)
+                    chatSessionService.endSession(
+                            ChatIdentity.member(stored.getMemberId()), SessionEndReason.LOGOUT);
                 });
     }
 
