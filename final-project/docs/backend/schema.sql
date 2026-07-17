@@ -205,6 +205,7 @@ CREATE TABLE order_item (
     product_name       VARCHAR(200) NOT NULL,              -- 스냅샷
     option_name        VARCHAR(100) NULL,                  -- 스냅샷
     price              INT          NOT NULL,              -- 스냅샷: product.price + extra_price
+    original_price     INT          NOT NULL,              -- 스냅샷: 주문 시점 product.original_price + extra_price — 할인 표시용 (D37)
     quantity           INT          NOT NULL,
     status             VARCHAR(30)  NOT NULL,              -- 01 문서의 9개 상태 (D34 — 교환 2종 제거로 11→9)
     status_changed_at  DATETIME     NOT NULL,              -- 배송 전이 스케줄러 기준 시각

@@ -201,15 +201,17 @@
 
 주문 목록에서 "주문 건별 상태 값"을 한 줄로 보여줘야 한다. **DB에 저장하지 않고** 아이템 상태에서 계산한다(파생값 저장 금지 원칙).
 
-규칙 (위에서부터 첫 매칭):
-1. `Order.status == PENDING` → "결제 대기"
-2. `Order.status == PAYMENT_FAILED` → "결제 실패"
-3. 아이템 중 `*_REQUESTED` 존재 → "취소/반품 처리중"
-4. 아이템 전부 `CONFIRMED` → "구매확정" (D8)
-5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`CONFIRMED` 혼합) → "처리 완료"
-6. 아이템 중 `ORDERED` 존재 → "배송 준비중"
-7. 아이템 중 `SHIPPING` 존재 → "배송중"
-8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → "배송 완료"
+규칙 (위에서부터 첫 매칭) — 응답은 **enum 코드**로 내려주고 표시 문구는 FE가 매핑한다(2026-07-17 FE 요청 — 구 한국어 문자열 응답 폐기):
+1. `Order.status == PENDING` → `PENDING` ("결제 대기")
+2. `Order.status == PAYMENT_FAILED` → `PAYMENT_FAILED` ("결제 실패")
+3. 아이템 중 `*_REQUESTED` 존재 → `CLAIM_IN_PROGRESS` ("취소/반품 처리중")
+4. 아이템 전부 `CONFIRMED` → `CONFIRMED` ("구매확정") (D8)
+5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`CONFIRMED` 혼합) → `COMPLETED` ("처리 완료")
+6. 아이템 중 `ORDERED` 존재 → `ORDERED` ("배송 준비중")
+7. 아이템 중 `SHIPPING` 존재 → `SHIPPING` ("배송중")
+8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → `DELIVERED` ("배송 완료")
+
+코드 8종 = 기존 상태 어휘 재사용 6종 + 대표 상태 전용 2종(`CLAIM_IN_PROGRESS`/`COMPLETED`). 소비처(O-3·I-4·I-19)는 모두 이 코드를 쓴다.
 
 문의 챗봇의 주문 상태 콜백도 이 파생 규칙의 결과 + 아이템별 상태 목록을 함께 반환한다(LLM이 "키보드는 배송중이고 마우스는 반품 처리중이에요"라고 답할 수 있게).
 

@@ -30,7 +30,7 @@ cart(C-1~4 — 게스트 담기 + 가입 시 병합 승계, 02 D30), orders/orde
 
 ## Phase 4. 마이페이지 잔여 (1일)
 
-review(M-1~3) + P-3 실데이터, wishlist(M-4~6), recent(M-7), address(M-8), inquiry 조회(M-9), 프로필(M-10). (관리자 AD-1~7은 MVP 제외 — 2026-07-09 팀 결정, 04 §9)
+review(M-1·M-3 — **M-2는 MVP 제외**, FE 화면 없음 07-17) + P-3 실데이터(별점 분포 distribution 포함), wishlist(M-4~6), recent(M-7), address(M-8), inquiry 조회(M-9). (**M-10 프로필 수정도 MVP 제외** — 07-17) (관리자 AD-1~7은 MVP 제외 — 2026-07-09 팀 결정, 04 §9)
 - **완료**: 후기 자격 상태(DELIVERED/CONFIRMED — 교환 제거, 01 D11)에서만 작성됨(그 외 400), 후기 신고 접수·중복 신고 409 확인. 신고 처리(HIDE)·문의 답변은 고도화 — 데모용 답변 완료 문의는 시드로.
 
 ## Phase 5. 채팅 티켓 발급 + 카드 하이드레이션 + internal API (1.5일, LLM팀 병행 필요)
