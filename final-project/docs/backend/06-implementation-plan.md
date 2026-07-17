@@ -1,4 +1,4 @@
-# 06. 구현 순서 계획stap
+# 06. 구현 순서 계획
 
 > 각 단계는 "완료 조건(검증 방법)"이 충족돼야 다음으로 넘어간다. 구현 세션은 단계마다 브랜치를 따고(feature-workflow), 끝나면 ship-it으로 PR을 만든다. 한 단계 = PR 1개가 기본.
 
@@ -20,28 +20,28 @@ member/guest/refresh_token 테이블, 일반 가입/로그인/로그아웃/refre
 
 ## Phase 2. 카탈로그 (1일)
 
-category/brand/product(+option), P-1/P-2/P-3(빈 목록)/P-4/P-6, PRODUCT_VIEW 이벤트 적재(user_event + @Async AFTER_COMMIT 리스너 — 03 D6). **시드 데이터 1차분**(대분류 4개+소분류 12개, 상품 50개 수준 — LLM팀 협의 전 개발용 최소치).
-- **완료**: 상세 조회가 이미지/옵션/평점(0건)을 포함해 응답. 조회 후 user_event에 행 증가 확인.
+category/brand/product(+option — 재고 100 초기화, 02 D33), P-1/P-2/P-3(빈 목록)/P-4/P-6, **이벤트 수집 API(E-1 `POST /api/events`) + behavior_events 적재**(02 D31 — 서버측 조회 적재 없음, FE가 전송). **시드 데이터 1차분**(대분류 4개+소분류 12개, 상품 50개 수준 — LLM팀 협의 전 개발용 최소치).
+- **완료**: 상세 조회가 이미지/옵션/평점(0건)을 포함해 응답. E-1로 product_view 배치 전송 시 behavior_events 행 증가·중복 UUID 무시 확인.
 
 ## Phase 3. 장바구니 + 주문 + 클레임 (1.5일)
 
-cart(C-1~4 — 게스트 담기 + 가입 시 병합 승계, 02 D30), orders/order_item 스냅샷 생성 + mock 결제(O-1, O-2 — 아이템 PENDING→ORDERED 전이, 01 D9), 주문 조회(O-3, O-4 가능 액션 포함), 배송 전이 + 클레임 자동 승인 스케줄러(01 §6), 클레임 신청/내역(O-5, O-6).
+cart(C-1~4 — 게스트 담기 + 가입 시 병합 승계, 02 D30), orders/order_item 스냅샷 생성 + mock 결제(O-1, O-2 — 아이템 PENDING→ORDERED 전이, 01 D9), 주문 조회(O-3, O-4 가능 액션 포함), 배송 전이 + 클레임 자동 승인 스케줄러(01 §6), 클레임 신청/내역(O-5, O-6 — 취소/반품만, 01 D11), **OrderStatusChanger + order_status_logs 기록(01 D12·§6.5) + 결제 성공 시 재고 차감(02 D33)**.
 - **완료**: 담기→주문(성공/실패 수단 각각, 실패 주문 아이템이 PENDING으로 남는지 포함)→간격 1분으로 줄인 스케줄러로 DELIVERED 도달→반품 신청→자동 승인→상태·내역 반영까지 e2e 시나리오 통과. **바로 구매(items[] 경로)도 장바구니 미접촉으로 주문됨 확인**. 01 문서 §7 체크리스트 전부 확인.
 
 ## Phase 4. 마이페이지 잔여 (1일)
 
-review(M-1~3) + P-3 실데이터, wishlist(M-4~6), recent(M-7), address(M-8), inquiry 조회(M-9), 프로필(M-10). (관리자 AD-1~7은 MVP 제외 — 2026-07-09 팀 결정, 04 §8)
-- **완료**: 후기 자격 상태(DELIVERED/EXCHANGED/CONFIRMED)에서만 작성됨(그 외 400), 후기 신고 접수·중복 신고 409 확인. 신고 처리(HIDE)·문의 답변은 고도화 — 데모용 답변 완료 문의는 시드로.
+review(M-1·M-3 — **M-2는 MVP 제외**, FE 화면 없음 07-17) + P-3 실데이터(별점 분포 distribution 포함), wishlist(M-4~6), recent(M-7), address(M-8), inquiry 조회(M-9). (**M-10 프로필 수정도 MVP 제외** — 07-17) (관리자 AD-1~7은 MVP 제외 — 2026-07-09 팀 결정, 04 §9)
+- **완료**: 후기 자격 상태(DELIVERED/CONFIRMED — 교환 제거, 01 D11)에서만 작성됨(그 외 400), 후기 신고 접수·중복 신고 409 확인. 신고 처리(HIDE)·문의 답변은 고도화 — 데모용 답변 완료 문의는 시드로.
 
 ## Phase 5. 채팅 티켓 발급 + 카드 하이드레이션 + internal API (1.5일, LLM팀 병행 필요)
 
-세션 발급(Redis TTL), **CH-1 세션+스트림 티켓(RS256) 발급 + JWKS 엔드포인트(`/.well-known/jwks.json`)**, **P-7 카드 하이드레이션**, 게스트 쿠키 발급, internal I-1~I-7 + 서비스 토큰 필터. 채팅 SSE는 FastAPI 직결이라 **Spring은 SSE를 중계하지 않는다**(03 D5) — BE는 티켓 발급·검증키·콜백만 책임. FastAPI가 아직 없으면 **mock FastAPI**(고정 SSE 반환·티켓 JWKS 검증 스텁)로 FE 직결 흐름을 먼저 검증.
-- **완료**: CH-1이 유효 티켓 발급 → (mock)FastAPI가 JWKS로 검증 → SSE `products{productId,reason}` 수신 → FE가 P-7로 카드 조립. internal API가 토큰 없이 401, FE 경로로 접근 불가.
-- **선행 조건**: 05 계약 v0.2 핵심(직결·티켓·2왕복)은 LLM 팀과 합의됨(2026-07-16). 잔여 OPEN(벡터DB 배치 동기화·LIMIT 기준치 등 §4)은 스텁으로 진행.
+세션 발급(Redis TTL), **CH-1 세션+스트림 티켓(RS256) 발급 + JWKS 엔드포인트(`/.well-known/jwks.json`)**, **추천 목록 콜백(I-21) + 목록 조회(CH-5) — 스키마 확정 전엔 P-7로 임시**, CH-1b 티켓 재발급, 게스트 쿠키 발급, internal(04 §10 중 확정분 — I-13·I-17·I-21 OPEN은 스텁) + 서비스 토큰 필터. 채팅 SSE는 FastAPI 직결이라 **Spring은 SSE를 중계하지 않는다**(03 D5) — BE는 티켓 발급·검증키·콜백만 책임. FastAPI가 아직 없으면 **mock FastAPI**(고정 SSE 반환·티켓 JWKS 검증 스텁)로 FE 직결 흐름을 먼저 검증.
+- **완료**: CH-1이 유효 티켓 발급 → (mock)FastAPI가 JWKS로 검증 → I-21 콜백 저장 → SSE `products.ready{listId}` 수신 → FE가 CH-5(확정 전 P-7)로 카드 조립. internal API가 토큰 없이 401, FE 경로로 접근 불가.
+- **선행 조건**: 05 계약 v0.3 핵심(직결·티켓·2왕복·목록 콜백)은 합의/제안 상태(2026-07-17). 잔여 OPEN(05 §4)은 스텁으로 진행.
 
 ## Phase 6. 판매자 + 시드 완성 + 통합 (1일)
 
-S-1~S-4, 시드 데이터 최종분(02 §5 규모, LLM팀 합의 형식), user_event 더미 생성 스크립트, 전 구간 통합 점검.
+S-1~S-5, 시드 데이터 최종분(02 §5 규모, LLM팀 합의 형식 — 재고 100), behavior_events·로그 테이블 더미 생성 스크립트, 전 구간 통합 점검.
 - **완료**: 판매자 계정으로 summary가 0이 아닌 지표 반환. 대표 데모 시나리오(추천→담아줘→주문→반품→자동 승인 확인→문의 챗봇) 리허설 1회 통과.
 
 ## 일정 감각

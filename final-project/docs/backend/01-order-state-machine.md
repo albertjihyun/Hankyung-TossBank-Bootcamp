@@ -93,7 +93,7 @@
 
 - **문제**: 관리자 페이지가 MVP에서 전부 빠지면서(팀 결정) D5의 수동 승인/거절 주체가 사라졌다. "취소·반품·교환 내역의 처리 상태 조회"는 여전히 MVP 요구라 누군가 상태를 진행시켜야 한다.
 - **선택**: 배송 mock(D4)과 같은 패턴 — 스케줄러가 `*_REQUESTED` 상태로 `app.mock.claim-approve-minutes`(기본 5분) 경과한 클레임을 자동 승인(완료 전이). **거절 플로우는 MVP에서 발생하지 않는다**(관리자와 함께 고도화 — claim 스키마의 `REJECTED`/`reject_reason`은 유지, 자동 승인 시 `processed_by`는 NULL).
-- **트레이드오프**: "신청 → 처리중 → 완료" 사이클은 시연되지만 거절·반려 시나리오는 불가. 관리자 API(04 §8, 고도화)를 붙이는 순간 자동 승인 잡만 끄면 수동 처리로 자연 전환.
+- **트레이드오프**: "신청 → 처리중 → 완료" 사이클은 시연되지만 거절·반려 시나리오는 불가. 관리자 API(04 §9, 고도화)를 붙이는 순간 자동 승인 잡만 끄면 수동 처리로 자연 전환.
 
 ### D11. 교환(EXCHANGE) 기능을 제거한다 (MVP 범위 축소 — 2026-07-17 팀 결정)
 
@@ -127,7 +127,7 @@
 - 모의 결제 실패 트리거: 결제 수단 선택지에 **"테스트: 결제 실패"** 옵션을 둔다(선택 시 무조건 실패). 그 외 수단은 무조건 성공. 이유: 실패 케이스를 시연자가 의도적으로 재현할 수 있어야 하고, 랜덤 실패는 데모를 망친다.
 - `PAID` 이후 Order.status는 **전량 취소 단 하나의 예외**를 빼면 다시 변하지 않는다 — 소속 아이템이 전부 `CANCELLED`가 되는 순간 같은 트랜잭션에서 `CANCELLED`로 전이. 그 밖의 취소/반품에 의한 파생 표현("일부 환불됨" 등)은 아이템 상태에서 계산한다(§4).
 - 미입금 자동취소 배치는 도입하지 않는다 — `PENDING`/`PAYMENT_FAILED` 주문은 그대로 방치(D3의 쓰레기 주문 결정 유지). `CANCELLED`는 사용자 취소 전용.
-- 주문 생성(O-1) 시 `product.stock_quantity` 차감이 선행되며, 재고 부족이면 주문 생성 자체가 실패한다(02의 재고 도입 — 02 D8 폐기). 재고 차감 자체는 order_status_logs 기록 대상이 아니다(product_change_logs 규칙 — 02 소관).
+- `product.stock_quantity` 차감은 **결제 성공 처리(PENDING→PAID 전이, O-1·O-2 공통)와 같은 트랜잭션**에서 조건부 UPDATE로 수행한다(2026-07-17 확정) — 주문 생성 시점 차감이 아니므로 미결제(PENDING/PAYMENT_FAILED) 주문이 재고를 점유하지 않는다. 차감 실패(재고 부족) 시 결제 실패(`PAYMENT_FAILED`, reason `OUT_OF_STOCK`)로 처리. 취소/반품 시 재고 **복원은 MVP 미구현**(감수 — 시드 재고 100). 재고 차감 자체는 order_status_logs 기록 대상이 아니다(product_change_logs 규칙 — 02 소관).
 
 ### 2-2. OrderItem.status (이행 + 클레임 수준)
 
@@ -201,15 +201,17 @@
 
 주문 목록에서 "주문 건별 상태 값"을 한 줄로 보여줘야 한다. **DB에 저장하지 않고** 아이템 상태에서 계산한다(파생값 저장 금지 원칙).
 
-규칙 (위에서부터 첫 매칭):
-1. `Order.status == PENDING` → "결제 대기"
-2. `Order.status == PAYMENT_FAILED` → "결제 실패"
-3. 아이템 중 `*_REQUESTED` 존재 → "취소/반품 처리중"
-4. 아이템 전부 `CONFIRMED` → "구매확정" (D8)
-5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`CONFIRMED` 혼합) → "처리 완료"
-6. 아이템 중 `ORDERED` 존재 → "배송 준비중"
-7. 아이템 중 `SHIPPING` 존재 → "배송중"
-8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → "배송 완료"
+규칙 (위에서부터 첫 매칭) — 응답은 **enum 코드**로 내려주고 표시 문구는 FE가 매핑한다(2026-07-17 FE 요청 — 구 한국어 문자열 응답 폐기):
+1. `Order.status == PENDING` → `PENDING` ("결제 대기")
+2. `Order.status == PAYMENT_FAILED` → `PAYMENT_FAILED` ("결제 실패")
+3. 아이템 중 `*_REQUESTED` 존재 → `CLAIM_IN_PROGRESS` ("취소/반품 처리중")
+4. 아이템 전부 `CONFIRMED` → `CONFIRMED` ("구매확정") (D8)
+5. 아이템 전부 종결(`CANCELLED`/`RETURNED`/`CONFIRMED` 혼합) → `COMPLETED` ("처리 완료")
+6. 아이템 중 `ORDERED` 존재 → `ORDERED` ("배송 준비중")
+7. 아이템 중 `SHIPPING` 존재 → `SHIPPING` ("배송중")
+8. 그 외(전부 `DELIVERED` 또는 종결 혼합) → `DELIVERED` ("배송 완료")
+
+코드 8종 = 기존 상태 어휘 재사용 6종 + 대표 상태 전용 2종(`CLAIM_IN_PROGRESS`/`COMPLETED`). 소비처(O-3·I-4·I-19)는 모두 이 코드를 쓴다.
 
 문의 챗봇의 주문 상태 콜백도 이 파생 규칙의 결과 + 아이템별 상태 목록을 함께 반환한다(LLM이 "키보드는 배송중이고 마우스는 반품 처리중이에요"라고 답할 수 있게).
 
@@ -239,7 +241,7 @@
 
 - 간격은 `application.yml`의 `app.mock.shipping-minutes`, `app.mock.delivery-minutes`, `app.mock.confirm-minutes`, `app.mock.claim-approve-minutes`로 설정. 기본 5/5/10/5분.
 - 구현: Spring `@Scheduled` + **조건부 UPDATE**(`SET status=<다음 상태>, status_changed_at=NOW() WHERE status=<이전 상태> AND status_changed_at <= NOW()-간격`). 체크와 전이를 한 쿼리에 접어 다인스턴스 동시 실행에도 정합성이 깨지지 않게 한다(늦은 인스턴스는 WHERE 불일치로 0건 매치). **SET 절의 `status_changed_at=NOW()` 갱신은 필수** — 빠뜨리면 옛 타임스탬프 기준으로 다음 틱에 연쇄 전이돼(ORDERED→SHIPPING→DELIVERED가 2분 만에) mock 간격이 무의미해진다.
-- **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 `user_event` 적재·알림 등)를 추가할 땐 분산 락이 필수.
+- **분산 안전(2026-07-08 스터디, 03 §1-2 D-분산5 갱신)**: 이 잡이 종전에 두었던 "인스턴스 1대 전제"는 분산 단계(03 §1-2)에서 폐기. spring이 3대로 복제되면 같은 잡이 매 틱 중복 실행되므로 **Redis 분산 락(ShedLock)** 으로 틱당 1대만 실행한다. 조건부 UPDATE(정합성 최종 방어선) + 분산 락(중복 부수효과 차단)의 2층 방어. 잡에 부수효과(전이 건별 알림 등)를 추가할 땐 분산 락이 필수 — 상태 전이 로그(`order_status_logs`)는 부수효과가 아니라 조건부 UPDATE와 **같은 트랜잭션**에 포함된다(D12).
 
 ## 6.5 주문 상태 전이 로그 — order_status_logs 기록 지점 (D12)
 

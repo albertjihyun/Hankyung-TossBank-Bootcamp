@@ -61,7 +61,7 @@ FastAPI       : JWKS로 signature·exp·iss·aud·scope 검증 → 스트리밍
 ```
 
 - **신원(userId/guestId)은 body에 없다 — 티켓 claim(`sub`/`sub_type`)에서** 취한다(§1-0). 게스트면 `sub_type:guest`, 개인화 없이 응답.
-- 멀티턴 맥락은 sessionId 기준으로 **FastAPI가 인메모리/자체 스토어에 유지** (BE는 메시지를 저장하지 않음). 세션 종료 시 Spring이 **I-20 `POST {LLM_BASE_URL}/events/session-end`** 로 정리 통지(§2-1) — 트리거: 로그아웃/30분 유휴/새 대화. *(구 `DELETE {LLM_BASE_URL}/sessions/{id}` 안(OPEN이었음)을 대체 — 2026-07-17 확정. 잔여 OPEN: sessionId 형식, §2-1)*
+- 멀티턴 맥락은 sessionId 기준으로 **FastAPI가 인메모리/자체 스토어에 유지** (BE는 메시지를 저장하지 않음). 세션 종료 시 Spring이 **I-20 `POST {LLM_BASE_URL}/events/session-end`** 로 정리 통지(§2-1) — 트리거: 로그아웃/30분 유휴/새 대화. *(구 `DELETE {LLM_BASE_URL}/sessions/{id}` 안(OPEN이었음)을 대체 — 2026-07-17 확정. sessionId 형식도 UUID로 합의 완료)*
 - 카테고리 진입(메인에서 카테고리 클릭)은 별도 필드 없이 message로 전달: FE가 `"[카테고리] 주방용품 보여줘"` 형태로 첫 메시지 구성. **(OPEN: 전용 필드로 분리할지)**
 
 ### 1-2. 응답: SSE 스트림
@@ -145,7 +145,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - **역할**: 추천 2왕복 중 **라운드1** — 정형조건으로 MariaDB 후보를 좁혀 **리랭킹용 최소필드**만 반환(1-2-1). 표시 데이터는 안 준다(CH-5 카드 부착 담당).
 - query: `keyword?`(상품명+summary+attributes LIKE), `categoryName?`, `minPrice?`, `maxPrice?`, `brandName?`, `color?`/기타 정형 속성?, `size`(**라운드1 LIMIT — 기본 50 / 최대 200**, 후보 폭발 방지). **정형 진실(가격 범위·재고·판매상태 필터)은 Spring SQL에서 적용** — 살 수 없는 상품은 후보에서 제외.
 - `categoryName` 해석(02 D20 — 2단 계층): **대분류명이면 하위 소분류 전체를 포함해 검색**, 소분류명이면 해당 소분류만. 메인 해시태그가 대분류(#패션)라 LLM이 대분류명을 보내는 게 기본 경로 — 대분류 지정이 0건이 되는 일이 없어야 한다
-- 응답 item (**리랭킹용 최소**): `productId, name, summary, attributes(JSON), tags?, categoryName, brandName`. ⚠️ **display 필드(`price·originalPrice·imageUrl·rating·reviewCount·options`)는 제거 — 카드 조회(CH-5, 구 P-7)로 이동.** FastAPI는 여기서 받은 `productId`로 자기 벡터DB의 embedding을 찾아 의미 리랭킹한다.
+- 응답 item (**리랭킹용 최소**): `productId, name, summary, attributes(JSON), tags?, categoryName, brandName`. ⚠️ **display 필드(`price·originalPrice·imageUrl·rating·reviewCount·options`)는 제거 — 카드 조회(CH-5 — 스키마 확정 전까지 P-7 유지)로 이동.** FastAPI는 여기서 받은 `productId`로 자기 벡터DB의 embedding을 찾아 의미 리랭킹한다.
 - attributes까지 반환하는 이유: LLM이 "린넨 소재만" 같은 세밀 조건을 후처리 필터링할 수 있게(서버는 후보만 좁힘 — 02 D7). 카테고리별 속성 축의 정의는 `category.attribute_schema`(02 D11) — 시드 데이터·벡터DB attributes·LLM 프롬프트가 같은 축을 공유한다.
 
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
@@ -192,7 +192,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 ### I-20. 세션 종료 통지 `POST {LLM_BASE_URL}/events/session-end` — **방향 예외(Spring→FastAPI)**
 - 트리거: 로그아웃 / 30분 유휴 / 새 대화. body: `{ "sessionId": "<uuid>", "reason": "LOGOUT" }` — reason enum `LOGOUT|IDLE_TIMEOUT|NEW_CONVERSATION|TAB_CLOSE`.
 - **멱등**: 없는 세션도 `200 + {"cleared": false}` — 재시도·중복 호출 무해.
-- sessionId는 Spring이 UUID로 발급 — 상대 명세의 `S-` 접두 형식 제약은 **OPEN(UUID로 요청 중)**.
+- sessionId는 Spring이 UUID로 발급 — **UUID 그대로 수신으로 합의 완료(2026-07-17 LLM 팀 확인)**. 구 `S-` 접두 형식 제약 폐기.
 - 구 "세션 만료 시 `DELETE {LLM_BASE_URL}/sessions/{id}` 통지(OPEN)" 항목을 대체 — 2026-07-17 확정.
 
 ## 3. 비기능 규약
@@ -214,7 +214,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - [x] ~~SSE 직결 여부·인증~~ — **FE↔FastAPI 직결 + RS256/JWKS 단명 티켓 확정**(§1-0, 03 D5). AI팀 JWKS 검증 방식 채택 + 검증 대상을 단명 스트림 티켓으로.
 - [x] ~~추천 카드 데이터 출처~~ — **`products` 이벤트는 `{productId, reason}`만, 카드는 FE가 P-7로 pull**(§1-2). 정형 진실은 Spring. *(2026-07-17 개정: `products` → `products.ready(listId)`, 카드 조회는 P-7 → CH-5 — §1-2)*
 - [x] ~~추천 조회 흐름~~ — **2왕복(정형 후보조회 I-1 → 벡터 리랭킹 → Top5 → 카드 하이드레이션 P-7)** 확정(§1-2-1). *(2026-07-17: 마지막 단계에 I-21 콜백 저장 + CH-5 조회 추가 — §1-2-1)*
-- [x] ~~세션 만료 통지 방식~~ — **I-20 `POST {LLM_BASE_URL}/events/session-end`로 확정(2026-07-17, §2-1)**. 잔여: sessionId의 `S-` 접두 형식 제약 — **OPEN(UUID로 요청 중)**
+- [x] ~~세션 만료 통지 방식~~ — **I-20 `POST {LLM_BASE_URL}/events/session-end`로 확정(2026-07-17, §2-1)**. sessionId 형식도 **UUID로 합의 완료**(구 `S-` 접두 제약 폐기)
 
 **[남은 OPEN]**
 - [ ] **벡터DB 배치 동기화**(§1-2-2): 트리거·주기, 전체 재적재 vs 델타, 크롤링 파이프라인(상품 1만+) 연결 지점 — LLM팀 + 데이터 파이프라인 합의
@@ -227,7 +227,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - [ ] **confirm 전송 형식**(§1-3): 전용 필드 `{action:"confirm", draftId}` vs 특수 메시지 — LLM 확정 대기 (draft 이벤트 필드 자체는 §1-3으로 확정)
 - [ ] **I-21/CH-5 추천 목록 스키마**: I-21 콜백 body·CH-5 응답(그룹핑·reason 노출 포함) — LLM 협의 중
 - [ ] **I-13 행동 이벤트 조회/집계**(`GET /internal/seller/{brandId}/events`) 본문 명세 — LLM팀 재작성 대기
-- [ ] **I-20 sessionId 형식**: 상대 명세의 `S-` 접두 제약 vs 우리 UUID 발급 — UUID로 요청 중(§2-1)
+- [x] ~~I-20 sessionId 형식~~ — **UUID로 합의 완료(2026-07-17 LLM 팀 확인, §2-1)**
 - [ ] **CH-3(CS 챗봇) 폐지/유지**: 직결 전환 후 문의 챗봇 존치 여부 — LLM 확인 중(04 §6)
 - [ ] **SELLER 툴 바인딩**: `brandId`(및 신원 필드 전부)는 LLM 툴 파라미터로 노출 금지 — **티켓 claim/세션 컨텍스트에서 코드 주입**(§1-0). 인젝션으로 타 브랜드 id를 넣는 경로 차단
 - [ ] **SELLER 프롬프트 가드레일**: ① "직접 반영했어요" 류 발화 금지(쓰기 툴이 없는데 성공 환각 시 판매자가 적용 버튼을 안 누름) ② 직접 반영 요구엔 "확인 후 적용 버튼으로 즉시 반영" 안내

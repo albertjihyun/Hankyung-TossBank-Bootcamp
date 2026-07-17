@@ -95,7 +95,7 @@ CREATE TABLE product (
     name              VARCHAR(200) NOT NULL,
     original_price    INT          NOT NULL,               -- 정가 (KRW 원 단위 정수)
     price             INT          NOT NULL,               -- 판매가 (D15). price ≤ original_price 서비스 검증 (D28). 할인율은 파생 계산
-    stock_quantity    INT          NOT NULL DEFAULT 0,     -- 재고 (D33 — D8 폐기). 시드 초기값 일괄 100. 주문 생성 시 조건부 UPDATE 차감·부족 시 실패, 0 도달 시 STOCK 로그 1행 (D32)
+    stock_quantity    INT          NOT NULL DEFAULT 0,     -- 재고 (D33 — D8 폐기). 시드 초기값 일괄 100. 결제 성공(PAID)과 같은 트랜잭션에서 조건부 UPDATE 차감·부족 시 결제 실패, 0 도달 시 STOCK 로그 1행 (D32). 복원 MVP 미구현
     image_url         VARCHAR(500) NOT NULL,               -- 대표 이미지 1장 — 단일 확정 (D14)
     base_sales_count  INT          NOT NULL DEFAULT 0,     -- 크롤링 시점 누적 판매량, 시드 후 불변 (D18). 표시 판매량 = 이 값 + order_item 집계
     summary           VARCHAR(500) NULL,                   -- 주요 특징 요약
@@ -205,6 +205,7 @@ CREATE TABLE order_item (
     product_name       VARCHAR(200) NOT NULL,              -- 스냅샷
     option_name        VARCHAR(100) NULL,                  -- 스냅샷
     price              INT          NOT NULL,              -- 스냅샷: product.price + extra_price
+    original_price     INT          NOT NULL,              -- 스냅샷: 주문 시점 product.original_price + extra_price — 할인 표시용 (D37)
     quantity           INT          NOT NULL,
     status             VARCHAR(30)  NOT NULL,              -- 01 문서의 9개 상태 (D34 — 교환 2종 제거로 11→9)
     status_changed_at  DATETIME     NOT NULL,              -- 배송 전이 스케줄러 기준 시각
