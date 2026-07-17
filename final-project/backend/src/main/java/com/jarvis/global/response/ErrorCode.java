@@ -51,7 +51,15 @@ public enum ErrorCode {
     REVIEW_REPORT_DUPLICATE(HttpStatus.CONFLICT, "이미 신고한 후기입니다."),
     WISHLIST_DUPLICATE(HttpStatus.CONFLICT, "이미 찜한 상품입니다."),
     WISHLIST_NOT_FOUND(HttpStatus.NOT_FOUND, "찜한 상품이 아닙니다."),
-    ADDRESS_LAST_UNDELETABLE(HttpStatus.BAD_REQUEST, "유일한 배송지는 삭제할 수 없습니다.");
+    ADDRESS_LAST_UNDELETABLE(HttpStatus.BAD_REQUEST, "유일한 배송지는 삭제할 수 없습니다."),
+
+    // chat (04 §6 — Phase 5)
+    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "채팅 세션이 만료되었거나 존재하지 않습니다."),
+    SESSION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 세션이 아닙니다."),
+
+    // internal (03 D4 — Phase 5)
+    INTERNAL_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "서비스 토큰이 유효하지 않습니다."),
+    NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, "아직 제공하지 않는 기능입니다.");
 
     private final HttpStatus status;
     private final String message;

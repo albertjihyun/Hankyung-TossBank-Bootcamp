@@ -16,7 +16,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
         ErrorCode code = e.getErrorCode();
         return ResponseEntity.status(code.getStatus())
-                .body(ApiResponse.error(code, e.getMessage()));
+                .body(ApiResponse.error(code, e.getMessage(), e.getDetail()));
     }
 
     // @Valid 검증 실패 → VALIDATION_ERROR + fields[{field, message}] (03 D2, 2026-07-17 FE 요청)

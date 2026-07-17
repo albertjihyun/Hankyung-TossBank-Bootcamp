@@ -151,7 +151,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 ### I-2. 장바구니 담기 `POST /internal/cart/items`
 - body: `{ "userId": 123, "guestId": null, "productId": 1, "optionId": null, "quantity": 1 }` — userId/guestId 중 하나(채팅 요청의 메아리). quantity 1~99 (04 §3과 동일 검증: 입구가 달라도 같은 CartService)
 - **게스트(userId null)도 guestId로 담기 성공** (02 D30 — 2026-07-10 개정, 기존 403 유도 폐기). 로그인 유도는 결제 시점의 FE 몫 — LLM은 "장바구니에 담았어요. 주문하실 땐 로그인이 필요해요" 정도로만 안내.
-- 옵션 필요한데 optionId 없으면 400 `CART_OPTION_REQUIRED` + options 목록 반환 → LLM이 "어떤 색상으로 담을까요?"로 되물음.
+- 옵션 필요한데 optionId 없으면 400 `CART_OPTION_REQUIRED` + options 목록 반환 → LLM이 "어떤 색상으로 담을까요?"로 되물음. **(2026-07-18 구현 확정)** options는 envelope `error.detail.options[{optionId, name, extraPrice}]`로 실린다.
 - 성공 응답에 cartItemId — action 이벤트에 사용. 행동 이벤트(behavior_events `add_to_cart`)는 서버 적재가 아니라 FE 배치 소관(04 §8 E-1 — 2026-07-17 전환).
 
 ### I-3. 인기 상품 `GET /internal/products/popular?size=12`
@@ -186,6 +186,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 
 ### I-21. 추천 목록 콜백 `POST /internal/recommendations` (제안)
 - body: `{ "sessionId": "…", "listId": "…", "productIds": [ … ] }`(순서 유지) — Spring이 Redis TTL 저장, FE가 CH-5(`GET /api/chat/lists/{listId}`)로 조회. **products.ready 발행 전 호출 — 콜백 실패 시 products.ready 발행 금지**(§1-2-1). 스키마 **OPEN(LLM 협의 중)**.
+- **(2026-07-18) BE는 제안 스키마대로 임시 구현** — sessionId·listId는 UUID 필수(그 외 400), productIds 1~20개, Redis TTL 10분(세션 TTL과 동일). CH-5 응답은 `{listId, items[카드 완결 필드]}`(순서 보존, HIDDEN·품절 드롭). 스키마 확정 시 이 구현·문서를 함께 갱신.
 
 ## 2-1. 아웃바운드: Spring → FastAPI
 
