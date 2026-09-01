@@ -11,7 +11,7 @@
 
 ```
 hackathon/        해커톤 5회 (개인)
-mid_project/      미드 팀 프로젝트 — 살래말래
+mid_project/      미드 팀 프로젝트 — 살래말래 (담당: 백엔드·DB)
 final_project/    파이널 팀 프로젝트 — Jarvis (담당: 백엔드)
 ```
 
@@ -37,7 +37,10 @@ final_project/    파이널 팀 프로젝트 — Jarvis (담당: 백엔드)
 
 충동구매 브레이크 서비스. 풀스택 트랙 팀 프로젝트로 진행했습니다.
 
+**담당: 백엔드·DB** — API·스키마·트랜잭션·인증(JWT Rotation) 설계와 구현, GCP 배포. 프론트는 SSR/CSR 구분 설계와 컴포넌트 분리에 관여.
+
 - 원본 팀 저장소: [Hankyung-Toss-delta/sallae-malrae](https://github.com/Hankyung-Toss-delta/sallae-malrae)
+- 설계 문서(ADR·DB 스키마·트러블슈팅): [mid_project/sallae-malrae/docs](./mid_project/sallae-malrae/docs)
 
 ---
 
