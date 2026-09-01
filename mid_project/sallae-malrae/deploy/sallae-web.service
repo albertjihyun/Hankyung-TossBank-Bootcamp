@@ -1,0 +1,17 @@
+[Unit]
+Description=살래말래 Next.js 웹 서버
+After=network.target
+
+[Service]
+Type=simple
+User=sallae
+WorkingDirectory=/home/sallae/sallae-malrae
+ExecStart=/usr/bin/node node_modules/.bin/next start
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/sallae/sallae-malrae/.env.local
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

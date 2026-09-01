@@ -1,0 +1,31 @@
+{
+  "name": "sallae-malrae",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
+    "bcrypt": "^6.0.0",
+    "gsap": "^3.15.0",
+    "jose": "^6.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "mariadb": "^3.5.2",
+    "next": "16.2.6",
+    "nodemailer": "^8.0.7",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4"
+  }
+}

@@ -1,0 +1,190 @@
+spring:
+  application:
+    name: jarvis-backend
+  profiles:
+    default: local
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 7     # 서버 4대 기준 총 28 — RDS max_connections 30(2026-08-09 실측) 내 유지.
+                               # 여유 2는 마이그레이션·수동 쿼리용. 대수를 더 늘리면 이 값을 다시 나눠야 한다
+      minimum-idle: 2          # 유휴 시 커넥션 반납해 슬롯 확보
+      connection-timeout: 5000 # 기본 30s — 풀 고갈 시 30초 매달리는 대신 5초 fail-fast
+      idle-timeout: 300000     # 5분 유휴 시 커넥션 정리
+      max-lifetime: 900000     # 15분마다 커넥션 재생성 — 좀비 커넥션 누적 방지
+      keepalive-time: 300000   # 5분마다 커넥션 생존 확인
+  jpa:
+    hibernate:
+      ddl-auto: validate  # 스키마 원본은 docs/backend/schema.sql — JPA는 만들지도 바꾸지도 않음 (03 §3-1)
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      timeout: 2s  # Lettuce 커맨드 타임아웃(기본 60s) — Redis 장애 시 채팅/세션 경로 fail-fast
+  jackson:
+    time-zone: Asia/Seoul
+  # 행동 이벤트 스트림 (08 §0). 운영 브로커는 전용 EC2 사설 IP — 퍼블릭 경로 없음 (08 D6)
+  # 토픽·컨슈머 그룹 **이름**은 여기가 아니라 app.kafka(파일 끝)에 있다 — 환경별 접두어가 붙는다 (08 D10)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # ⚠️ 아래 타임아웃 4종은 08 D7의 성립 조건이다. 기본값의 max.block.ms는 60초라
+      # 브로커가 죽으면 produce 호출이 요청 스레드를 60초씩 물고, 평상시 트래픽만으로도
+      # 1분 안에 톰캣 스레드가 고갈된다 — DB 폴백 판정에 도달하기 전에 앱 전체가 죽는다.
+      # "폭발 반경은 수집 엔드포인트뿐"이라는 설계 주장은 이 값들이 있어야 성립한다.
+      retries: 1
+      acks: all                   # 단일 브로커라 사실상 leader ack — 복제 추가 시 그대로 의미가 확장된다
+      properties:
+        max.block.ms: 1000        # 메타데이터 대기·버퍼 확보 상한
+        request.timeout.ms: 1000  # 브로커 응답 대기 상한
+        delivery.timeout.ms: 2000 # 재시도 포함 전체 상한 (≥ linger + request.timeout)
+        spring.json.add.type.headers: false  # 컨슈머가 프로듀서 클래스명에 묶이지 않게
+    consumer:
+      # 컨슈머 그룹 최초 조인 시 처음부터 읽는다 — 배포 직후 그룹이 생기기 전에 쌓인 이벤트를 버리지 않게
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # 역직렬화 실패를 예외로 던지면 컨테이너가 같은 레코드에서 무한 재시도한다 —
+      # ErrorHandlingDeserializer가 감싸야 DefaultErrorHandler가 DLT로 보낼 수 있다
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      max-poll-records: 100  # E-1 배치 상한과 같은 값 — 한 번에 처리하는 양을 원래 단위로 유지
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: com.jarvis.global.event
+        # 프로듀서가 타입 헤더를 싣지 않으므로(위) 컨슈머가 타입을 알고 있어야 한다
+        spring.json.value.default.type: com.jarvis.global.event.BehaviorEventMessage
+    listener:
+      # 적재는 원래 배치 INSERT였다 — 건별 리스너로 바꾸면 DB 왕복이 건수만큼 는다
+      type: batch
+
+server:
+  port: 8080
+  # I-1은 후보 수 상한이 없어(05 §I-1) 응답이 커질 수 있다 — JSON은 압축률이 높아 전송 시간이 콜백 타임아웃(3s)을 먹는 걸 막는다
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      group:
+        # ALB·오케스트레이터가 볼 것 — DB만 본다 (07 §4-1).
+        # 집계 /actuator/health 는 redis를 포함하므로 그걸 LB 타겟으로 쓰면
+        # Redis 장애가 "인스턴스 전체를 LB에서 제거" = 상품·주문까지 중단으로 번진다.
+        # 쇼핑은 Redis 없이 동작하므로 트래픽 라우팅이 Redis에 걸리면 안 된다.
+        liveness:
+          include: db
+        # 운영자·알람용 — Redis만 죽었을 때 이쪽만 DOWN으로 갈라진다.
+        # 집계 /actuator/health는 UP/DOWN만 주고 원인을 알려주지 않아 확인에 시간이 든다.
+        readiness:
+          include: db, redis
+
+# 인증 (03 D3 — AT 30분 / RT 14일, 시크릿은 환경변수)
+jwt:
+  secret: ${JWT_SECRET} # HS256 서명 키 — 256bit(32자) 이상. 값이 바뀌면 발급된 AT/RT가 전부 무효화된다
+  access-token-minutes: 30
+  refresh-token-days: 14
+
+# mock 전이 간격 (01 §6 — 환경변수 아님, yml 기본값)
+app:
+  # 인증/게스트 쿠키 Secure 속성 (03 D3) — 운영은 HTTPS라 true. localhost는 secure context라 http에서도 전송됨.
+  # 비-localhost origin으로 로컬 테스트 시에만 APP_COOKIE_SECURE=false로 내릴 수 있음.
+  cookie:
+    secure: ${APP_COOKIE_SECURE:true}
+  # X-Forwarded-For를 오른쪽에서 몇 번째까지 신뢰할지 (ClientIp 참고).
+  # nginx가 이어붙이는 구조라 왼쪽은 클라이언트가 위조할 수 있다. 홉 수는 터널·프록시 구성에
+  # 따라 달라지므로 배포에서 실측값을 주입한다 — 2는 ALB+nginx 기준 임시값.
+  client-ip:
+    forwarded-depth: ${APP_CLIENT_IP_FORWARDED_DEPTH:2}
+  # 토큰 무효화 마커 유지 기간 (07 §3-2). AT 최대 수명(30분)보다 길기만 하면 된다 —
+  # 그 뒤엔 무효화 대상이던 토큰이 전부 자연 만료라 기억할 이유가 없다.
+  auth:
+    epoch-ttl-minutes: 35
+  # 로그인·가입 요청 제한 (07 §3-4). 목적은 정밀 과금이 아니라 무차별 대입 차단이다.
+  rate-limit:
+    login:
+      window-minutes: 10
+      account-limit: 5   # 정상 사용자가 10분에 5번 틀릴 일은 드물다
+      ip-limit: 30       # 회사·카페 등 공유 IP를 고려해 넉넉히
+    # 업로드 URL 발급 제한 (S-6) — 전송 없이 반복 발급이 가능해 회원 단위로 센다.
+    # 로그인과 달리 IP 축을 두지 않는다: 이미 인증된 판매자라 계정이 곧 책임 주체다.
+    upload:
+      window-minutes: 10
+      member-limit: 60
+  # 상품 이미지 호스트 (02 D42) — DB엔 버킷 내 경로(key)만 저장하고 앞부분은 여기서 붙인다.
+  # 이미지가 Cloudflare 뒤로 옮겨질 예정이라 URL을 통째로 넣으면 그때 5만여 행을 UPDATE해야 한다.
+  # 시크릿이 아니라 공개 버킷 주소이므로 기본값을 여기 두고(로컬은 무설정 동작) 배포만 환경변수로 덮어쓴다.
+  image:
+    base-url: ${APP_IMAGE_BASE_URL:https://jarvis-storage-049705857330-ap-northeast-2-an.s3.ap-northeast-2.amazonaws.com}
+  # 판매자 상품 이미지 업로드용 presigned URL (S-6). 시크릿이 아니라 공개 버킷 정보라 기본값을 둔다.
+  # key-prefix가 products/temp/인 이유 (2026-08-10 개정) — 등록·수정 시 products/{productId}/main.{ext}로
+  # 복사하고 원본은 여기 걸린 1일 만료 라이프사이클이 치운다. 지우는 주체가 우리가 아니라서
+  # s3:DeleteObject 없이 옮기기가 성립한다. products/ 아래여야 하는 건 그 prefix만 공개 읽기라서다.
+  s3:
+    bucket: ${APP_S3_BUCKET:jarvis-storage-049705857330-ap-northeast-2-an}
+    region: ${APP_S3_REGION:ap-northeast-2}
+    key-prefix: products/temp
+    presign-expiry-minutes: 5
+    # 리사이즈(긴 변 1200px·JPEG 0.85) 후 최악이 800KB라 2.5배 여유. 정상 사용자를 위한 값이 아니라
+    # 브라우저 리사이즈를 건너뛴 업로드를 막는 값이다 (2026-08-09 BE·FE 합의).
+    max-upload-bytes: 2097152
+  mock:
+    # shipping-minutes 제거 (2026-08-06) — ORDERED→SHIPPING은 판매자 발송(I-30) 소관이라
+    # 스케줄러가 더는 일으키지 않는다 (01 D4 개정)
+    delivery-minutes: 5
+    confirm-minutes: 10
+    claim-approve-minutes: 5
+  # 채팅 세션·스트림 티켓 (03 D5, 05 §1-0)
+  chat:
+    session-ttl-minutes: 10
+    # 추천 목록(CH-5 조회) TTL — 세션과 근거가 다르므로 값을 공유하지 않는다 (07 §2-1).
+    # 세션은 대화 지속성이, 이쪽은 listId 노출 창이 근거라 세션을 늘려도 따라 늘면 안 된다.
+    list-ttl-minutes: 10
+  stream-ticket:
+    private-key: ${STREAM_TICKET_PRIVATE_KEY} # RS256 private key — base64(PKCS#8 DER), Spring만 보관 (03 §5)
+    kid: ${STREAM_TICKET_KID}
+    ttl-seconds: 60
+  # 고객 라벨 HMAC 키 (노션 I-14 2026-08-06 프라이버시 개정) — 판매자에게 memberId 대신 내려보내는
+  # 사례번호(A3F29C)의 키. 저장하지 않는 계산값이라 DDL 무변경. 값이 바뀌면 과거 라벨과 이어지지 않으므로
+  # 회전하려면 관리자 역조회 안내와 함께 해야 한다. 미주입 시 기동 실패(fail-fast — 없다고 memberId로
+  # 폴백하면 이 개정이 막으려던 재식별이 조용히 되살아난다)
+  privacy:
+    customer-label-secret: ${CUSTOMER_LABEL_SECRET}
+  # internal 서비스 토큰 (03 D4 — FastAPI와 .env로 공유)
+  internal:
+    token: ${INTERNAL_API_TOKEN} # 로컬=application-local.yml, 배포=환경변수 주입(커밋 금지). FastAPI와 동일 이름·값의 org 공유 시크릿, 미주입 시 기동 실패(fail-fast)
+  # Spring→FastAPI 아웃바운드 (03 §5) — base-url 빈 값이면 통지 skip(FastAPI 미기동 로컬)
+  llm:
+    base-url: ${LLM_BASE_URL:}
+    sse-url: ${LLM_SSE_URL:} # FastAPI 공개 base URL — llmSseUrl은 여기에 /chat(구매자)·/seller/chat(판매자)을 붙여 내려감. 미설정 시 빈 값(채팅 degrade)
+  # 행동 이벤트 토픽·컨슈머 그룹 이름 (08 D10).
+  #
+  # ⚠️ **이름의 정본은 여기 한 곳뿐이다.** 리스너 애노테이션도 자바 코드도 이 프로퍼티를 읽는다 —
+  # 애노테이션에 문자열을 따로 적으면 "선언한 이름"과 "실제 쓰는 이름"이 갈릴 수 있고,
+  # DLT가 정확히 그렇게 몇 주간 죽어 있었다(08 D3 연혁: `.DLT` vs `-dlt`).
+  #
+  # prefix가 필요한 이유 — 브로커는 1대뿐이라(D6) dev와 운영이 **같은 브로커**에 붙는다.
+  # 접두어가 없으면 양쪽이 같은 컨슈머 그룹의 멤버가 되어, 카프카가 파티션을 나눠주는 대로
+  # 운영 이벤트 일부를 dev가 가져가 자기 DB에 적재하고 오프셋까지 커밋한다 — 에러도 lag도 없이.
+  # 운영은 빈 값(기존 이름 그대로), dev만 `APP_KAFKA_PREFIX=dev-`를 준다.
+  kafka:
+    prefix: ${APP_KAFKA_PREFIX:}
+    topic: ${app.kafka.prefix}behavior-events
+    dlt: ${app.kafka.topic}-dlt
+    groups:
+      persister: ${app.kafka.prefix}persister
+      visitor-tracker: ${app.kafka.prefix}visitor-tracker
+      dlt-monitor: ${app.kafka.prefix}dlt-monitor

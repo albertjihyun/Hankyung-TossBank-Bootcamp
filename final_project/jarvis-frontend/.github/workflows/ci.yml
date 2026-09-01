@@ -1,0 +1,17 @@
+name: CI
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx eslint .
+      # next build가 타입 체크를 포함하므로 별도 tsc는 두지 않는다.
+      # 백엔드가 없는 CI에서도 통과해야 한다 — 서버 fetch에 5초 타임아웃이 있고
+      # 홈은 force-dynamic이라 빌드 시점에 백엔드를 부르지 않는다.
+      - run: npm run build

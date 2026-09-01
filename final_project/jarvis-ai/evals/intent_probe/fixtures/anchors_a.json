@@ -1,0 +1,1434 @@
+{
+  "fixtureVersion": "intent-probe-anchors-a-v8",
+  "schemaVersion": "1.3.0",
+  "reaskProductId": 101,
+  "reaskProductListPosition": 1,
+  "reaskPositionRationale": "되물음 상품이 LAST_RECOMMENDATIONS 의 몇 번째인지를 명시적으로 고정한다. #240 에서 이 위치가 1번이냐 2번이냐만으로 `일반형`(1번 옵션) 정답률이 fast 기준 8/8 ↔ 3/8 로 갈렸고(smart 는 양쪽 8/8), 그 차이 때문에 cand11 채택 판정이 뒤집혔다. 위치가 옵션 선택에 샌다는 것이 실측된 이상 이 값을 고정하지 않으면 어떤 표도 재현되지 않는다. anchors_a.json(1번)과 anchors_b.json(2번)의 차이는 이 축 하나뿐이며, 앵커를 바꾸면 결과가 달라진다는 사실 자체를 두 판본으로 시연한다.",
+  "switchTargets": [
+    "이어폰",
+    "섬유유연제"
+  ],
+  "priorFilters": {
+    "semanticQuery": "세탁 세제"
+  },
+  "categoryPriorFilters": {
+    "category": "음향가전 > 이어폰",
+    "semanticQuery": "무선 이어폰"
+  },
+  "lastRecommendations": [
+    {
+      "productId": 101,
+      "name": "리필 세탁 세제 2L"
+    },
+    {
+      "productId": 102,
+      "name": "고농축 액상 세탁 세제"
+    },
+    {
+      "productId": 103,
+      "name": "섬유유연제 라벤더 향"
+    },
+    {
+      "productId": 104,
+      "name": "무선 블루투스 이어폰"
+    }
+  ],
+  "options": [
+    {
+      "optionId": 1001,
+      "name": "일반형"
+    },
+    {
+      "optionId": 1002,
+      "name": "드럼형"
+    }
+  ],
+  "screens": [
+    {
+      "screenId": "screen-single",
+      "pageType": "chat",
+      "filters": {
+        "page": "1"
+      },
+      "columns": 1,
+      "products": [
+        {
+          "productId": 3101,
+          "name": "코튼 워셔블 러그 150x200"
+        }
+      ]
+    },
+    {
+      "screenId": "screen-triple",
+      "pageType": "chat",
+      "filters": {
+        "page": "1"
+      },
+      "columns": 3,
+      "products": [
+        {
+          "productId": 3101,
+          "name": "코튼 워셔블 러그 150x200"
+        },
+        {
+          "productId": 3102,
+          "name": "라탄 수납 바구니 3종"
+        },
+        {
+          "productId": 3103,
+          "name": "무드등 겸용 가습기"
+        }
+      ]
+    },
+    {
+      "screenId": "screen-five",
+      "pageType": "chat",
+      "filters": {
+        "page": "1"
+      },
+      "columns": 3,
+      "products": [
+        {
+          "productId": 3101,
+          "name": "코튼 워셔블 러그 150x200"
+        },
+        {
+          "productId": 3102,
+          "name": "라탄 수납 바구니 3종"
+        },
+        {
+          "productId": 3103,
+          "name": "무드등 겸용 가습기"
+        },
+        {
+          "productId": 3104,
+          "name": "우드 사이드테이블"
+        },
+        {
+          "productId": 3105,
+          "name": "린넨 커튼 2p"
+        }
+      ]
+    },
+    {
+      "screenId": "screen-nine",
+      "pageType": "chat",
+      "filters": {
+        "page": "1"
+      },
+      "columns": 3,
+      "products": [
+        {
+          "productId": 3101,
+          "name": "코튼 워셔블 러그 150x200"
+        },
+        {
+          "productId": 3102,
+          "name": "라탄 수납 바구니 3종"
+        },
+        {
+          "productId": 3103,
+          "name": "무드등 겸용 가습기"
+        },
+        {
+          "productId": 3104,
+          "name": "우드 사이드테이블"
+        },
+        {
+          "productId": 3105,
+          "name": "린넨 커튼 2p"
+        },
+        {
+          "productId": 3106,
+          "name": "저상형 프레임 침대"
+        },
+        {
+          "productId": 3107,
+          "name": "메모리폼 방석"
+        },
+        {
+          "productId": 3108,
+          "name": "무선 블루투스 이어폰"
+        },
+        {
+          "productId": 3109,
+          "name": "탁상 선풍기"
+        }
+      ]
+    },
+    {
+      "screenId": "screen-named",
+      "pageType": "chat",
+      "filters": {
+        "page": "1"
+      },
+      "columns": 2,
+      "products": [
+        {
+          "productId": 3101,
+          "name": "코튼 워셔블 러그 150x200"
+        },
+        {
+          "productId": 3102,
+          "name": "라탄 수납 바구니 3종"
+        },
+        {
+          "productId": 3103,
+          "name": "무드등 겸용 가습기"
+        },
+        {
+          "productId": 3110,
+          "name": "무선 블루투스 이어폰"
+        }
+      ]
+    }
+  ],
+  "screenLastRecommendations": [
+    {
+      "productId": 2001,
+      "name": "리필 세탁 세제 2L"
+    },
+    {
+      "productId": 2002,
+      "name": "드럼용 세탁 세제"
+    },
+    {
+      "productId": 2003,
+      "name": "섬유유연제"
+    }
+  ],
+  "contexts": [
+    {
+      "contextId": "none",
+      "includePriorFilters": false,
+      "includeLastRecommendations": false,
+      "includePendingCart": false
+    },
+    {
+      "contextId": "lastRecommendations",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false
+    },
+    {
+      "contextId": "pendingCart",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": true
+    },
+    {
+      "contextId": "categoryPrior",
+      "includePriorFilters": true,
+      "includeLastRecommendations": false,
+      "includePendingCart": false,
+      "priorFiltersRef": "category"
+    },
+    {
+      "contextId": "screenSingle",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false,
+      "lastRecommendationsRef": "screen",
+      "includeScreen": true,
+      "screenRef": "screen-single"
+    },
+    {
+      "contextId": "screenTriple",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false,
+      "lastRecommendationsRef": "screen",
+      "includeScreen": true,
+      "screenRef": "screen-triple"
+    },
+    {
+      "contextId": "screenFive",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false,
+      "lastRecommendationsRef": "screen",
+      "includeScreen": true,
+      "screenRef": "screen-five"
+    },
+    {
+      "contextId": "screenNine",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false,
+      "lastRecommendationsRef": "screen",
+      "includeScreen": true,
+      "screenRef": "screen-nine"
+    },
+    {
+      "contextId": "screenNamed",
+      "includePriorFilters": true,
+      "includeLastRecommendations": true,
+      "includePendingCart": false,
+      "lastRecommendationsRef": "screen",
+      "includeScreen": true,
+      "screenRef": "screen-named"
+    }
+  ],
+  "utterances": [
+    {
+      "utteranceId": "cart-control-001",
+      "group": "cart_control",
+      "text": "장바구니 보여줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_view"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ]
+    },
+    {
+      "utteranceId": "cart-control-002",
+      "group": "cart_control",
+      "text": "장바구니에 뭐 있어?",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_view"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ]
+    },
+    {
+      "utteranceId": "cart-control-003",
+      "group": "cart_control",
+      "text": "내 장바구니 확인해줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_view"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ]
+    },
+    {
+      "utteranceId": "cart-control-004",
+      "group": "cart_control",
+      "text": "그거 담아줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ]
+    },
+    {
+      "utteranceId": "cart-control-005",
+      "group": "cart_control",
+      "text": "장바구니에 넣어줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ],
+      "note": "'장바구니'가 들어 있지만 담기 동사가 우선 — cart_view 로 새는지 보는 대조군."
+    },
+    {
+      "utteranceId": "cart-control-006",
+      "group": "cart_control",
+      "text": "2번 담아줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add"
+      },
+      "axes": [
+        "mainIntent",
+        "cartControl"
+      ]
+    },
+    {
+      "utteranceId": "demonstrative-001",
+      "group": "demonstrative",
+      "text": "저번에 그거 다시 보여줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "mainIntent",
+        "demonstrative"
+      ]
+    },
+    {
+      "utteranceId": "demonstrative-002",
+      "group": "demonstrative",
+      "text": "저번에 그거 다시 사고 싶어",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "mainIntent",
+        "demonstrative"
+      ],
+      "note": "#240 §3: 맥락 없음 100% / 직전추천 95% / PENDING_CART 58% — 맥락 주입이 원인임을 드러내는 셀."
+    },
+    {
+      "utteranceId": "demonstrative-003",
+      "group": "demonstrative",
+      "text": "그거 또 사고 싶어",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "mainIntent",
+        "demonstrative"
+      ]
+    },
+    {
+      "utteranceId": "demonstrative-004",
+      "group": "demonstrative",
+      "text": "그거 보여줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "mainIntent",
+        "demonstrative"
+      ],
+      "note": "#234 대조군이자 #240 이 안정화 목표로 지목한 셀 — cand11 이 픽스처 A 에서 20/24 → 10/24 로 무너뜨렸다."
+    },
+    {
+      "utteranceId": "option-answer-001",
+      "group": "option_answer",
+      "text": "드럼형으로",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "optionId": 1002
+      },
+      "axes": [
+        "optionAnswer"
+      ]
+    },
+    {
+      "utteranceId": "option-answer-002",
+      "group": "option_answer",
+      "text": "일반형",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "optionId": 1001
+      },
+      "axes": [
+        "optionAnswer"
+      ],
+      "note": "1번 옵션. 되물음 상품의 목록 위치에 가장 민감한 셀 — reaskPositionRationale 참조."
+    },
+    {
+      "utteranceId": "option-answer-003",
+      "group": "option_answer",
+      "text": "드럼형으로 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "optionId": 1002
+      },
+      "axes": [
+        "optionAnswer"
+      ]
+    },
+    {
+      "utteranceId": "option-answer-004",
+      "group": "option_answer",
+      "text": "2번으로",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "optionId": 1002
+      },
+      "axes": [
+        "optionAnswer"
+      ],
+      "note": "순번 지시 — options 배열의 2번째가 정답이다."
+    },
+    {
+      "utteranceId": "switch-001",
+      "group": "switch",
+      "text": "이어폰으로 할래",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7",
+        "switchLegacy2",
+        "cartAddProductIdLegacy2"
+      ],
+      "note": "#240 전환 축(분모 16)의 2발화 중 하나. cartAddProductIdLegacy2 는 같은 표본을 #234 정의로 다시 센다."
+    },
+    {
+      "utteranceId": "switch-002",
+      "group": "switch",
+      "text": "다른 거 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7",
+        "switchLegacy2",
+        "cartAddProductIdLegacy2"
+      ],
+      "note": "#240 픽스처 A 기준 12/40(30%) — 가장 약한 전환 셀."
+    },
+    {
+      "utteranceId": "switch-003",
+      "group": "switch",
+      "text": "이거 말고 다른 거 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7"
+      ]
+    },
+    {
+      "utteranceId": "switch-004",
+      "group": "switch",
+      "text": "그거 말고 이어폰 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7"
+      ]
+    },
+    {
+      "utteranceId": "switch-005",
+      "group": "switch",
+      "text": "이어폰으로 바꿔줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7"
+      ]
+    },
+    {
+      "utteranceId": "switch-006",
+      "group": "switch",
+      "text": "섬유유연제로 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7"
+      ]
+    },
+    {
+      "utteranceId": "switch-007",
+      "group": "switch",
+      "text": "아니 이어폰 담아줘",
+      "contexts": [
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "notReaskProduct"
+      },
+      "axes": [
+        "switchAll7"
+      ]
+    },
+    {
+      "utteranceId": "order-status-001",
+      "group": "order_status",
+      "text": "내 주문 어디까지 왔어?",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "order_status"
+      },
+      "axes": [
+        "orderStatus"
+      ]
+    },
+    {
+      "utteranceId": "order-status-002",
+      "group": "order_status",
+      "text": "배송 상태 알려줘",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "order_status"
+      },
+      "axes": [
+        "orderStatus"
+      ]
+    },
+    {
+      "utteranceId": "general-001",
+      "group": "general",
+      "text": "주문 취소 방법",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "general"
+      },
+      "axes": [
+        "general"
+      ],
+      "note": "order_status 로 새기 쉬운 경계 발화 — 프롬프트가 general 로 못 박은 예시다."
+    },
+    {
+      "utteranceId": "general-002",
+      "group": "general",
+      "text": "안녕",
+      "contexts": [
+        "none",
+        "lastRecommendations",
+        "pendingCart"
+      ],
+      "expected": {
+        "intent": "general"
+      },
+      "axes": [
+        "general"
+      ],
+      "note": "#240 §3: 맥락 없음 100% / 직전추천 45% / PENDING_CART 30%. 맥락 주입이 원인임을 가장 크게 드러내는 셀."
+    },
+    {
+      "utteranceId": "category-carry-001",
+      "group": "category_action",
+      "text": "더 저렴한 걸로",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "carry"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryCarry"
+      ],
+      "note": "[#84] 이 컨텍스트는 LAST_RECOMMENDATIONS 를 싣지 않는다 — 직전 추천 목록이 붙으면 그 상품명이 카테고리 판정에 섞여(#118 라운드 2 실측) 재려는 축이 오염된다. 이 축은 PRIOR_FILTERS.category 단독의 효과를 잰다."
+    },
+    {
+      "utteranceId": "category-carry-002",
+      "group": "category_action",
+      "text": "다른 브랜드로 보여줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "carry"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryCarry"
+      ]
+    },
+    {
+      "utteranceId": "category-carry-003",
+      "group": "category_action",
+      "text": "평점 4.5 이상인 걸로",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "carry"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryCarry"
+      ]
+    },
+    {
+      "utteranceId": "category-carry-004",
+      "group": "category_action",
+      "text": "그 중에 배송 빠른 거",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "carry"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryCarry"
+      ]
+    },
+    {
+      "utteranceId": "category-clear-001",
+      "group": "category_action",
+      "text": "5만원 이하 아무거나 있어?",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "clear"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryClear"
+      ],
+      "note": "발화에 직전 카테고리 어휘를 넣지 않는다 — 넣으면 carry/replace 어느 쪽으로도 읽혀 정답이 자명하지 않다(#240 픽스처 함정과 같은 부류이며 스키마가 막는다)."
+    },
+    {
+      "utteranceId": "category-clear-002",
+      "group": "category_action",
+      "text": "종류 상관없이 인기 있는 거 추천해줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "clear"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryClear"
+      ]
+    },
+    {
+      "utteranceId": "category-clear-003",
+      "group": "category_action",
+      "text": "그냥 아무거나 보여줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "clear"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryClear"
+      ]
+    },
+    {
+      "utteranceId": "category-clear-004",
+      "group": "category_action",
+      "text": "카테고리 상관없이 3만원대로 골라줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "clear"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryClear"
+      ]
+    },
+    {
+      "utteranceId": "category-replace-001",
+      "group": "category_action",
+      "text": "이번엔 노트북 보여줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryReplace"
+      ],
+      "note": "새 상품을 말한 턴 — categoryQueries 에 leg 가 실려야 확정값이 replace 가 된다."
+    },
+    {
+      "utteranceId": "category-replace-002",
+      "group": "category_action",
+      "text": "청바지 추천해줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryReplace"
+      ]
+    },
+    {
+      "utteranceId": "category-replace-003",
+      "group": "category_action",
+      "text": "운동화로 바꿔줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryReplace"
+      ]
+    },
+    {
+      "utteranceId": "category-mixed-001",
+      "group": "category_action",
+      "text": "스피커 아무거나 보여줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryMixedReplace"
+      ],
+      "note": "[라운드 3] **혼합 발화** — 새 카테고리를 지목하면서 동시에 '아무거나'류 표현을 쓴다. 실 LLM 실측에서 이 4발화 32건 중 19건이 clear 로 확정돼 사용자가 말한 카테고리가 버려졌다(이 발화는 8/8). 기대는 replace 이고, 축은 categoryMixedReplace 로 따로 센다 — categoryReplace 의 분모(24)를 유지해야 v2 기준선과 비교가 된다."
+    },
+    {
+      "utteranceId": "category-mixed-002",
+      "group": "category_action",
+      "text": "이번엔 노트북 아무거나",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryMixedReplace"
+      ]
+    },
+    {
+      "utteranceId": "category-mixed-003",
+      "group": "category_action",
+      "text": "운동화 아무거나 추천해줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryMixedReplace"
+      ]
+    },
+    {
+      "utteranceId": "category-mixed-004",
+      "group": "category_action",
+      "text": "종류 상관없이 청바지로 보여줘",
+      "contexts": [
+        "categoryPrior"
+      ],
+      "expected": {
+        "intent": "recommend",
+        "categoryAction": "replace"
+      },
+      "axes": [
+        "categoryAction3Way",
+        "categoryMixedReplace"
+      ]
+    },
+    {
+      "utteranceId": "screen-001",
+      "group": "screen",
+      "text": "이거 담아줘",
+      "contexts": [
+        "screenSingle"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenExact",
+        "productId": 3101
+      },
+      "axes": [
+        "screenExactPick",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: productId=3101 확정 (화면 1건 — 지시대명사 단일 후보)."
+    },
+    {
+      "utteranceId": "screen-002",
+      "group": "screen",
+      "text": "이거 담아줘",
+      "contexts": [
+        "screenTriple"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenReask"
+      },
+      "axes": [
+        "screenReask",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: 되물음(productId 비움) — 화면 3건, 안전 셀. screen-001 과 텍스트가 같다(fakes.py 는 SCREEN: 줄로 가른다)."
+    },
+    {
+      "utteranceId": "screen-003",
+      "group": "screen",
+      "text": "3번째 거 담아줘",
+      "contexts": [
+        "screenFive"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenExact",
+        "productId": 3103
+      },
+      "axes": [
+        "screenExactPick",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: productId=3103 (3번째) — 배열 순번 해소."
+    },
+    {
+      "utteranceId": "screen-004",
+      "group": "screen",
+      "text": "3번째 줄 2번째 담아줘",
+      "contexts": [
+        "screenNine"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenExact",
+        "productId": 3108
+      },
+      "axes": [
+        "screenExactPick",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: productId=3108 (index 7) — columns=3 좌표 해소."
+    },
+    {
+      "utteranceId": "screen-005",
+      "group": "screen",
+      "text": "무선 이어폰 담아줘",
+      "contexts": [
+        "screenNamed"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenExact",
+        "productId": 3110
+      },
+      "axes": [
+        "screenExactPick",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: productId=3110 (이름 매칭) — 화면 이름 지목."
+    },
+    {
+      "utteranceId": "screen-006",
+      "group": "screen",
+      "text": "301 담아줘",
+      "contexts": [
+        "screenTriple"
+      ],
+      "expected": {
+        "intent": "cart_add",
+        "productIdRule": "screenNotHallucinated",
+        "forbiddenProductId": 301
+      },
+      "axes": [
+        "screenNoHallucination",
+        "screenResolution"
+      ],
+      "note": "#118 원본 라벨: 301 확정 금지 — 두 목록 밖 id 를 확정하지 않는다."
+    },
+    {
+      "utteranceId": "condition-only-001",
+      "group": "condition_only",
+      "text": "5만원 이하 아무거나 추천해줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "conditionOnlyNoCategoryQuery"
+      ],
+      "note": "[#344 라운드 2] 조건 전용 발화 — category_probe none 슬라이스와 같은 문구다. decompose 가 categoryQueries 를 비워 내는 계약은 지금 프롬프트의 우연한 동작이고 코드가 강제하지 않는다([#222 R2 F-2] category_mapping._collect_expansion_leaves docstring 참조). 오케스트레이터 실측(2026-08-06, none 슬라이스 40표본): 이 문구가 3건 누출됐다."
+    },
+    {
+      "utteranceId": "condition-only-002",
+      "group": "condition_only",
+      "text": "평점 좋은 걸로 보여줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "conditionOnlyNoCategoryQuery"
+      ],
+      "note": "[#344 라운드 2] 조건 전용 발화 — category_probe none 슬라이스와 같은 문구다."
+    },
+    {
+      "utteranceId": "condition-only-003",
+      "group": "condition_only",
+      "text": "인기 많은 거 추천해줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "conditionOnlyNoCategoryQuery"
+      ],
+      "note": "[#344 라운드 2] 조건 전용 발화 — category_probe none 슬라이스와 같은 문구다."
+    },
+    {
+      "utteranceId": "condition-only-004",
+      "group": "condition_only",
+      "text": "무료배송 되는 걸로 찾아줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "conditionOnlyNoCategoryQuery"
+      ],
+      "note": "[#344 라운드 2] 조건 전용 발화 — category_probe none 슬라이스와 같은 문구다. 오케스트레이터 실측: 이 문구가 3건 누출됐다."
+    },
+    {
+      "utteranceId": "condition-only-005",
+      "group": "condition_only",
+      "text": "가성비 좋은 거 추천해줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "conditionOnlyNoCategoryQuery"
+      ],
+      "note": "[#344 라운드 2] 조건 전용 발화 — category_probe none 슬라이스와 같은 문구다. 오케스트레이터 실측: 이 문구가 4건 누출됐고(그중 1건은 '가성비 좋은 무선 이어폰'으로 없던 카테고리까지 창작), 그래서 불변식이 이미 ~25% 흔들린다는 것이 이 축을 만든 동기다."
+    },
+    {
+      "utteranceId": "wishlist-view-001",
+      "group": "wishlist_view",
+      "text": "내가 뭐 찜했지?",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "wishlist_view"
+      },
+      "axes": [
+        "wishlistViewPositive",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 찜 목록 조회 양성 — api-spec §4.16(I-28)이 규정한 발화형이다. 이 intent 는 이번 이슈로 신설돼 커밋된 어느 기준선에도 표본이 없다(그래서 별도 축으로 격리한다)."
+    },
+    {
+      "utteranceId": "wishlist-view-002",
+      "group": "wishlist_view",
+      "text": "찜한 거 보여줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "wishlist_view"
+      },
+      "axes": [
+        "wishlistViewPositive",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 찜 목록 조회 양성 — api-spec §4.16(I-28)이 규정한 발화형이다. 이 intent 는 이번 이슈로 신설돼 커밋된 어느 기준선에도 표본이 없다(그래서 별도 축으로 격리한다)."
+    },
+    {
+      "utteranceId": "wishlist-view-003",
+      "group": "wishlist_view",
+      "text": "위시리스트 뭐 있어?",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "wishlist_view"
+      },
+      "axes": [
+        "wishlistViewPositive",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 찜 목록 조회 양성 — api-spec §4.16(I-28)이 규정한 발화형이다. 이 intent 는 이번 이슈로 신설돼 커밋된 어느 기준선에도 표본이 없다(그래서 별도 축으로 격리한다)."
+    },
+    {
+      "utteranceId": "wishlist-view-004",
+      "group": "wishlist_view",
+      "text": "보여줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "wishlistViewNoSteal",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 음성 대조 — 목적어 없는 조회 동사만으로는 wishlist_view 가 아니다. cart_view 도 같은 이유로 \"보여줘\"·\"뭐 있어?\" 단독을 금지하는 가드를 갖고 있는데(#234 실측), 찜 조회를 더하면 그 자리가 3파전(recommend·cart_view·wishlist_view)이 된다 — 이 셀이 그걸 직접 잰다."
+    },
+    {
+      "utteranceId": "wishlist-view-005",
+      "group": "wishlist_view",
+      "text": "뭐 있어?",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": [
+        "wishlistViewNoSteal",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 음성 대조 — 목적어 없는 조회 동사만으로는 wishlist_view 가 아니다. cart_view 도 같은 이유로 \"보여줘\"·\"뭐 있어?\" 단독을 금지하는 가드를 갖고 있는데(#234 실측), 찜 조회를 더하면 그 자리가 3파전(recommend·cart_view·wishlist_view)이 된다 — 이 셀이 그걸 직접 잰다."
+    },
+    {
+      "utteranceId": "wishlist-view-006",
+      "group": "wishlist_view",
+      "text": "찜한 거 담아줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_add"
+      },
+      "axes": [
+        "wishlistViewNoSteal",
+        "wishlistViewRouting"
+      ],
+      "note": "[#386] 음성 대조 — \"찜한\"은 지시 대상을 수식할 뿐이고 이 발화의 동사는 담기다. config.wishlist_reference_markers 와 decompose 판정 사다리 1)이 이미 세운 규약이라, 찜 조회 규칙을 더한 뒤에도 그대로여야 한다(강한 신호 우선)."
+    },
+    {
+      "utteranceId": "named-category-001",
+      "group": "named_category",
+      "text": "과일 추천해줘",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] 대조군 — 상황 설명 없이 상품군만 명시한 최소형. 다른 요인(상황 선행/후행·추상도·수식어) 셀과 비교할 기준선이다. _SYSTEM 예문과 대조했다(겹치지 않음)."
+    },
+    {
+      "utteranceId": "named-category-002",
+      "group": "named_category",
+      "text": "나 아기 키우는데 과일 추천해줘",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] 운영 실측 발화(2026-08-07) 그대로 — 같은 발화가 decompose 회차마다 categoryQueries: [\"과일\"](매핑 성공, 검색 1건) / categoryQueries: [](D1 no_legs → #217 전개 → #222 확장 폴백, 검색 4~8건·지연 14.52s) 두 갈래로 갈렸다(이슈 본문 실측). 상황 설명이 상품군보다 앞에 온다(선행). _SYSTEM 예문과 대조했다(겹치지 않음)."
+    },
+    {
+      "utteranceId": "named-category-003",
+      "group": "named_category",
+      "text": "과일 추천해줘, 나 아기 키우고 있어서",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] named-category-002 와 상품군·상황 어휘는 같고 순서만 바꿨다 — 상황 설명이 상품군보다 뒤에 온다(후행). 002 와 짝지어 '상황 설명의 위치' 요인만 분리해서 잰다. _SYSTEM 예문과 대조했다(겹치지 않음)."
+    },
+    {
+      "utteranceId": "named-category-004",
+      "group": "named_category",
+      "text": "나 아기 키우는데 유아용 물티슈 추천해줘",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] named-category-002 와 상황 어휘는 같고 상품군만 추상적인 '과일'에서 구체적인 상품명 '유아용 물티슈'로 바꿨다 — '상품군의 추상도' 요인만 분리해서 잰다. _SYSTEM 예문과 대조했다(겹치지 않음)."
+    },
+    {
+      "utteranceId": "named-category-005",
+      "group": "named_category",
+      "text": "나 캠핑 다니는데 텐트 추천해줘",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] 002~004 와는 다른 상황·다른 상품군('아기'류가 아니라 '캠핑'류) — 이 불변식이 특정 어휘에 갇힌 것이 아니라 '상황 선행 + 상품군'이라는 형태 자체에서 재현되는지(일반화)를 잰다. _SYSTEM 예문과 대조했다(겹치지 않음)."
+    },
+    {
+      "utteranceId": "named-category-006",
+      "group": "named_category",
+      "text": "가성비 좋은 텀블러 추천해줘",
+      "contexts": ["none"],
+      "expected": {
+        "intent": "recommend"
+      },
+      "axes": ["namedCategoryHasLeg"],
+      "note": "[#443] 가격·평가 수식어(가성비) + 상품군(텀블러) — condition-only-005('가성비 좋은 거 추천해줘')와 짝이 되게 골랐다: 같은 수식어라도 상품명이 있으면 leg 이 나와야 하고 없으면 안 나와야 한다는 대조를 같은 표에서 읽을 수 있다. 상품명·상황 어휘는 _SYSTEM 과 겹치지 않지만(대조 완료), 수식어 '가성비' 자체는 _SYSTEM 의 categoryQueries 불릿 수식어 제거 규칙(\"가격·평가 수식어('갓성비', '가성비', '저렴한')와 상황 설명 ... 은 빼세요\")에 문면으로 등장한다 — 그래서 이 셀은 001~005 와 달리 '프롬프트에 이미 명시된 규칙이 있는 축'이고, 만점이어도 그것은 일반화의 증거가 아니라 명시된 규칙이 지켜지는가의 증거다."
+    },
+    {
+      "utteranceId": "wishlist-remove-001",
+      "group": "wishlist_remove",
+      "text": "찜한 거 빼줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "wishlist_remove"
+      },
+      "axes": [
+        "wishlistRemovePositive",
+        "wishlistRemoveRouting"
+      ],
+      "note": "[#440] 이슈 본문 재현 케이스. 사다리 1-1) \"찜 빼줘\"·\"찜 해제해줘\" → wishlist_remove 는 #116/#117(3eb505c, 2026-08-05)이 이슈 #440 등록 이전에 이미 넣었다 — 그래서 #440 은 프롬프트를 고치지 않았다. 무수정 프롬프트 실측에서 양성 2셀이 8/8 이라 문면 수정의 상한 이득이 0 이고, 넓히면 wishlist-remove-003(\"찜닭 빼줘\")의 거짓양성을 악화시킨다. 결정론 계층(intent_guard 인접 결합 + wishlist 해소 근거 게이트)이 프롬프트 판정과 무관하게 올바른 동작을 보장한다."
+    },
+    {
+      "utteranceId": "wishlist-remove-002",
+      "group": "wishlist_remove",
+      "text": "찜해둔 거 지워줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "wishlist_remove"
+      },
+      "axes": [
+        "wishlistRemovePositive",
+        "wishlistRemoveRouting"
+      ],
+      "note": "[#440] 같은 부류 변형. 사다리 1-1)이 #116/#117 때 이미 넣은 규칙이라 #440 은 프롬프트를 고치지 않았다(wishlist-remove-001 note 참조 — 무수정 실측 8/8, 문면 수정의 상한 이득이 0). 결정론 계층(intent_guard 인접 결합 + wishlist 해소 근거 게이트)이 프롬프트 판정과 무관하게 올바른 동작을 보장한다."
+    },
+    {
+      "utteranceId": "wishlist-remove-003",
+      "group": "wishlist_remove",
+      "text": "찜닭 빼줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_remove"
+      },
+      "axes": [
+        "wishlistRemoveNoSteal",
+        "wishlistRemoveRouting"
+      ],
+      "note": "[#440] 거짓양성 대조(음식명) — \"찜닭\"의 \"찜\"이 어절 경계를 통과하지 못해 인접 결합이 걸리지 않는다. 프롬프트 계층은 이 발화를 여전히 wishlist_remove 로 보낸다(0/8 오답) — 이 셀의 목적은 그 불일치를 기록하는 것이다. 결정론 계층이 (a) 찜 삭제를 막고 (b) wishlist_remove → cart_remove 역방향 정정(#440 후속)으로 장바구니 삭제까지 이어준다."
+    },
+    {
+      "utteranceId": "wishlist-remove-004",
+      "group": "wishlist_remove",
+      "text": "장바구니에서 빼줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_remove"
+      },
+      "axes": [
+        "wishlistRemoveNoSteal",
+        "wishlistRemoveRouting"
+      ],
+      "note": "[#440] 잠식 대조 — 새 인접 결합 규칙이 cart_remove(\"장바구니에서 빼줘\")를 잠식하지 않는지 잰다. 사다리 1-1)이 #116/#117 때 이미 넣은 규칙이라 #440 은 프롬프트를 고치지 않았다(wishlist-remove-001 note 참조). 결정론 계층(intent_guard 인접 결합 + wishlist 해소 근거 게이트)이 프롬프트 판정과 무관하게 올바른 동작을 보장한다. wishlist-remove-005(\"찜한 거 담아줘\")는 wishlist-view-006 과 발화가 겹쳐 중복 셀을 만들지 않고 이 축에서 뺐다 — 기존 셀이 이미 재고 있다."
+    },
+    {
+      "utteranceId": "cart-quantity-001",
+      "group": "cart_quantity",
+      "text": "장바구니 이어폰 3개로 바꿔줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_quantity"
+      },
+      "axes": [
+        "cartQuantityPositive",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 수량 변경 양성 — 최종 수량을 지정하는 치환 표현. 이 intent 는 이번 이슈로 신설돼 커밋된 어느 기준선에도 표본이 없다(그래서 별도 축으로 격리한다). combo_matrix 는 build_decompose_json 으로 intent 를 강제해 라우팅을 재지 않기로 했으므로(axes.json cart_quantity_not_generated), 라우팅 회귀는 이 축이 잰다. 실제 정답 보증은 결정론 계층(intent_guard.py 사다리 4-a + quantity.py 대상 해소)이 맡는다."
+    },
+    {
+      "utteranceId": "cart-quantity-002",
+      "group": "cart_quantity",
+      "text": "수량 2개로 변경해줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_quantity"
+      },
+      "axes": [
+        "cartQuantityPositive",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 수량 변경 양성 — 상품명 없이 수량 표지만으로도 잡혀야 한다(대상 해소는 결정론 계층 몫, 라우팅과 별개)."
+    },
+    {
+      "utteranceId": "cart-quantity-003",
+      "group": "cart_quantity",
+      "text": "담아둔 거 5개로 해줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_quantity"
+      },
+      "axes": [
+        "cartQuantityPositive",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 수량 변경 양성 — \"담아둔 거\"(과거 참조)가 담기 표지(cart_add_markers)로 오인돼 0-a 에서 cart_add 로 새지 않는지 잰다."
+    },
+    {
+      "utteranceId": "cart-quantity-004",
+      "group": "cart_quantity",
+      "text": "하나 더 담아줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_add"
+      },
+      "axes": [
+        "cartQuantityNoSteal",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 가장 중요한 음성 대조(패킷 함정 2) — 합산 요청은 치환(cart_quantity)이 아니라 cart_add 다. classify_cart_utterance 사다리 4-a 는 cart_quantity_increment_markers 가 매칭되면 cart_quantity 로 가지 않는다(0-a 담기 표지가 이미 이 발화를 cart_add 로 확정하기도 한다)."
+    },
+    {
+      "utteranceId": "cart-quantity-005",
+      "group": "cart_quantity",
+      "text": "이어폰 빼줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_remove"
+      },
+      "axes": [
+        "cartQuantityNoSteal",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 음성 대조 — 삭제 요청은 cart_quantity 를 훔치지 않는다(cart_remove_markers 가 먼저 잡는다, intent_guard.py 사다리 4번)."
+    },
+    {
+      "utteranceId": "cart-quantity-006",
+      "group": "cart_quantity",
+      "text": "장바구니 목록 좀 보여줘",
+      "contexts": [
+        "none"
+      ],
+      "expected": {
+        "intent": "cart_view"
+      },
+      "axes": [
+        "cartQuantityNoSteal",
+        "cartQuantityRouting"
+      ],
+      "note": "[#285, I-25 §4.13 — 4단계] 음성 대조 — 조회 요청은 cart_quantity 를 훔치지 않는다(cart_view). \"장바구니 보여줘\"(cart-control-001)와 발화가 겹치지 않도록 다른 문구를 쓴다(드라이런 후보 매칭이 텍스트로 셀을 특정하므로 동일 문구 중복은 모호성을 만든다)."
+    }
+  ]
+}

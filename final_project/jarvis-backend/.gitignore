@@ -1,0 +1,23 @@
+# build
+.gradle/
+build/
+out/
+bin/
+
+# secrets (03 §5 — 어떤 시크릿도 커밋 금지)
+.env
+src/main/resources/application-local.yml
+
+# 로컬 전용 시드 (개인 테스트 데이터 — 배포 DB에 갈 일이 없어야 한다)
+scripts/seed-*-local.sql
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# build logs
+*.log
+
+# 결과보고서 작업 파일 (팀 내부 배포용, 저장소에 두지 않음)
+docs/report/

@@ -1,0 +1,11 @@
+[Unit]
+Description=살래말래 이메일 알림 발송 (oneshot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=sallae
+WorkingDirectory=/home/sallae/sallae-malrae
+ExecStart=/usr/bin/node --env-file=/home/sallae/sallae-malrae/.env.local scripts/send-notifications.js
+StandardOutput=journal
+StandardError=journal

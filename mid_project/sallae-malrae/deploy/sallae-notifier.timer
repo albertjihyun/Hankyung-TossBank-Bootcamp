@@ -1,0 +1,11 @@
+[Unit]
+Description=살래말래 이메일 알림 타이머 (매시 정각)
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+AccuracySec=1s
+Persistent=false
+Unit=sallae-notifier.service
+
+[Install]
+WantedBy=timers.target
