@@ -9,8 +9,11 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white">
   <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss&logoColor=white">
   <img alt="React Query" src="https://img.shields.io/badge/React%20Query-5-FF4154?logo=reactquery&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-233%20passing-success">
+  <img alt="tests" src="https://img.shields.io/badge/tests-295%20passing-success">
 </p>
+
+> **이 파트는 팀원이 개발했습니다.** 원본은 팀 저장소 [toss-delta-final/jarvis-frontend](https://github.com/toss-delta-final/jarvis-frontend)이며 여기는 보존용 사본입니다.
+> 이 포트폴리오 저장소 소유자의 담당 파트는 [jarvis-backend](../jarvis-backend/)입니다.
 
 ---
 
@@ -77,7 +80,7 @@ flowchart LR
 | 폼 | **React Hook Form + Zod** | 검증 규칙을 스키마 한 곳에 두고 백엔드 필드 정의와 맞춘다 |
 | 스타일 | **Tailwind v4 + shadcn/ui** | 색·라운드·간격을 토큰으로 고정해 1인 개발에서도 화면 간 편차가 생기지 않게 한다 |
 | HTTP | **axios** | 인터셉터 한 곳에 인증 재발급 규약을 모아, 화면 코드가 401을 몰라도 되게 한다 |
-| 테스트 | **Vitest** | 스트림 파싱·재시도·조건 칩 계산 같은 순수 로직만 빠르게 고정(233건) |
+| 테스트 | **Vitest** | 스트림 파싱·재시도·조건 칩 계산 같은 순수 로직만 빠르게 고정(295건) |
 | 배포 | **Docker (nginx + node)** | 앱 티어의 경로 분기를 프론트 컨테이너가 겸한다 |
 
 ---
@@ -139,11 +142,10 @@ npm run dev
 # 4. 검증 — build가 진짜 게이트다 (타입 검사 포함, tsc만으로는 놓치는 에러가 있다)
 npm run build
 npm run lint
-npm run test          # vitest 233건
+npm run test          # vitest 295건
 ```
 
-배포 서버 https://narvis.shop 에서 바로 확인할 수 있다.
-평가용 계정은 일반 사용자 `autumn@narvis.shop` / 판매자 `spring@narvis.shop` (비밀번호는 제출 문서 참조).
+배포 서버(`narvis.shop`)는 2026-08 시연 후 운영을 종료했다.
 
 ### 화면
 
