@@ -12,6 +12,9 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
 </p>
 
+> **이 파트는 팀원이 개발했습니다.** 원본은 팀 저장소 [toss-delta-final/jarvis-ai](https://github.com/toss-delta-final/jarvis-ai)이며 여기는 보존용 사본입니다.
+> 이 포트폴리오 저장소 소유자의 담당 파트는 [jarvis-backend](../jarvis-backend/)입니다.
+
 ---
 
 ## 프로젝트 개요
