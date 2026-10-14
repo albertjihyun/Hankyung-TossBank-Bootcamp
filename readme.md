@@ -33,7 +33,7 @@ final_project/    파이널 팀 프로젝트 — Jarvis (담당: 백엔드)
 
 ---
 
-## 미드 프로젝트 — [살래말래](./mid_project)
+## 중간 프로젝트 — [살래말래](./mid_project)
 
 충동구매 브레이크 서비스. 풀스택 트랙 팀 프로젝트로 진행했습니다.
 
@@ -44,7 +44,7 @@ final_project/    파이널 팀 프로젝트 — Jarvis (담당: 백엔드)
 
 ---
 
-## 파이널 프로젝트 — [Jarvis](./final_project)
+## 최종 프로젝트 — [Jarvis](./final_project)
 
 대화로 상품을 찾고 담고 사는 **에이전틱 커머스(Agentic Commerce)** 플랫폼. LLM 트랙과 협업한 크로스팀 프로젝트로, AI · 프론트엔드 · 백엔드 3개 저장소로 구성됩니다.
 
