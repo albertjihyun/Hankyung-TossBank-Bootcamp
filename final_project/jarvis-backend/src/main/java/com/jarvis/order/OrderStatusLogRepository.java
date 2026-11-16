@@ -9,6 +9,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface OrderStatusLogRepository extends JpaRepository<OrderStatusLog, Long> {
 
+    /** 해당 상태로 들어간 가장 최근 전이 로그 — O-1 멱등 재전송이 결제 실패 사유(reason)를 다시 돌려줄 때 쓴다 */
+    java.util.Optional<OrderStatusLog> findFirstByOrderIdAndToStatusOrderByIdDesc(Long orderId, String toStatus);
+
     interface StatusCountRow {
         String getBucket();
         Long getCnt();

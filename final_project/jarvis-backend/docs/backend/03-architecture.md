@@ -301,6 +301,7 @@ com.jarvis
 | 수단 | 어떤 쓰기에 | 사용처 |
 |---|---|---|
 | **DB UNIQUE + 중복은 무시하고 성공** | 삽입형 | `client_event_id`(02 D35) · 장바구니 `option_key` uk(02 D44) · `uk_address_default` |
+| **멱등 키 + DB UNIQUE, 재전송엔 처음 결과를 그대로** | 돈이 걸린 생성형 | O-1 주문 생성 — `Idempotency-Key` 헤더 + `uk_orders_idempotency`(02 D47, `IdempotentOrderCreator`). 위 행과 달리 "무시"가 아니라 **같은 응답을 재생**한다 — 응답 유실 후 재시도가 실패로 보이면 안 되기 때문 |
 | **조건부 UPDATE** — 1행 매치 = 내가 바꾼 것, 0행 = 이미 남이 함 | 상태 전이형 | I-30 발송 · 클레임 신청 · 재고 차감(02 D33) |
 | **이미 그 상태면 성공 반환** | 발급·승계형 | CH-1 세션 발급(노션 CH-1 2026-07-31) · 세션 claim 승계(07 §3-2) |
 | **`SETNX` / dedupKey** | 조정·통지형 | I-21 목록 저장 · I-20 종료 통지(`session-end:{userId}:{sessionId}`, 중복은 `202 duplicate`) |

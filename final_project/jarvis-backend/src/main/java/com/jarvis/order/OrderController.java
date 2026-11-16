@@ -8,6 +8,7 @@ import com.jarvis.order.dto.OrderDetailResponse;
 import com.jarvis.order.dto.OrderListResponse;
 import com.jarvis.order.dto.RetryPaymentRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +30,10 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class OrderController {
 
+    static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+
     private final OrderService orderService;
+    private final IdempotentOrderCreator idempotentOrderCreator;
 
     @PostMapping
     public ApiResponse<OrderCreateResponse> create(@Valid @RequestBody OrderCreateRequest request,
@@ -37,8 +41,15 @@ public class OrderController {
                                                    // 분석용 세션 키 — 신원 아님(노션 O-1 2026-08-11, C-2와 동일).
                                                    // 누락 시 결제는 정상, purchase_complete 적재만 스킵
                                                    @RequestHeader(value = "X-Session-Key", required = false)
-                                                   String sessionKey) {
-        return ApiResponse.success(orderService.create(authUser.memberId(), request, sessionKey));
+                                                   String sessionKey,
+                                                   // 같은 구매 의도의 재전송을 한 주문으로 묶는 키 (02 D47).
+                                                   // 선택 — 없으면 종전대로 매 요청이 새 주문이다
+                                                   @RequestHeader(value = IDEMPOTENCY_KEY_HEADER, required = false)
+                                                   @Pattern(regexp = "[A-Za-z0-9_-]{16,64}",
+                                                           message = "Idempotency-Key는 영문·숫자·-·_ 16~64자여야 합니다.")
+                                                   String idempotencyKey) {
+        return ApiResponse.success(
+                idempotentOrderCreator.create(authUser.memberId(), request, sessionKey, idempotencyKey));
     }
 
     @PostMapping("/{id}/retry-payment")

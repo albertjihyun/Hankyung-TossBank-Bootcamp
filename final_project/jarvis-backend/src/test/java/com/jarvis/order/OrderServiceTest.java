@@ -59,6 +59,7 @@ class OrderServiceTest {
 
     @Mock OrderRepository orderRepository;
     @Mock OrderItemRepository orderItemRepository;
+    @Mock OrderStatusLogRepository orderStatusLogRepository;
     @Mock OrderEventRecorder orderEventRecorder;
     @Mock CartService cartService;
     @Mock ProductRepository productRepository;
@@ -368,6 +369,80 @@ class OrderServiceTest {
         assertThat(response.status()).isEqualTo("PAID");
         verify(orderItemRepository).saveAll(itemsCaptor.capture());
         assertThat(itemsCaptor.getValue().get(0).getListId()).isNull();
+    }
+
+    @Test
+    @DisplayName("O-1 멱등 키 — 키를 주문 행에 함께 저장한다(UNIQUE가 재전송을 가르는 근거, 02 D47)")
+    void createStoresIdempotencyKey() {
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
+        when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
+        when(productStockService.deduct(anyMap())).thenReturn(true);
+
+        orderService.create(1L, directRequest("MOCK_CARD", 1), null, "key-0123456789abcdef");
+
+        ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(orderCaptor.capture());
+        assertThat(orderCaptor.getValue().getIdempotencyKey()).isEqualTo("key-0123456789abcdef");
+    }
+
+    @Test
+    @DisplayName("O-1 멱등 키 없음 — 키 컬럼은 NULL로 남아 UNIQUE에 걸리지 않는다")
+    void createWithoutKeyLeavesNull() {
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
+        when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
+        when(productStockService.deduct(anyMap())).thenReturn(true);
+
+        orderService.create(1L, directRequest("MOCK_CARD", 1), null);
+
+        ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(orderCaptor.capture());
+        assertThat(orderCaptor.getValue().getIdempotencyKey()).isNull();
+    }
+
+    @Test
+    @DisplayName("O-1 재전송 조회 — 결제 성공 주문은 실패 사유 없이 그때의 응답을 다시 만든다")
+    void findCreatedPaid() {
+        Order order = Order.create(1L, "MOCK_CARD", 12000, "r", "p", "z", "a1", null, null, "key-0123456789abcdef");
+        ReflectionTestUtils.setField(order, "id", 7L);
+        ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 11, 16, 12, 0));
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PAID);
+        when(orderRepository.findByMemberIdAndIdempotencyKey(1L, "key-0123456789abcdef")).thenReturn(Optional.of(order));
+
+        OrderCreateResponse response = orderService.findCreated(1L, "key-0123456789abcdef").orElseThrow();
+
+        assertThat(response.orderId()).isEqualTo(7L);
+        assertThat(response.orderNo()).isEqualTo("ORD-20261116-7");
+        assertThat(response.status()).isEqualTo("PAID");
+        assertThat(response.failureReason()).isNull();
+        verify(orderStatusLogRepository, never()).findFirstByOrderIdAndToStatusOrderByIdDesc(any(), any());
+    }
+
+    @Test
+    @DisplayName("O-1 재전송 조회 — 결제 실패 주문은 전이 로그에서 실패 사유를 되찾아 같은 응답을 준다")
+    void findCreatedPaymentFailed() {
+        Order order = Order.create(1L, "MOCK_FAIL", 12000, "r", "p", "z", "a1", null, null, "key-0123456789abcdef");
+        ReflectionTestUtils.setField(order, "id", 7L);
+        ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 11, 16, 12, 0));
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PAYMENT_FAILED);
+        when(orderRepository.findByMemberIdAndIdempotencyKey(1L, "key-0123456789abcdef")).thenReturn(Optional.of(order));
+        when(orderStatusLogRepository.findFirstByOrderIdAndToStatusOrderByIdDesc(7L, "PAYMENT_FAILED"))
+                .thenReturn(Optional.of(OrderStatusLog.ofOrder(7L, "PENDING", "PAYMENT_FAILED",
+                        ActorType.SYSTEM, "OUT_OF_STOCK")));
+
+        OrderCreateResponse response = orderService.findCreated(1L, "key-0123456789abcdef").orElseThrow();
+
+        assertThat(response.status()).isEqualTo("PAYMENT_FAILED");
+        assertThat(response.failureReason()).isEqualTo("OUT_OF_STOCK");
+    }
+
+    @Test
+    @DisplayName("O-1 재전송 조회 — 같은 키의 주문이 없으면 비어 있다")
+    void findCreatedMissing() {
+        when(orderRepository.findByMemberIdAndIdempotencyKey(1L, "key-0123456789abcdef")).thenReturn(Optional.empty());
+
+        assertThat(orderService.findCreated(1L, "key-0123456789abcdef")).isEmpty();
     }
 
     @Test
