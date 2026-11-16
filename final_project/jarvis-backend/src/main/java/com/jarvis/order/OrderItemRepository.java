@@ -82,12 +82,19 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     Optional<OrderItem> findOwnedByBrand(@Param("orderItemId") Long orderItemId,
                                          @Param("brandId") Long brandId);
 
-    /** S-3/I-9 표시 판매량 부착 — PAID 주문 합산 (02 D18, P-6 popular와 동일 규칙) */
+    /**
+     * S-3/I-9 표시 판매량 부착 — PAID 주문 합산 (02 D18, P-6 popular와 동일 규칙).
+     *
+     * <p>취소·반품된 아이템은 뺀다(2026-11-16). 주문은 전량 취소일 때만 CANCELLED로 바뀌므로(01 §2-1)
+     * 주문 상태만 보면 부분 취소·반품분이 판매로 계속 잡힌다. 판매자 매출 집계(sumSellerSales)와 같은
+     * 조건을 써서, 같은 화면의 판매량과 매출 수량이 어긋나지 않게 한다.
+     */
     @Query(value = """
             SELECT oi.product_id AS productId, SUM(oi.quantity) AS quantity
             FROM order_item oi
             JOIN orders o ON o.id = oi.order_id AND o.status = 'PAID'
             WHERE oi.product_id IN (:productIds)
+              AND oi.status NOT IN ('PENDING', 'CANCELLED', 'RETURNED')
             GROUP BY oi.product_id
             """, nativeQuery = true)
     List<ProductQuantityRow> sumPaidQuantityByProduct(@Param("productIds") Collection<Long> productIds);

@@ -269,7 +269,7 @@ public class InternalSellerController {
             @PathVariable Long brandId,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
-            @RequestParam(defaultValue = "30") int inactiveDays) {
+            @RequestParam(defaultValue = "30") @Min(1) @Max(AnalysisPeriod.MAX_DAYS) int inactiveDays) {
         return ApiResponse.success(
                 sellerAnalyticsService.churn(brandId, AnalysisPeriod.of(from, to), inactiveDays));
     }

@@ -75,6 +75,11 @@ public class SellerSalesService {
         if (from.isAfter(to)) {
             throw new BusinessException(ErrorCode.SELLER_INVALID_PARAM);
         }
+        // 내부 분석 API와 같은 상한 — 이 기간이 AI 성과 집계(주문 줄마다 이벤트를 대조)로 그대로 들어간다
+        if (java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1 > AnalysisPeriod.MAX_DAYS) {
+            throw new BusinessException(ErrorCode.SELLER_INVALID_PARAM,
+                    "조회 기간은 최대 " + AnalysisPeriod.MAX_DAYS + "일입니다.");
+        }
         int threshold = require(lowStockThreshold, DEFAULT_LOW_STOCK, 1, 999);
         int trend = require(trendDays, DEFAULT_TREND_DAYS, 1, 90);
         Long brandId = brand.getId();

@@ -83,12 +83,14 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     /**
      * P-6 popular 정렬 — 표시 판매량 = base_sales_count + order_item×PAID 집계 (02 D18).
      * order 도메인은 Phase 3 — 엔티티 없이 테이블 집계라 네이티브 (03 §4 JdbcTemplate 허용과 같은 근거).
+     * 취소·반품된 아이템은 판매로 세지 않는다 — 판매자 매출 집계와 같은 조건(2026-11-16).
      */
     @Query(value = """
             SELECT p.* FROM product p
             LEFT JOIN (SELECT oi.product_id AS pid, SUM(oi.quantity) AS sold
                        FROM order_item oi
                        JOIN orders o ON o.id = oi.order_id AND o.status = 'PAID'
+                       WHERE oi.status NOT IN ('PENDING', 'CANCELLED', 'RETURNED')
                        GROUP BY oi.product_id) s ON s.pid = p.id
             WHERE p.brand_id = :brandId
               AND p.status = 'ON_SALE'
@@ -112,6 +114,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             JOIN orders o ON o.id = oi.order_id AND o.status = 'PAID' AND o.paid_at >= :since
             JOIN product p ON p.id = oi.product_id AND p.status = 'ON_SALE'
             WHERE EXISTS (SELECT 1 FROM product_stock ps WHERE ps.product_id = p.id AND ps.quantity > 0)
+              AND oi.status NOT IN ('PENDING', 'CANCELLED', 'RETURNED')
             GROUP BY oi.product_id
             ORDER BY SUM(oi.quantity) DESC, oi.product_id DESC
             LIMIT :limit
