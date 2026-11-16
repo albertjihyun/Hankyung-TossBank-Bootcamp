@@ -82,6 +82,18 @@ class ActiveVisitorStoreTest {
     }
 
     @Test
+    @DisplayName("기록할 때도 낡은 세션을 걷어낸다 — 대시보드를 열지 않는 브랜드의 집합이 끝없이 자라지 않는다")
+    void recordTrimsEntriesOlderThanKeyTtl() {
+        LocalDateTime at = LocalDateTime.of(2026, 8, 10, 12, 0, 0);
+        double score = at.atZone(java.time.ZoneId.systemDefault()).toEpochSecond();
+
+        store.record(BRAND_ID, "sess-1", at);
+
+        // 키 수명(40분)보다 오래된 원소는 어떤 조회 창(30분)에도 들지 않으므로 지워도 숫자가 같다
+        verify(zSetOperations).removeRangeByScore("visitors:7", 0, score - 40 * 60);
+    }
+
+    @Test
     @DisplayName("기록이 실패해도 예외를 올리지 않는다 — 집계 한 건이 컨슈머를 멈추면 안 된다")
     void recordSwallowsFailure() {
         when(zSetOperations.add(anyString(), anyString(), anyDouble()))

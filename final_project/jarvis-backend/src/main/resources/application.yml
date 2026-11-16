@@ -1,6 +1,13 @@
 spring:
   application:
     name: jarvis-backend
+  task:
+    scheduling:
+      pool:
+        # 스케줄 작업 5개(배송 전이·클레임 승인·브랜드 색인·스트림 점검·DLT 요약)가 기본값 1개 스레드를
+        # 나눠 쓰면, 하나가 길어질 때 나머지가 밀린다 — 스트림 점검이 90초 안에 못 돌면 실시간 방문자가
+        # 멀쩡한데도 30분간 DB 집계로 돌아간다
+        size: 4
   lifecycle:
     # graceful 종료가 처리 중인 요청을 기다리는 상한. 가장 긴 요청(AI 프록시 4s)보다 충분히 길게,
     # ALB 등록 취소 대기(30s)보다는 짧게 둔다

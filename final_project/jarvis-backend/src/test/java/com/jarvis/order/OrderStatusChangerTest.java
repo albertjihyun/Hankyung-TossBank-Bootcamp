@@ -85,7 +85,7 @@ class OrderStatusChangerTest {
         List<OrderItem> candidates = List.of(item(5551L, 500L), item(5552L, 500L));
 
         when(orderItemRepository.findAllByStatusAndStatusChangedAtLessThanEqual(
-                eq(OrderItemStatus.SHIPPING), any())).thenReturn(candidates);
+                eq(OrderItemStatus.SHIPPING), any(), any())).thenReturn(candidates);
         when(orderItemRepository.transitionStatus(anyLong(), any(), any(), any())).thenReturn(1);
 
         int count = changer.transitionShipment(OrderItemStatus.SHIPPING, OrderItemStatus.DELIVERED,
@@ -108,7 +108,7 @@ class OrderStatusChangerTest {
         List<OrderItem> candidates = List.of(item(5551L, 500L), item(5552L, 500L));
 
         when(orderItemRepository.findAllByStatusAndStatusChangedAtLessThanEqual(
-                eq(OrderItemStatus.SHIPPING), any())).thenReturn(candidates);
+                eq(OrderItemStatus.SHIPPING), any(), any())).thenReturn(candidates);
         when(orderItemRepository.transitionStatus(eq(5551L), any(), any(), any())).thenReturn(1);
         when(orderItemRepository.transitionStatus(eq(5552L), any(), any(), any())).thenReturn(0);
 
@@ -125,7 +125,7 @@ class OrderStatusChangerTest {
         List<OrderItem> candidates = List.of(item(5551L, 500L));
 
         when(orderItemRepository.findAllByStatusAndStatusChangedAtLessThanEqual(
-                eq(OrderItemStatus.DELIVERED), any())).thenReturn(candidates);
+                eq(OrderItemStatus.DELIVERED), any(), any())).thenReturn(candidates);
         when(orderItemRepository.transitionStatus(anyLong(), any(), any(), any())).thenReturn(1);
 
         changer.transitionShipment(OrderItemStatus.DELIVERED, OrderItemStatus.CONFIRMED,
@@ -134,77 +134,112 @@ class OrderStatusChangerTest {
         savedLogs(0);
     }
 
-    @Test
-    @DisplayName("클레임 승인: 같은 주문의 아이템별로 1행씩이고 각자의 reason이 남는다")
-    void claimApprovalLogsPerItemWithOwnReason() {
-        List<Claim> due = List.of(claim(1L, 5551L, "단순변심"), claim(2L, 5552L, "배송지연"));
-        List<OrderItem> items = List.of(item(5551L, 500L), item(5552L, 500L));
+    /** 승인 대기 중인 클레임과 그 아이템을 리포지토리에 심는다 */
+    private void stubRequested(Claim claim, OrderItem item) {
+        lenient().when(claim.getStatus()).thenReturn(ClaimStatus.REQUESTED);
+        when(claimRepository.findById(claim.getId())).thenReturn(java.util.Optional.of(claim));
+        when(orderItemRepository.findById(item.getId())).thenReturn(java.util.Optional.of(item));
+    }
 
-        when(claimRepository.findAllByStatusAndCreatedAtLessThanEqual(any(), any())).thenReturn(due);
-        when(orderItemRepository.findAllById(any())).thenReturn(items);
-        when(orderItemRepository.transitionStatus(anyLong(), any(), any(), any())).thenReturn(1);
+    @Test
+    @DisplayName("클레임 승인: 아이템 1행 로그에 그 클레임의 reason이 남고 actor는 신청자(USER)다")
+    void claimApprovalLogsItemWithOwnReason() {
+        Claim claim = claim(2L, 5552L, "배송지연");
+        stubRequested(claim, item(5552L, 500L, 10L, null, 1));
+        when(orderItemRepository.transitionStatus(eq(5552L), any(), any(), any())).thenReturn(1);
         // 전량 취소 승격 경로는 이 테스트 관심 밖 — 남은 아이템이 있는 것으로 둔다
         when(orderItemRepository.countByOrderIdAndStatusNot(eq(500L), any())).thenReturn(1L);
 
-        int approved = changer.approveDueClaims(LocalDateTime.now());
+        boolean approved = changer.approveClaim(2L, LocalDateTime.now());
 
-        assertThat(approved).isEqualTo(2);
-        List<OrderStatusLog> logs = savedLogs(2);
-        assertThat(logs).extracting(OrderStatusLog::getOrderItemId).containsExactly(5551L, 5552L);
-        // 구 규칙은 (주문, from, to)로 묶어 첫 reason만 남기고 "배송지연"을 버렸다
-        assertThat(logs).extracting(OrderStatusLog::getReason).containsExactly("단순변심", "배송지연");
-        assertThat(logs).allSatisfy(l -> assertThat(l.getActorType()).isEqualTo(ActorType.USER));
+        assertThat(approved).isTrue();
+        verify(claim).approve(any());
+        List<OrderStatusLog> logs = savedLogs(1);
+        assertThat(logs.get(0).getOrderItemId()).isEqualTo(5552L);
+        assertThat(logs.get(0).getReason()).isEqualTo("배송지연");
+        assertThat(logs.get(0).getActorType()).isEqualTo(ActorType.USER);
     }
 
     @Test
-    @DisplayName("클레임 승인: 취소·반품 확정분의 재고를 같은 트랜잭션에서 되돌린다 (반품도 복원 대상)")
-    void claimApprovalRestoresStockForCancelAndReturn() {
-        List<Claim> due = List.of(claim(1L, 5551L, "단순변심"), returnClaim(2L, 5552L));
-        List<OrderItem> items = List.of(
-                item(5551L, 500L, 10L, 100L, 2),    // 취소 — 옵션 있는 상품
-                item(5552L, 500L, 20L, null, 3));   // 반품 — 옵션 없는 상품
-
-        when(claimRepository.findAllByStatusAndCreatedAtLessThanEqual(any(), any())).thenReturn(due);
-        when(orderItemRepository.findAllById(any())).thenReturn(items);
-        when(orderItemRepository.transitionStatus(anyLong(), any(), any(), any())).thenReturn(1);
+    @DisplayName("클레임 승인: 취소 확정분의 재고를 같은 트랜잭션에서 되돌린다 — 복원 키는 (상품, 옵션)")
+    void cancelApprovalRestoresStock() {
+        Claim claim = claim(1L, 5551L, "단순변심");
+        stubRequested(claim, item(5551L, 500L, 10L, 100L, 2));
+        when(orderItemRepository.transitionStatus(eq(5551L), any(), any(), any())).thenReturn(1);
         when(orderItemRepository.countByOrderIdAndStatusNot(eq(500L), any())).thenReturn(1L);
 
-        changer.approveDueClaims(LocalDateTime.now());
+        changer.approveClaim(1L, LocalDateTime.now());
 
-        verify(productStockService).restore(Map.of(
-                new ProductStockService.StockKey(10L, 100L), 2,
-                new ProductStockService.StockKey(20L, null), 3));
+        verify(productStockService).restore(Map.of(new ProductStockService.StockKey(10L, 100L), 2));
     }
 
     @Test
-    @DisplayName("클레임 승인: 전이 경합에 진 아이템은 재고도 되돌리지 않는다")
-    void lostRaceRestoresNothing() {
-        List<Claim> due = List.of(claim(1L, 5551L, "단순변심"));
-        List<OrderItem> items = List.of(item(5551L, 500L, 10L, 100L, 2));
+    @DisplayName("클레임 승인: 반품도 재고 복원 대상이다 — 옵션 없는 상품은 optionId가 null")
+    void returnApprovalRestoresStock() {
+        Claim claim = returnClaim(2L, 5552L);
+        stubRequested(claim, item(5552L, 500L, 20L, null, 3));
+        when(orderItemRepository.transitionStatus(eq(5552L), any(), any(), any())).thenReturn(1);
 
-        when(claimRepository.findAllByStatusAndCreatedAtLessThanEqual(any(), any())).thenReturn(due);
-        when(orderItemRepository.findAllById(any())).thenReturn(items);
+        changer.approveClaim(2L, LocalDateTime.now());
+
+        java.util.Map<ProductStockService.StockKey, Integer> expected = new java.util.HashMap<>();
+        expected.put(new ProductStockService.StockKey(20L, null), 3);
+        verify(productStockService).restore(expected);
+        // 반품은 주문 취소 승격 대상이 아니다
+        verify(orderItemRepository, never()).countByOrderIdAndStatusNot(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("클레임 승인: 전이 경합에 지면 아무것도 바꾸지 않는다 — 재고 이중 복원이 없다")
+    void lostRaceChangesNothing() {
+        Claim claim = claim(1L, 5551L, "단순변심");
+        stubRequested(claim, item(5551L, 500L, 10L, 100L, 2));
         when(orderItemRepository.transitionStatus(anyLong(), any(), any(), any())).thenReturn(0);
 
-        assertThat(changer.approveDueClaims(LocalDateTime.now())).isZero();
+        assertThat(changer.approveClaim(1L, LocalDateTime.now())).isFalse();
 
+        verify(claim, never()).approve(any());
+        verify(productStockService, never()).restore(any());
+        verify(logRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("클레임 승인: 이미 처리된 클레임은 다시 승인하지 않는다 — 전이도 시도하지 않는다")
+    void alreadyProcessedClaimIsSkipped() {
+        Claim claim = claim(1L, 5551L, "단순변심");
+        when(claim.getStatus()).thenReturn(ClaimStatus.COMPLETED);
+        when(claimRepository.findById(1L)).thenReturn(java.util.Optional.of(claim));
+
+        assertThat(changer.approveClaim(1L, LocalDateTime.now())).isFalse();
+
+        verify(orderItemRepository, never()).transitionStatus(anyLong(), any(), any(), any());
         verify(productStockService, never()).restore(any());
     }
 
     @Test
-    @DisplayName("주문 상태 전이는 orderItemId가 null이다 — 결제 성공·실패·생성")
-    void orderLevelTransitionsHaveNullItemId() {
-        Order order = mock(Order.class);
-        lenient().when(order.getId()).thenReturn(500L);
-        lenient().when(order.getStatus()).thenReturn(OrderStatus.PENDING);
+    @DisplayName("자동 승인 대상 조회는 건수를 묶는다 — 밀린 클레임 전부를 한 번에 올리지 않는다")
+    void dueClaimLookupIsBounded() {
+        when(claimRepository.findDueIds(eq(ClaimStatus.REQUESTED), any(), any())).thenReturn(List.of(1L, 2L));
 
-        changer.logOrderCreated(order);
-        changer.paymentFailed(order, "CARD_DECLINED");
+        assertThat(changer.findDueClaimIds(LocalDateTime.now(), 200)).containsExactly(1L, 2L);
 
-        List<OrderStatusLog> logs = savedLogs(2);
-        assertThat(logs).allSatisfy(l -> assertThat(l.getOrderItemId()).isNull());
-        assertThat(logs.get(0).getToStatus()).isEqualTo("PENDING");
-        assertThat(logs.get(1).getToStatus()).isEqualTo("PAYMENT_FAILED");
-        assertThat(logs.get(1).getReason()).isEqualTo("CARD_DECLINED");
+        ArgumentCaptor<org.springframework.data.domain.Pageable> page =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(claimRepository).findDueIds(eq(ClaimStatus.REQUESTED), any(), page.capture());
+        assertThat(page.getValue().getPageSize()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("배송 전이 후보 조회도 건수를 묶는다")
+    void shipmentCandidateLookupIsBounded() {
+        when(orderItemRepository.findAllByStatusAndStatusChangedAtLessThanEqual(any(), any(), any()))
+                .thenReturn(List.of());
+
+        changer.transitionShipment(OrderItemStatus.SHIPPING, OrderItemStatus.DELIVERED, LocalDateTime.now(), true);
+
+        ArgumentCaptor<org.springframework.data.domain.Pageable> page =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(orderItemRepository).findAllByStatusAndStatusChangedAtLessThanEqual(any(), any(), page.capture());
+        assertThat(page.getValue().getPageSize()).isEqualTo(OrderStatusChanger.SHIPMENT_BATCH_SIZE);
     }
 }
