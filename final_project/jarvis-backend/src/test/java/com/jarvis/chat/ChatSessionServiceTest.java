@@ -141,6 +141,19 @@ class ChatSessionServiceTest {
     }
 
     @Test
+    @DisplayName("오염된 세션 값 — 게스트 세션에서는 칸이 밀려 있어도 판매자 티켓이 나가지 않는다")
+    void guestSessionNeverYieldsSellerTicket() {
+        when(valueOperations.get("chat:owner:guest:x|SELLER|5:SHOPPING")).thenReturn("live");
+        when(valueOperations.get("chat:session:live")).thenReturn("guest|x|SELLER|5|SHOPPING");
+
+        ChatSessionResponse response = service.issueSession(ChatIdentity.guest("x|SELLER|5"), ChatChannel.SHOPPING);
+
+        assertThat(response.streamTicket()).isEqualTo("ticket");
+        assertThat(response.llmSseUrl()).endsWith("/chat").doesNotContain("/seller/");
+        verify(ticketProvider, never()).createSellerTicket(any(), anyString(), anyLong());
+    }
+
+    @Test
     @DisplayName("S-4 D5 — 같은 판매자의 활성 세션도 그대로 반환하며 brandId(SELLER 티켓)를 유지한다")
     void issueSellerSessionReusesActive() {
         when(valueOperations.get("chat:owner:member:7:SELLER")).thenReturn("live-seller-session");

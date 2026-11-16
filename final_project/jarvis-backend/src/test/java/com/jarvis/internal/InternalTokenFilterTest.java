@@ -3,8 +3,10 @@ package com.jarvis.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -13,6 +15,39 @@ import org.springframework.mock.web.MockHttpServletResponse;
 class InternalTokenFilterTest {
 
     private final InternalTokenFilter filter = new InternalTokenFilter("secret-token", new ObjectMapper());
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("통과한 요청에만 INTERNAL 권한을 심는다 — 시큐리티가 /internal/**에 이 권한을 요구한다")
+    void validTokenGrantsInternalAuthority() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/internal/cart");
+        request.setRequestURI("/internal/cart");
+        request.addHeader(InternalTokenFilter.HEADER, "secret-token");
+
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting(Object::toString).containsExactly("ROLE_INTERNAL");
+    }
+
+    @Test
+    @DisplayName("퍼센트 인코딩으로 /internal/을 가려도 필터 대상이다 — 토큰 없으면 401")
+    void encodedPathIsStillFiltered() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/%69nternal/cart");
+        request.setRequestURI("/%69nternal/cart");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isNull();
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
 
     @Test
     @DisplayName("올바른 X-Internal-Token이면 통과")
