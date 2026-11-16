@@ -35,7 +35,12 @@ public class ActiveVisitorStore {
     public void record(Long brandId, String sessionKey, LocalDateTime at) {
         String key = KEY_PREFIX + brandId;
         try {
-            redisTemplate.opsForZSet().add(key, sessionKey, epochSeconds(at));
+            double score = epochSeconds(at);
+            redisTemplate.opsForZSet().add(key, sessionKey, score);
+            // 쓸 때도 낡은 원소를 걷어낸다. 정리가 조회(count)에만 있으면, 대시보드를 열지 않는 브랜드의
+            // 집합은 이벤트가 끊기지 않는 한 TTL만 계속 밀리며 끝없이 자란다. KEY_TTL보다 오래된 원소는
+            // 어떤 조회 창에도 들지 않으므로 지워도 숫자가 달라지지 않는다
+            redisTemplate.opsForZSet().removeRangeByScore(key, 0, score - KEY_TTL.toSeconds());
             redisTemplate.expire(key, KEY_TTL);
         } catch (Exception e) {
             // 집계 한 건 때문에 컨슈머를 실패시키지 않는다 — 실패가 쌓이면 생존 신호가 아니라

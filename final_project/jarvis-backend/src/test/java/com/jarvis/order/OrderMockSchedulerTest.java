@@ -1,10 +1,12 @@
 package com.jarvis.order;
 
+import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,5 +48,32 @@ class OrderMockSchedulerTest {
                 eq(OrderItemStatus.SHIPPING), eq(OrderItemStatus.DELIVERED), any(), eq(true));
         verify(statusChanger).transitionShipment(
                 eq(OrderItemStatus.DELIVERED), eq(OrderItemStatus.CONFIRMED), any(), eq(false));
+    }
+
+    @Test
+    @DisplayName("클레임 자동 승인 — 한 건이 실패해도 나머지는 승인한다(한 건이 전체를 막지 않는다)")
+    void oneFailingClaimDoesNotBlockTheRest() {
+        OrderMockScheduler scheduler = new OrderMockScheduler(statusChanger, new MockProperties(5, 10, 5));
+        when(statusChanger.findDueClaimIds(any(), eq(OrderMockScheduler.CLAIM_BATCH_SIZE)))
+                .thenReturn(List.of(1L, 2L, 3L));
+        when(statusChanger.approveClaim(eq(2L), any()))
+                .thenThrow(new org.springframework.dao.CannotAcquireLockException("lock wait timeout"));
+
+        scheduler.approveClaims();
+
+        verify(statusChanger).approveClaim(eq(1L), any());
+        verify(statusChanger).approveClaim(eq(2L), any());
+        verify(statusChanger).approveClaim(eq(3L), any());
+    }
+
+    @Test
+    @DisplayName("클레임 자동 승인 — 대상이 없으면 아무것도 승인하지 않는다")
+    void nothingDueDoesNothing() {
+        OrderMockScheduler scheduler = new OrderMockScheduler(statusChanger, new MockProperties(5, 10, 5));
+        when(statusChanger.findDueClaimIds(any(), eq(OrderMockScheduler.CLAIM_BATCH_SIZE))).thenReturn(List.of());
+
+        scheduler.approveClaims();
+
+        verify(statusChanger, never()).approveClaim(any(), any());
     }
 }
