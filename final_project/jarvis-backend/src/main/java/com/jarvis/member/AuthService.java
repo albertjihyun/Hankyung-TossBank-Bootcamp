@@ -16,19 +16,29 @@ import com.jarvis.member.dto.LoginRequest;
 import com.jarvis.member.dto.MeResponse;
 import com.jarvis.member.dto.SignupRequest;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AuthService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    /**
+     * 회전된 RT를 한 번 더 받아 주는 유예. 같은 브라우저의 탭들이 같은 RT 쿠키로 동시에 재발급을 요청하는
+     * 경우를 위한 것이다 — 네트워크 왕복 몇 번을 덮으면 충분하고, 길수록 탈취된 RT가 통하는 창이 넓어진다.
+     */
+    static final Duration REUSE_GRACE = Duration.ofSeconds(10);
 
     private final MemberRepository memberRepository;
     private final GuestRepository guestRepository;
@@ -60,7 +70,7 @@ public class AuthService {
                 LocalDateTime.now()));
         inheritGuest(member.getId(), guestId);
         accountEventLogger.log(member.getId(), AccountEventType.SIGNUP, clientIp);
-        return issueTokens(member);
+        return issueTokens(member, newFamilyId());
     }
 
     /** A-2 — 실패는 계정 존재 여부 무관 통일 401 AUTH_LOGIN_FAILED (04). 승계는 가입과 동일 */
@@ -75,11 +85,25 @@ public class AuthService {
         }
         inheritGuest(member.getId(), guestId);
         accountEventLogger.log(member.getId(), AccountEventType.LOGIN_SUCCESS, clientIp);
-        return issueTokens(member);
+        return issueTokens(member, newFamilyId());
     }
 
-    /** A-4 — RT 검증 후 AT 재발급 + RT 교체 (02 D6). 무효/만료 RT는 재로그인 유도(AUTH_REQUIRED) */
-    @Transactional
+    /**
+     * A-4 — RT 검증 후 AT 재발급 + RT 회전 (02 D6·D50). 무효·만료 RT는 재로그인 유도(AUTH_REQUIRED).
+     *
+     * <p>회전된 RT는 지우지 않고 표시만 해 둔다. 그래서 <b>이미 쓰인 RT가 다시 오는 것</b>을 알 수 있다:
+     * <ul>
+     *   <li>회전 직후(유예 {@link #REUSE_GRACE} 안) — 같은 브라우저의 여러 탭이 동시에 재발급을 요청한 것으로
+     *       본다. 같은 패밀리로 새 토큰을 내준다. 예전에는 진 쪽이 이유 없이 로그아웃됐다.</li>
+     *   <li>유예 밖 — 정상 클라이언트는 이미 새 RT를 받았으므로 옛 RT를 쓸 이유가 없다. 탈취로 보고
+     *       <b>그 로그인의 RT 전부를 폐기</b>하고 발급된 AT도 즉시 무효화한다. 공격자와 피해자 모두
+     *       재로그인해야 하고, 비밀번호를 모르는 공격자는 거기서 끊긴다.</li>
+     * </ul>
+     *
+     * <p>{@code noRollbackFor} — 거부(예외)로 끝나는 경로에서도 패밀리 폐기가 커밋돼야 한다. 기본 동작이면
+     * 예외가 트랜잭션을 롤백시켜 폐기가 없던 일이 된다.
+     */
+    @Transactional(noRollbackFor = BusinessException.class)
     public AuthResult refresh(String refreshToken) {
         if (refreshToken == null) {
             throw new BusinessException(ErrorCode.AUTH_REQUIRED);
@@ -87,17 +111,29 @@ public class AuthService {
         String tokenHash = TokenHasher.sha256Hex(refreshToken);
         RefreshToken stored = refreshTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_REQUIRED));
-        if (stored.isExpired(LocalDateTime.now())) {
-            refreshTokenRepository.deleteByTokenHash(tokenHash);
+        LocalDateTime now = LocalDateTime.now();
+        if (stored.isExpired(now)) {
             throw new BusinessException(ErrorCode.AUTH_REQUIRED);
         }
-        // 회전 단일성: 조건부 삭제가 정확히 1건일 때만 재발급 — 동시 refresh는 한쪽만 성공, 나머지는 재로그인 유도 (02 D6)
-        if (refreshTokenRepository.deleteByTokenHash(tokenHash) != 1) {
+        // 회전 단일성 — 아직 안 쓰인 RT일 때만 1건. 0건이면 이미 쓰인 RT다(방금 진 경합 포함)
+        if (refreshTokenRepository.markRotated(tokenHash, now) != 1 && isReuse(stored, now)) {
+            refreshTokenRepository.deleteByFamilyId(stored.getFamilyId());
+            tokenEpoch.invalidate(stored.getMemberId());
+            log.warn("이미 회전된 RT가 유예 밖에서 다시 사용됨 — 탈취로 보고 패밀리를 폐기한다 (memberId={})",
+                    stored.getMemberId());
             throw new BusinessException(ErrorCode.AUTH_REQUIRED);
         }
         Member member = memberRepository.findById(stored.getMemberId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_REQUIRED));
-        return issueTokens(member);
+        return issueTokens(member, stored.getFamilyId());
+    }
+
+    /**
+     * 유예 밖의 재사용인가. 읽은 시점에 회전 표시가 없었다면 방금 다른 요청에 진 경합이라 유예 안이다 —
+     * 읽기와 표시 사이의 틈은 요청 하나의 처리 시간보다 길 수 없다.
+     */
+    private static boolean isReuse(RefreshToken stored, LocalDateTime now) {
+        return stored.isRotated() && stored.getRotatedAt().plus(REUSE_GRACE).isBefore(now);
     }
 
     /** A-3 — RT 쿠키 기준, 없어도 성공 (04 — AT 만료 상태에서도 로그아웃 가능) */
@@ -108,7 +144,8 @@ public class AuthService {
         }
         refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(refreshToken))
                 .ifPresent(stored -> {
-                    refreshTokenRepository.delete(stored);
+                    // 이 RT 하나가 아니라 그 로그인에서 이어진 RT 전부를 지운다 — 유예로 발급된 형제 RT가 남지 않게
+                    refreshTokenRepository.deleteByFamilyId(stored.getFamilyId());
                     // RT를 지워도 이미 나가 있는 AT는 수명(30분)까지 살아 있다 — 탈취본이 있다면
                     // 그동안 그대로 통한다. 무효화 마커로 즉시 끊는다(07 §3-2).
                     tokenEpoch.invalidate(stored.getMemberId());
@@ -157,13 +194,18 @@ public class AuthService {
                 });
     }
 
-    private AuthResult issueTokens(Member member) {
+    private static String newFamilyId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private AuthResult issueTokens(Member member, String familyId) {
         String accessToken = jwtProvider.createAccessToken(member.getId(), member.getRole());
         String refreshToken = generateRefreshToken();
         refreshTokenRepository.save(RefreshToken.issue(
                 member.getId(),
                 TokenHasher.sha256Hex(refreshToken),
-                LocalDateTime.now().plusDays(jwtProperties.refreshTokenDays())));
+                LocalDateTime.now().plusDays(jwtProperties.refreshTokenDays()),
+                familyId));
         return new AuthResult(accessToken, refreshToken, MeResponse.from(member));
     }
 

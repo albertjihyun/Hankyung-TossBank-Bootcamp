@@ -127,6 +127,8 @@ done
 | `migrate-2026-08-10-review-latest-index.sql` | `review`에 `idx_review_latest(product_id, status, created_at)` 추가 — 후기 목록 정렬의 filesort 제거 (2026-08-10 부하 테스트 근거) | **순서 무관 — 언제 적용해도 된다.** 인덱스만 바뀌고 `ddl-auto=validate`는 테이블·컬럼만 검사하므로 컬럼 추가와 달리 기동을 막지 않는다. `ADD KEY`는 MariaDB에서 ONLINE이라 서비스도 멈추지 않지만 `review` 행 수만큼 시간·임시 디스크를 쓴다 — 적용 전 `SELECT COUNT(*) FROM review`로 규모를 보고, 트래픽이 한산한 때를 고르면 안전하다 |
 | `migrate-2026-11-16-order-idempotency-key.sql` | `orders.idempotency_key` 컬럼 + 회원 범위 UNIQUE 신설 (O-1 멱등 키, 02 D47) | **앱 배포 전.** 새 앱은 이 컬럼이 없으면 `ddl-auto=validate`에 걸려 기동을 거부한다. NULL 허용이라 구 앱과 무해하게 공존한다 |
 | `migrate-2026-11-16-product-idempotency-key.sql` | `product.idempotency_key` 컬럼 + 브랜드 범위 UNIQUE 신설 (I-10 멱등 키, 02 D48) | **앱 배포 전.** 새 앱은 이 컬럼이 없으면 `ddl-auto=validate`에 걸려 기동을 거부한다. NULL 허용이라 구 앱과 무해하게 공존한다 |
+| `migrate-2026-11-16-refresh-token-family-pre.sql` | `refresh_token`에 `family_id`(NULL 허용)·`rotated_at` 추가 + 기존 행 백필 (RT 재사용 탐지, 02 D50) | **앱 배포 전.** 새 앱은 이 컬럼이 없으면 기동을 거부한다 |
+| `migrate-2026-11-16-refresh-token-family-post.sql` | `refresh_token.family_id`를 `NOT NULL`로 | **앱 배포 후.** 순서: 새 이미지 배포 → 전 인스턴스 교체 확인 → 적용. 먼저 적용하면 아직 떠 있는 구 앱의 로그인·토큰 재발급이 INSERT 실패로 죽는다 |
 
 ## 5. 헬스체크
 

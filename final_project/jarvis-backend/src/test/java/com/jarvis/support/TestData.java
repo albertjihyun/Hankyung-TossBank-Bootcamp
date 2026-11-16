@@ -23,7 +23,7 @@ public final class TestData {
         int n = ++sequence;
         return insert("INSERT INTO member (email, password, nickname, role, gender, birth_date, "
                 + "agreed_terms_at, agreed_privacy_at, created_at) "
-                + "VALUES (?, 'pw', ?, 'USER', 'NONE', '2000-01-01', NOW(), NOW(), NOW())",
+                + "VALUES (?, 'pw', ?, 'USER', 'FEMALE', '2000-01-01', NOW(), NOW(), NOW())",
                 "user" + n + "@test.local", "user" + n);
     }
 

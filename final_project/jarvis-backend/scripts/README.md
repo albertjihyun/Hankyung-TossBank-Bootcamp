@@ -31,6 +31,8 @@
 | `migrate-2026-08-11-erd-hardening-post.sql` | 옵션 UNIQUE의 NULL 구멍을 가상 컬럼(`option_key`)으로 차단 + 옵션↔상품 소속 복합 FK, `created_at` NOT NULL 전환 (02 D44·D45) | 앱 배포 **후** — ① 경합이 제약 위반으로 드러나므로 이를 잡는 코드가 먼저 떠 있어야 하고 ② `created_at`은 앱이 채우기 시작한 뒤에 조인다 |
 | `migrate-2026-11-16-order-idempotency-key.sql` | `orders.idempotency_key` 컬럼 + `uk_orders_idempotency (member_id, idempotency_key)` 신설 (02 D47) | 앱 배포 **전** — 새 앱이 컬럼을 찾으므로 없으면 `ddl-auto=validate`에 걸려 기동 실패. NULL 허용이라 구 앱과 공존 |
 | `migrate-2026-11-16-product-idempotency-key.sql` | `product.idempotency_key` 컬럼 + `uk_product_idempotency (brand_id, idempotency_key)` 신설 (02 D48) | 앱 배포 **전** — 새 앱이 컬럼을 찾으므로 없으면 기동 실패. NULL 허용이라 구 앱과 공존 |
+| `migrate-2026-11-16-refresh-token-family-pre.sql` | `refresh_token`에 `family_id`(NULL 허용)·`rotated_at` 추가 + 기존 행 백필 + 인덱스 2개 (02 D50) | 앱 배포 **전** — 새 앱이 컬럼을 찾는다 |
+| `migrate-2026-11-16-refresh-token-family-post.sql` | `family_id`를 NOT NULL로 (02 D50) | 앱 배포 **후** — 구 앱이 떠 있는 동안 조이면 그 앱의 로그인·재발급이 INSERT 실패로 죽는다 |
 
 > 위 표는 **적용 시점에 주의가 필요한 것만** 싣는다. 실제 적용은 [DEPLOY.md §4-2](../DEPLOY.md)의 루프가
 > `migrate-*.sql` **전부**를 날짜순으로 흘리므로, 표에 없는 파일도 빠짐없이 적용된다.
