@@ -40,7 +40,7 @@
 
 - **인증·권한** — 액세스/리프레시 토큰을 HttpOnly 쿠키로, 로그아웃 즉시 기존 토큰 무효화, 게스트 활동의 회원 승계
 - **커머스 트랜잭션** — 주문 시점 스냅샷, 옵션 단위 재고 차감, 상태 전이 검증, 취소·반품 자동 승인
-- **AI 연동 관문** — 공개 API 45종 + 내부 연동 API 29종, 서비스 토큰 인증 + 입력 전건 재검증
+- **AI 연동 관문** — 공개 API 47종 + 내부 연동 API 29종, 서비스 토큰 인증 + 입력 전건 재검증
 - **판매자 분석** — 매출·퍼널·이탈 코호트·실시간 방문자 집계
 - **이벤트 파이프라인** — 행동 이벤트를 Kafka로 흘리고, 전송 실패 시 DB 직접 저장으로 자동 전환
 
@@ -82,16 +82,16 @@ flowchart LR
 
 | 영역 | 기술 | 선택 이유 |
 |---|---|---|
-| 언어/런타임 | **Java 21** | 가상 스레드·레코드·패턴 매칭 등 최신 문법 활용, LTS |
+| 언어/런타임 | **Java 21** | 레코드·패턴 매칭 등 최신 문법 활용, LTS |
 | 프레임워크 | **Spring Boot 3.5** | 보안 필터 체인·트랜잭션·스케줄링을 표준 방식으로 확보 |
 | 데이터 접근 | **Spring Data JPA** + 네이티브 쿼리 | 도메인 CRUD는 JPA로 간결하게, 판매자 분석처럼 무거운 집계만 네이티브 SQL로 내려 성능 통제 |
 | 데이터베이스 | **MariaDB 11.4** | 생성 컬럼 + UNIQUE로 "기본 배송지 1개" 같은 제약을 앱이 아닌 DB가 강제 ([ADR-0006](../docs/adr/0006-mysql-to-mariadb.md)) |
 | 캐시·공유 상태 | **Redis** | 서버 4대가 공유해야 하는 것만 담는다 — 캐시·채팅 세션·분산 락·요청 횟수 제한 |
-| 이벤트 스트림 | **Kafka (KRaft)** | 행동 이벤트 적재를 요청 처리에서 떼어내 응답 지연을 없애고, 같은 스트림을 실시간 집계가 함께 구독 ([ADR-0012](../docs/adr/0012-kafka-single-use-case.md)) |
+| 이벤트 스트림 | **Kafka (KRaft)** | 판매자 실시간 방문자 수를 30분 주기 테이블 스캔 대신 스트림 집계로 계산. 후보 7곳 중 이 한 곳에만 적용했고, 부하 흡수나 응답 속도 개선은 도입 근거로 삼지 않았다 ([ADR-0012](../docs/adr/0012-kafka-single-use-case.md)) |
 | 인증 | **JWT + HttpOnly 쿠키** | 스크립트가 토큰을 읽을 수 없어 유출 경로가 막히고, 서버 렌더링 첫 진입에서도 로그인 상태가 유지된다 ([ADR-0010](../docs/adr/0010-access-token-httponly-cookie.md)) |
 | AI 연동 인증 | **RS256 단명 티켓 + 공개키 배포** | AI 서버가 신원을 만들지 않고 백엔드가 서명한 티켓을 검증만 하게 해, 신원의 출처를 하나로 고정 |
 | 분산 락 | **ShedLock** | 스케줄러가 4대에서 동시에 돌아 같은 주문을 여러 번 처리하는 것을 방지 |
-| 테스트 | **JUnit 5 · Testcontainers · EmbeddedKafka** | 브로커 장애 시 폴백처럼 "죽여봐야 아는 동작"을 자동 테스트로 고정 |
+| 테스트 | **JUnit 5 · Mockito · EmbeddedKafka** | 서비스 로직은 단위 테스트로, Kafka 직렬화 왕복은 EmbeddedKafka로 고정. 실제 DB를 띄우는 테스트는 아직 없다([알려진 한계](#알려진-한계)) |
 
 ---
 
@@ -105,6 +105,24 @@ flowchart LR
 6. **측정하고 고치고 다시 측정한다** — k6 부하 테스트에서 병목이 애플리케이션 CPU → 데이터베이스 CPU → 커넥션 수로 두 번 이동했다. "느린 쿼리"가 아니라 "반복되는 같은 계산"을 기준으로 캐시를 재선정해 처리량 +31%·p95 응답시간 −26%를 실측했다. ([ADR-0011](../docs/adr/0011-cache-expansion-after-measurement.md) · [부하테스트 기록](../docs/load-testing.md))
 
 주요 아키텍처 결정 12건은 [ADR 모음](../docs/adr/)에, 원본 결정 로그는 [docs/backend/](docs/backend/README.md) 스펙 문서 안에 D-번호로 남아 있다.
+
+---
+
+## 알려진 한계
+
+프로젝트 종료 후 코드를 다시 읽으며 확인한 것들이다. 설계 의도와 실제 구현 사이의 빈틈을 숨기지 않고 적는다.
+
+| 영역 | 한계 | 영향 |
+|---|---|---|
+| 테스트 | 실제 DB를 띄우는 테스트가 없다. 리포지토리는 전부 목(mock)이다 | 네이티브 SQL 문법과 조건부 갱신의 동시성이 자동 검증되지 않는다. 운영에서 예약어 문법 오류를 한 번 겪었다([트러블슈팅 1번](../docs/troubleshooting.md)) |
+| 주문 | 주문 생성에 멱등 키가 없다 | "바로 구매"를 두 번 누르거나 응답 유실 후 재시도하면 주문이 2건 생길 수 있다. 설계는 `07-redis-design.md` §3-3에 있으나 미구현 |
+| 결제 | 결제·배송이 모의 구현이고, 결제 호출이 DB 트랜잭션 안에 있다 | 실제 결제사를 붙이려면 승인 취소(보상) 경로와 트랜잭션 분리가 먼저 필요하다 |
+| AI 연동 | 판매자 상품 등록(내부 API)에 멱등 장치가 없다 | AI 서버 타임아웃 뒤 재승인하면 같은 상품이 중복 등록될 수 있다 |
+| 내부 API | 방어가 공유 토큰 한 겹이다 | 문서의 "nginx 경로 차단"은 운영 설정에 적용되지 않았다 |
+| DB 변경 | 마이그레이션이 수동 SQL이고 적용 이력 관리 도구가 없다 | 적용 순서를 사람이 기억해야 하며, 순서 실수로 배포가 실패한 적이 있다 |
+| 관측성 | 요청 ID·구조화 로그·메트릭·알림이 없다 | 장애 시 서버별 로그를 직접 대조해야 한다 |
+| 부하 테스트 | 읽기 경로만 측정했다 | 주문·재고 차감 같은 쓰기 경로의 한계는 측정한 적이 없다 |
+| 규모 | Kafka 단일 브로커(복제 없음), AI 서버 1대 | 데모 규모의 의도된 선택이다([ADR-0003](../docs/adr/0003-fastapi-separate-tier-single-instance.md), [ADR-0012](../docs/adr/0012-kafka-single-use-case.md)) |
 
 ---
 
@@ -138,10 +156,15 @@ scripts/                      # 로컬 셋업 · 시드 · 증분 마이그레�
 
 ## 시작하기
 
-**사전 준비** — JDK 21, Docker (MariaDB·Redis·Kafka 컨테이너용)
+**사전 준비** — JDK 21. 셋업 경로는 둘 중 하나를 고른다.
+
+| 경로 | 스크립트 | 하는 일 |
+|---|---|---|
+| Docker | `scripts/setup-local.sh` | `.env`·설정 파일 복사 + MariaDB·Redis·Kafka 컨테이너 기동. **스키마·시드·시크릿은 직접 넣는다** |
+| 네이티브 (Git Bash, Windows) | `scripts/setup-frontend-dev.sh` | MariaDB·Redis 설치 확인 → DB·계정 생성 → 스키마·마이그레이션·시드 적용 → 설정 파일·시크릿 생성까지 한 번에. Kafka는 띄우지 않는다(없어도 DB 직접 적재로 동작) |
 
 ```bash
-# 1. 로컬 환경 셋업 — .env·설정 파일 생성 + DB·Redis·Kafka 컨테이너 기동 + 스키마·시드 적용
+# 1. 로컬 환경 셋업 (위 표에서 하나)
 bash scripts/setup-local.sh
 
 # 2. 서버 실행 (JDK가 PATH에 없으면 JAVA_HOME 명시)
@@ -161,7 +184,7 @@ PowerShell에서는:
 $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"; .\gradlew.bat bootRun
 ```
 
-### 로컬 데이터 준비 (셋업 스크립트가 자동 수행)
+### 로컬 데이터 준비 (`setup-frontend-dev.sh`는 자동 수행, `setup-local.sh`는 아래 순서로 직접 적용)
 
 | 순서 | 스크립트 | 내용 |
 |---|---|---|
@@ -171,8 +194,10 @@ $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"; .\gradlew.
 | 4 | `scripts/seed-commerce-demo.sql` | 주문·후기 데모 데이터 |
 | 5 | `scripts/seed-analytics-demo.sql` | 판매자 분석용 이벤트 |
 
-이미 운영 중인 DB에 스키마 변경을 반영할 때는 `scripts/migrate-*.sql`을 날짜 순으로 적용한다
-(전부 재실행해도 무해). 적용 시점(앱 배포 전/후)이 스크립트마다 다르므로 [DEPLOY.md](DEPLOY.md)의 표를 확인한다.
+이미 운영 중인 DB에 스키마 변경을 반영할 때는 `scripts/migrate-*.sql`을 날짜 순으로 적용한다.
+적용 이력을 기록하는 도구가 없으므로 어디까지 적용했는지는 직접 관리해야 하고, 일부 스크립트
+(`ADD COLUMN`·`CREATE TABLE`을 조건 없이 쓰는 것)는 두 번 실행하면 실패한다. 적용 시점(앱 배포 전/후)도
+스크립트마다 다르므로 [DEPLOY.md](DEPLOY.md)의 표를 확인한다.
 
 ### API 요약
 
@@ -198,7 +223,7 @@ $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"; .\gradlew.
 | `DB_URL` · `DB_USERNAME` · `DB_PASSWORD` | 셋업 스크립트가 생성 | **필수** | MariaDB 접속 정보 |
 | `REDIS_HOST` · `REDIS_PORT` | 기본 `localhost:6379` | **필수** | 캐시·세션·분산 락 |
 | `KAFKA_BOOTSTRAP_SERVERS` | 기본 `localhost:9092` | **필수** | 행동 이벤트 스트림 |
-| `APP_KAFKA_PREFIX` | `dev-` | 환경별 구분 | 토픽·컨슈머 그룹 접두어 (개발·운영 격리) |
+| `APP_KAFKA_PREFIX` | 빈 값 | 운영은 빈 값, dev 서버는 `dev-` | 토픽·컨슈머 그룹 접두어. dev와 운영이 같은 브로커를 쓸 때 격리용 |
 | `JWT_SECRET` | 셋업 스크립트가 생성 | **필수** | 액세스/리프레시 토큰 서명. 교체하면 전원 재로그인 |
 | `STREAM_TICKET_PRIVATE_KEY` · `STREAM_TICKET_KID` | 셋업 스크립트가 생성 | **필수** | 채팅 스트림 티켓 서명키(RS256). 공개키는 백엔드가 배포 |
 | `INTERNAL_API_TOKEN` | 셋업 스크립트가 생성 | **필수** | AI 서버와 공유하는 서비스 토큰. **양쪽 값이 같아야 연동된다** |
