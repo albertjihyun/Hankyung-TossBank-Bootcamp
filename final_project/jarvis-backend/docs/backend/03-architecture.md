@@ -31,6 +31,8 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 
 - **외부에 publish되는 포트는 nginx의 80/443뿐.** spring/next/fastapi/mariadb/redis는 내부망 `expose`만 — 배포 compose에 `ports:` publish를 적는 순간(특히 spring 8080) nginx를 우회하는 뒷문이 생긴다.
 - **`/internal` 3중 방어**: ① nginx가 라우팅하지 않음(경로 차단) ② spring 포트 미노출(네트워크 차단) ③ 서비스 토큰 필터(애플리케이션 검증). ①②는 네트워크 수준이라 토큰이 유출돼도 외부에선 쓸 곳이 없다.
+  - **실제 운영 형상과의 차이 (2026-11-16 기록)**: ①은 적용되지 않았다. 운영 nginx는 `/internal/`을 spring으로 프록시했다 — AI 서버가 ALB를 거쳐 호출하는 구조라 막으면 챗 검색이 죽기 때문이다(`jarvis-frontend/nginx.conf` 주석). 따라서 외부에서 닿는 요청을 막는 것은 사실상 ③ 한 겹이었다.
+  - **③의 보강 (2026-11-16)**: 필터가 원본 URI 문자열(`getRequestURI()`)로 `/internal/` 여부를 판정하던 탓에 `/%69nternal/...`처럼 퍼센트 인코딩한 경로가 토큰 검증을 건너뛰고 컨트롤러에 닿았다(스프링 라우팅은 디코딩한 경로로 매칭한다). 지금은 ⓐ 필터가 디코딩한 경로로 판정하고 ⓑ 토큰을 통과한 요청에만 `ROLE_INTERNAL`을 심어 시큐리티가 `/internal/**`에 그 권한을 요구한다. 인가를 라우팅과 같은 매처에 묶었으므로 경로 해석이 어긋나도 열리지 않는다(`InternalSecurityTest`).
 - MariaDB 데이터는 named volume으로 컨테이너 생명주기와 분리. RDS 전환은 분산 단계에서 검토.
 - **FE base URL이 2개** (FE 팀 공유 필요): 브라우저 발 호출은 `NEXT_PUBLIC_API_URL`(도메인, nginx 경유), Next 서버 컴포넌트 발 호출은 `API_URL`(`http://spring:8080`, 내부망 직행).
 
@@ -129,6 +131,7 @@ docker 내부망:  spring ─▶ mariadb:3306, redis:6379 / spring ◀▶ fastap
 - **쿠키 Secure 속성(2026-07-18 확정)**: `refresh_token`·`guest_id` 쿠키 모두 `Secure` 부여 — 14일 장수명 RT가 평문 HTTP로 전송돼 온-패스 공격자에게 탈취되는 경로를 차단(운영은 nginx HTTPS, D1-2). 값은 프로퍼티 `app.cookie.secure`(기본 `true`, env `APP_COOKIE_SECURE`)로 제어. `localhost`/`127.0.0.1`은 브라우저가 secure context로 취급해 http에서도 Secure 쿠키를 전송하므로 로컬 개발은 기본 `true` 그대로 동작하고, 비-localhost origin으로 테스트할 때만 `false`로 내린다. `SameSite`(RT=Strict, guest=Lax)는 CSRF 표면만 막고 네트워크 수동 탈취는 못 막으므로 Secure가 별도로 필요.
 - **RT 형식은 서명 토큰(JWT)이 아니라 불투명 랜덤 256bit** (2026-07-17 Phase 1 구현 결정): RT의 진실은 어차피 DB 행(02 D6·D17)이라 자체 서명 검증이 무의미하고, claim이 없어 유출 시 노출 정보도 없다. 검증은 SHA-256 해시 대조 + expires_at 확인으로만. 재발급 시 회전(기존 행 삭제 + 새 토큰 발급).
 - Spring Security 필터 체인: JWT 검증 필터 → 권한(Role) 검사. `/api/auth/**`, 상품 조회 계열(`/api/products/**`), `POST /api/chat/sessions`(CH-1 티켓 발급)·`POST /api/chat/tickets`(CH-1b)·`GET /api/chat/lists/**`(CH-5 추천 목록), `/api/cart/**`(게스트 쿠키 허용 — 02 D30), `POST /api/events`(E-1 수집 — 인증 선택: JWT 있으면 검증)는 permitAll. *채팅 SSE 자체는 Spring이 아니라 FastAPI가 티켓으로 검증(D5)이라 Spring permitAll 대상이 아님.*
+- 게스트 쿠키 값은 **서버가 발급한 UUID 형식만** 신원으로 받는다(2026-11-16). 형식이 다르면 쿠키가 없는 것으로 보고 새로 발급한다 — 이 값이 guest PK·Redis 키·채팅 세션 값의 한 칸으로 그대로 들어가므로, 검증 없이 받으면 구분자를 심어 세션 값을 오염시킬 수 있었다(`GuestCookieManager.resolve`). 같은 이유로 판매자 스코프 티켓은 "회원의 SELLER 세션"에서만 나간다(`ChatSessionService.brandIdOf`).
 - 게스트: `guest_id` HttpOnly 쿠키(UUID, **Max-Age 2시간 sliding** — 2026-07-31 개정, 구 30일 영속 폐기). 게스트는 "로그인과 로그인 사이의 익명 구간"이라 활동마다 연장(`GuestCookieSlidingFilter`)되고 2시간 무활동이면 만료되며, 로그인·가입 시 반납(삭제)된다(GUEST-LIFECYCLE). 없으면 게스트 식별이 필요한 첫 요청(채팅·장바구니 담기 — 02 D30) 시 발급하며, **발급 = 쿠키 세팅 + guest 행 INSERT가 한 동작**(cart_item·behavior_events의 guest_id FK가 전제하는 선행 조건). 쿠키 발급 전 게스트 행동은 `session_key`로 **익명 추적은 되지만**(02 D31) guest_id가 없어 가입 승계 대상은 아님 — 감수(2026-07-17 갱신).
 
 ### D4. internal API는 고정 서비스 토큰 헤더로 인증한다

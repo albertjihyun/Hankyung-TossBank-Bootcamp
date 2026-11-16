@@ -266,10 +266,17 @@ public class ChatSessionService {
                 + (brandId != null ? DELIMITER + brandId : "");
     }
 
-    /** 세션 값의 4번째 칸은 S-4 SELLER 세션에만 있다 */
+    /**
+     * 세션 값의 4번째 칸은 S-4 SELLER 세션에만 있다. 칸 수만 보지 않고 "회원의 SELLER 세션"인지까지 확인한다 —
+     * brandId는 판매자 스코프 티켓으로 이어지는 값이라, 값이 어떤 경로로 오염되더라도 게스트나 SHOPPING
+     * 세션에서 판매자 티켓이 나가는 일은 없어야 한다.
+     */
     private static Long brandIdOf(String value) {
         String[] parts = value.split("\\" + DELIMITER);
-        return parts.length >= 4 ? Long.valueOf(parts[3]) : null;
+        boolean sellerSession = parts.length == 4
+                && ChatIdentity.TYPE_MEMBER.equals(parts[0])
+                && ChatChannel.SELLER.name().equals(parts[2]);
+        return sellerSession ? Long.valueOf(parts[3]) : null;
     }
 
     private static String sessionKey(String sessionId) {

@@ -57,8 +57,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         // 🔑 상품 하위 경로 중 로그인 필요 항목은 permitAll보다 먼저 (M-7·P-5)
-                        // recommended(P-5)는 미구현이지만 규칙 선점 유지 — 아래 /api/products/** permitAll보다
-                        // 선행해야 하므로, 지우면 P-5 구현 시 인증 없이 열리는 함정이 된다
+                        // 아래 /api/products/** permitAll보다 선행해야 한다 — 순서가 바뀌면 인증 없이 열린다
                         .requestMatchers("/api/products/recent", "/api/products/recommended").hasRole("USER")
                         // 🔓 permitAll (03 D3) — 단 A-5(me)는 🔑라 /api/auth/** 보다 먼저 매칭
                         .requestMatchers("/api/auth/me").authenticated()
@@ -71,8 +70,10 @@ public class SecurityConfig {
                         // CH-7 승계 — 회원 AT 필수(게스트는 부를 수 없다). 소유권은 서비스가 귀속 기록으로 검증
                         .requestMatchers(HttpMethod.POST, "/api/chat/sessions/*/claim").authenticated()
                         .requestMatchers("/.well-known/**").permitAll() // JWKS (Phase 5)
-                        // /internal은 시큐리티가 아니라 InternalTokenFilter가 지킨다 (03 D4 — 3중 방어의 앱 층)
-                        .requestMatchers("/internal/**").permitAll()
+                        // InternalTokenFilter가 토큰을 검증해 권한을 심고, 여기서 그 권한을 요구한다 (03 D4).
+                        // permitAll로 두면 필터의 경로 판정이 라우팅과 어긋나는 순간 무방비가 된다 —
+                        // 인가를 라우팅과 같은 매처에 묶어 둔다.
+                        .requestMatchers("/internal/**").hasRole(InternalTokenFilter.ROLE)
                         // 하위 경로까지 열어야 한다 — ALB 타겟인 /actuator/health/liveness(07 §4-1)가
                         // 401을 받으면 인스턴스를 통째로 LB에서 빼버려 헬스 그룹 분리가 역효과를 낸다.
                         // show-details 기본값이 never라 컴포넌트 상세는 노출되지 않는다.

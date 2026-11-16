@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -24,6 +25,8 @@ public class GuestCookieManager {
 
     public static final String COOKIE_NAME = "guest_id";
     private static final Duration MAX_AGE = Duration.ofHours(2);
+    private static final Pattern ISSUED_FORMAT = Pattern.compile(
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private final boolean secure;
 
@@ -39,7 +42,17 @@ public class GuestCookieManager {
         return Arrays.stream(cookies)
                 .filter(c -> COOKIE_NAME.equals(c.getName()))
                 .map(Cookie::getValue)
+                .filter(GuestCookieManager::isIssuedFormat)
                 .findFirst();
+    }
+
+    /**
+     * 서버가 발급한 값(UUID)만 신원으로 받는다. 쿠키는 클라이언트가 마음대로 쓸 수 있는 자리인데,
+     * 이 값이 guest 행의 PK·Redis 키·세션 값의 한 칸으로 그대로 들어간다 — 형식을 안 보면 구분자({@code |})를
+     * 심어 세션 값의 칸을 밀 수 있었다. 형식이 다르면 쿠키가 없는 것으로 보고 새로 발급하게 둔다.
+     */
+    private static boolean isIssuedFormat(String value) {
+        return value != null && ISSUED_FORMAT.matcher(value).matches();
     }
 
     public void write(HttpServletResponse response, String guestId) {
