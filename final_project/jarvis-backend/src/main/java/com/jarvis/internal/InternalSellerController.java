@@ -5,6 +5,7 @@ import com.jarvis.product.ProductStatus;
 import com.jarvis.seller.AnalysisPeriod;
 import com.jarvis.seller.SellerAnalyticsService;
 import com.jarvis.seller.SellerOrderService;
+import com.jarvis.seller.IdempotentProductCreator;
 import com.jarvis.seller.SellerProductService;
 import com.jarvis.seller.SellerReviewService;
 import com.jarvis.seller.SellerSalesService;
@@ -39,6 +40,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -59,6 +61,7 @@ public class InternalSellerController {
 
     private final SellerSalesService sellerSalesService;
     private final SellerProductService sellerProductService;
+    private final IdempotentProductCreator idempotentProductCreator;
     private final SellerAnalyticsService sellerAnalyticsService;
     private final SellerOrderService sellerOrderService;
     private final SellerReviewService sellerReviewService;
@@ -190,8 +193,14 @@ public class InternalSellerController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<SellerProductCreateResponse> createProduct(
             @PathVariable Long brandId,
-            @Valid @RequestBody SellerProductCreateRequest request) {
-        return ApiResponse.success(sellerProductService.create(brandId, request));
+            @Valid @RequestBody SellerProductCreateRequest request,
+            // 같은 등록 승인의 재전송을 한 상품으로 묶는 키 — AI 서버가 초안 id(draftId)를 싣는다 (02 D48).
+            // 선택 — 없으면 종전대로 매 호출이 새 상품이다
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            @Pattern(regexp = "[A-Za-z0-9_-]{16,64}",
+                    message = "Idempotency-Key는 영문·숫자·-·_ 16~64자여야 합니다.")
+            String idempotencyKey) {
+        return ApiResponse.success(idempotentProductCreator.create(brandId, request, idempotencyKey));
     }
 
     /**

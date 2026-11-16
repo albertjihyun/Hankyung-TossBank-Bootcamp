@@ -110,11 +110,13 @@ CREATE TABLE product (
     attributes        JSON         NULL,                   -- 축은 category.attribute_schema, 값은 자유 텍스트 (D7·D11)
     description       TEXT         NULL,
     status            VARCHAR(20)  NOT NULL,               -- ON_SALE / HIDDEN(판매자 목록엔 남음) / DELETED(판매자에게도 숨김, I-12 전용·복구 없음 — D41)
+    idempotency_key   VARCHAR(64)  NULL,                   -- I-10 요청의 Idempotency-Key 헤더(AI의 draftId). 같은 등록 승인의 재전송을 한 상품으로 묶는다 (D48). 키 없이 만든 상품·크롤링 시드는 NULL
     created_at        DATETIME     NOT NULL,
     updated_at        DATETIME     NOT NULL,               -- 예외적 NOT NULL — 생성 시 created_at과 동일 값 초기화, I-17 증분 커서 (D33)
     PRIMARY KEY (id),
     KEY idx_product_category (category_id),
     KEY idx_product_brand (brand_id),
+    UNIQUE KEY uk_product_idempotency (brand_id, idempotency_key),  -- 브랜드 범위로 유일. NULL은 UNIQUE에 걸리지 않는다 (D48)
     KEY idx_product_updated (updated_at, id),              -- AI 상품 동기화 배치(I-17) 증분 커서용 (D33)
     CONSTRAINT fk_product_brand FOREIGN KEY (brand_id)
         REFERENCES brand (id) ON DELETE RESTRICT,

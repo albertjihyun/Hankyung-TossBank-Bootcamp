@@ -67,10 +67,22 @@ public class Product extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private ProductStatus status;
 
+    /** I-10 `Idempotency-Key` — (brand_id, 이 값) UNIQUE로 같은 등록 승인의 재전송을 한 상품으로 묶는다 (02 D48) */
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
     /** I-10 등록 (04 §10) — base_sales_count는 크롤링 전용이라 0 고정 (02 D18) */
     public static Product create(Long brandId, Long categoryId, String name, int originalPrice,
                                  int price, String imageUrl, String summary,
                                  String attributes, String description, ProductStatus status) {
+        return create(brandId, categoryId, name, originalPrice, price, imageUrl, summary,
+                attributes, description, status, null);
+    }
+
+    public static Product create(Long brandId, Long categoryId, String name, int originalPrice,
+                                 int price, String imageUrl, String summary,
+                                 String attributes, String description, ProductStatus status,
+                                 String idempotencyKey) {
         Product product = new Product();
         product.brandId = brandId;
         product.categoryId = categoryId;
@@ -83,6 +95,7 @@ public class Product extends BaseTimeEntity {
         product.attributes = attributes;
         product.description = description;
         product.status = status;
+        product.idempotencyKey = idempotencyKey;
         return product;
     }
 
