@@ -36,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +62,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderStatusLogRepository orderStatusLogRepository;
     private final OrderEventRecorder orderEventRecorder;
     private final CartService cartService;
     private final ProductRepository productRepository;
@@ -94,16 +96,48 @@ public class OrderService {
     /** 테스트·내부 호출 편의 — 세션 키 없는 경로(이벤트 적재만 스킵) */
     @Transactional
     public OrderCreateResponse create(Long memberId, OrderCreateRequest request) {
-        return doCreate(memberId, request, null);
+        return doCreate(memberId, request, null, null);
     }
 
     /** O-1 — PENDING 생성(아이템도 PENDING — 01 D9) → 스냅샷 복사 → mock 결제 → PAID/PAYMENT_FAILED */
     @Transactional
     public OrderCreateResponse create(Long memberId, OrderCreateRequest request, String sessionKey) {
-        return doCreate(memberId, request, sessionKey);
+        return doCreate(memberId, request, sessionKey, null);
     }
 
-    private OrderCreateResponse doCreate(Long memberId, OrderCreateRequest request, String sessionKey) {
+    /**
+     * O-1 멱등 키 동반 생성 (02 D47) — 키를 주문에 함께 저장한다. 같은 키의 주문이 이미 있으면 INSERT가
+     * uk_orders_idempotency에 걸려 예외가 나고 이 트랜잭션은 통째로 롤백된다(재고·장바구니 미접촉).
+     * 그 예외를 기존 주문 응답으로 바꾸는 일은 트랜잭션 밖의 {@link IdempotentOrderCreator}가 한다 —
+     * 제약 위반이 난 트랜잭션 안에서는 다시 읽을 수 없기 때문이다.
+     */
+    @Transactional
+    public OrderCreateResponse create(Long memberId, OrderCreateRequest request, String sessionKey,
+                                      String idempotencyKey) {
+        return doCreate(memberId, request, sessionKey, idempotencyKey);
+    }
+
+    /**
+     * 같은 키로 이미 만든 주문이 있으면 그때의 응답을 다시 만든다 (02 D47). 실패 사유는 응답에만 실리고
+     * 주문에는 저장되지 않으므로 전이 로그의 reason에서 되찾는다(값의 출처가 같다 — completePayment 참조).
+     */
+    public Optional<OrderCreateResponse> findCreated(Long memberId, String idempotencyKey) {
+        return orderRepository.findByMemberIdAndIdempotencyKey(memberId, idempotencyKey)
+                .map(order -> OrderCreateResponse.from(order, failureReasonOf(order)));
+    }
+
+    private String failureReasonOf(Order order) {
+        if (order.getStatus() != OrderStatus.PAYMENT_FAILED) {
+            return null;
+        }
+        return orderStatusLogRepository
+                .findFirstByOrderIdAndToStatusOrderByIdDesc(order.getId(), OrderStatus.PAYMENT_FAILED.name())
+                .map(OrderStatusLog::getReason)
+                .orElse(null);
+    }
+
+    private OrderCreateResponse doCreate(Long memberId, OrderCreateRequest request, String sessionKey,
+                                         String idempotencyKey) {
         List<Line> lines = resolveLines(memberId, request);
         Shipping shipping = resolveShipping(memberId, request);
         // long으로 합산 후 INT 컬럼 상한 검증 — 크롤링 고가 상품 × 수량으로 int 곱셈이 넘치면 금액이 음수가 된다 (02 D26④)
@@ -115,7 +149,7 @@ public class OrderService {
 
         Order order = orderRepository.save(Order.create(memberId, request.paymentMethod(), totalAmount,
                 shipping.recipient(), shipping.phone(), shipping.zipCode(),
-                shipping.address1(), shipping.address2(), request.deliveryRequest()));
+                shipping.address1(), shipping.address2(), request.deliveryRequest(), idempotencyKey));
         LocalDateTime now = LocalDateTime.now();
         List<OrderItem> items = orderItemRepository.saveAll(lines.stream()
                 .map(line -> OrderItem.pending(order.getId(), line.product().getId(),

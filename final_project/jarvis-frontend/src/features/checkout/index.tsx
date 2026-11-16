@@ -74,6 +74,10 @@ export default function CheckoutPage() {
   // 결제만 실패한 주문(PAYMENT_FAILED)의 id. 주문 자체는 서버에 남아 있으므로
   // 다시 시도할 때는 새 주문을 만들지 않고 이 주문의 결제만 재시도한다.
   const [failedOrderId, setFailedOrderId] = useState<string | null>(null);
+  // 이 결제 화면의 "구매 의도" 하나에 붙는 키. 화면이 살아 있는 동안 같은 값을 써야
+  // 응답 유실 뒤의 재시도가 새 주문이 아니라 처음 주문으로 수렴한다 — 누를 때마다
+  // 새로 만들면 의미가 없다. 결제가 끝나면 화면을 떠나므로 다음 구매는 새 키를 받는다.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const createOrder = useCreateOrder();
   const retryPayment = useRetryPayment();
 
@@ -262,7 +266,7 @@ export default function CheckoutPage() {
     };
 
     try {
-      const result = await createOrder.mutateAsync(body);
+      const result = await createOrder.mutateAsync({ body, idempotencyKey });
 
       // 결제 실패도 200 — status로 구분한다. 자동 재시도하지 않고 안내만.
       // 선검증(O-1)이 붙은 뒤에도 재고 경합은 남아 OUT_OF_STOCK이 여기로 올 수 있다.

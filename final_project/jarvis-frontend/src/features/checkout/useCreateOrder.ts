@@ -83,7 +83,8 @@ function toOrderErrorMessage(error: unknown): string {
 }
 
 // 주문 생성 + 모의 결제.
-// 자동 재시도 금지 — 중복 주문·중복 결제를 막기 위해 실패 시 사용자가 다시 누르게 한다.
+// 자동 재시도는 하지 않고 실패 시 사용자가 다시 누르게 한다. 다시 눌러도 주문이 겹치지 않는 것은
+// 호출부가 넘기는 idempotencyKey 덕분이다 — 서버가 같은 키의 재전송을 처음 주문으로 수렴시킨다.
 export function useCreateOrder() {
   const queryClient = useQueryClient();
 

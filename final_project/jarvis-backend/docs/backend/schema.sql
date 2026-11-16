@@ -258,10 +258,12 @@ CREATE TABLE orders (                                      -- `order`는 SQL 예
     address2          VARCHAR(255) NULL,
     delivery_request  VARCHAR(200) NULL,                   -- 주문 1회성 배송 요청사항 (D22)
     paid_at           DATETIME     NULL,
+    idempotency_key   VARCHAR(64)  NULL,                   -- O-1 요청의 Idempotency-Key 헤더. 같은 구매 의도의 재전송을 한 주문으로 묶는다 (D47). 키 없이 온 주문은 NULL
     created_at        DATETIME     NOT NULL,
     updated_at        DATETIME     NULL,
     PRIMARY KEY (id),
     KEY idx_orders_member (member_id),
+    UNIQUE KEY uk_orders_idempotency (member_id, idempotency_key),  -- 회원 범위로 유일. NULL은 UNIQUE에 걸리지 않아 키 없는 주문은 제한 없음 (D47)
     CONSTRAINT fk_orders_member FOREIGN KEY (member_id)
         REFERENCES member (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

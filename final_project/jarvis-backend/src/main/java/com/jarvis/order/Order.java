@@ -66,9 +66,21 @@ public class Order extends BaseTimeEntity {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    /** O-1 `Idempotency-Key` — (member_id, 이 값) UNIQUE로 같은 구매 의도의 재전송을 한 주문으로 묶는다 (02 D47) */
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
     public static Order create(Long memberId, String paymentMethod, int totalAmount,
                                String recipient, String phone, String zipCode,
                                String address1, String address2, String deliveryRequest) {
+        return create(memberId, paymentMethod, totalAmount, recipient, phone, zipCode,
+                address1, address2, deliveryRequest, null);
+    }
+
+    public static Order create(Long memberId, String paymentMethod, int totalAmount,
+                               String recipient, String phone, String zipCode,
+                               String address1, String address2, String deliveryRequest,
+                               String idempotencyKey) {
         Order order = new Order();
         order.memberId = memberId;
         order.status = OrderStatus.PENDING;
@@ -80,6 +92,7 @@ public class Order extends BaseTimeEntity {
         order.address1 = address1;
         order.address2 = address2;
         order.deliveryRequest = deliveryRequest;
+        order.idempotencyKey = idempotencyKey;
         return order;
     }
 

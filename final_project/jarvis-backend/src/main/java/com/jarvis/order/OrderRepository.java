@@ -13,6 +13,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findAllByMemberIdOrderByIdDesc(Long memberId, Pageable pageable);
 
+    /** O-1 멱등 재전송 조회 — uk_orders_idempotency(member_id, idempotency_key)를 그대로 탄다 (02 D47) */
+    Optional<Order> findByMemberIdAndIdempotencyKey(Long memberId, String idempotencyKey);
+
     /**
      * O-2 재결제 진입점 전용 비관적 쓰기 락 — 동시 재결제(더블클릭) 직렬화.
      * 락 획득 후 상태를 재확인하므로 두 번째 요청은 이미 PAID로 바뀐 주문에서 재차감하지 못한다 (01 §2-1).
