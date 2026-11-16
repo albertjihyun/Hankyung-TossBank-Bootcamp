@@ -55,10 +55,14 @@ CREATE TABLE refresh_token (
     id          BIGINT   NOT NULL AUTO_INCREMENT,
     member_id   BIGINT   NOT NULL,
     token_hash  CHAR(64) NOT NULL,                         -- SHA-256 hex, 원문 저장 금지 (D17)
+    family_id   CHAR(36) NOT NULL,                         -- 한 번의 로그인에서 이어진 RT들의 묶음. 회전해도 같은 값을 물려받는다 (D50)
+    rotated_at  DATETIME NULL,                             -- 이 RT로 재발급한 시각. 값이 있는 RT가 다시 오면 재사용이다 — 유예(10초) 밖이면 탈취로 보고 패밀리 전체를 폐기 (D50)
     expires_at  DATETIME NOT NULL,
     created_at  DATETIME NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_refresh_token_hash (token_hash),
+    KEY idx_refresh_token_family (family_id),              -- 로그아웃·재사용 탐지 시 패밀리 전체 삭제
+    KEY idx_refresh_token_expires (expires_at),            -- 만료 행 정리 잡의 범위 스캔
     CONSTRAINT fk_refresh_token_member FOREIGN KEY (member_id)
         REFERENCES member (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

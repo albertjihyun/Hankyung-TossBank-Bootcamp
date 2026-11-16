@@ -213,26 +213,32 @@ class AuthServiceTest {
     @Nested
     class Refresh {
 
+        private static final String RAW = "raw-refresh-token";
+        private static final String HASH = TokenHasher.sha256Hex(RAW);
+
+        private RefreshToken stored(LocalDateTime rotatedAt) {
+            RefreshToken token = RefreshToken.issue(1L, HASH, LocalDateTime.now().plusDays(7), "family-1");
+            org.springframework.test.util.ReflectionTestUtils.setField(token, "rotatedAt", rotatedAt);
+            when(refreshTokenRepository.findByTokenHash(HASH)).thenReturn(Optional.of(token));
+            return token;
+        }
+
         @Test
-        @DisplayName("유효한 RT — 새 AT 발급 + RT 교체(기존 삭제, 새 해시 저장)")
-        void validToken_rotates() {
-            String raw = "raw-refresh-token";
-            RefreshToken stored = RefreshToken.issue(1L, TokenHasher.sha256Hex(raw),
-                    LocalDateTime.now().plusDays(7));
-            when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
-                    .thenReturn(Optional.of(stored));
-            when(refreshTokenRepository.deleteByTokenHash(TokenHasher.sha256Hex(raw))).thenReturn(1);
+        @DisplayName("유효한 RT — 새 AT 발급 + RT 회전. 쓴 RT는 지우지 않고 표시만 하며, 새 RT는 같은 패밀리다")
+        void validToken_rotatesWithinFamily() {
+            stored(null);
+            when(refreshTokenRepository.markRotated(eq(HASH), any())).thenReturn(1);
             when(memberRepository.findById(1L)).thenReturn(Optional.of(memberFixture(1L)));
 
-            AuthResult result = authService.refresh(raw);
+            AuthResult result = authService.refresh(RAW);
 
             assertThat(jwtProvider.parseAccessToken(result.accessToken()).memberId()).isEqualTo(1L);
-            verify(refreshTokenRepository).deleteByTokenHash(TokenHasher.sha256Hex(raw));
+            assertThat(result.refreshToken()).isNotEqualTo(RAW);
             ArgumentCaptor<RefreshToken> rtCaptor = ArgumentCaptor.forClass(RefreshToken.class);
             verify(refreshTokenRepository).save(rtCaptor.capture());
-            assertThat(rtCaptor.getValue().getTokenHash())
-                    .isEqualTo(TokenHasher.sha256Hex(result.refreshToken()));
-            assertThat(result.refreshToken()).isNotEqualTo(raw);
+            assertThat(rtCaptor.getValue().getTokenHash()).isEqualTo(TokenHasher.sha256Hex(result.refreshToken()));
+            assertThat(rtCaptor.getValue().getFamilyId()).isEqualTo("family-1");
+            verify(refreshTokenRepository, never()).deleteByFamilyId(any());
         }
 
         @Test
@@ -246,34 +252,58 @@ class AuthServiceTest {
         }
 
         @Test
-        @DisplayName("만료된 RT — row 삭제 + 401 AUTH_REQUIRED")
-        void expiredToken_deletesAndThrows401() {
-            String raw = "expired-refresh-token";
-            RefreshToken stored = RefreshToken.issue(1L, TokenHasher.sha256Hex(raw),
-                    LocalDateTime.now().minusMinutes(1));
-            when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
-                    .thenReturn(Optional.of(stored));
+        @DisplayName("만료된 RT — 401 AUTH_REQUIRED. 회전도 발급도 하지 않는다(행 정리는 정리 잡 소관)")
+        void expiredToken_throws401() {
+            RefreshToken expired = RefreshToken.issue(1L, HASH, LocalDateTime.now().minusMinutes(1), "family-1");
+            when(refreshTokenRepository.findByTokenHash(HASH)).thenReturn(Optional.of(expired));
 
-            assertThatThrownBy(() -> authService.refresh(raw))
+            assertThatThrownBy(() -> authService.refresh(RAW))
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode").isEqualTo(ErrorCode.AUTH_REQUIRED);
-            verify(refreshTokenRepository).deleteByTokenHash(TokenHasher.sha256Hex(raw));
+            verify(refreshTokenRepository, never()).markRotated(any(), any());
+            verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
         }
 
         @Test
-        @DisplayName("동시 refresh 경합 — 조건부 삭제가 0건이면 발급 없이 401 (회전 단일성)")
-        void concurrentRotation_losesRace_throws401() {
-            String raw = "raw-refresh-token";
-            RefreshToken stored = RefreshToken.issue(1L, TokenHasher.sha256Hex(raw),
-                    LocalDateTime.now().plusDays(7));
-            when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
-                    .thenReturn(Optional.of(stored));
-            // 다른 스레드가 먼저 소비 → 이 요청의 삭제는 0건
-            when(refreshTokenRepository.deleteByTokenHash(TokenHasher.sha256Hex(raw))).thenReturn(0);
+        @DisplayName("여러 탭의 동시 재발급 — 진 쪽도 같은 패밀리로 발급받는다(예전에는 이유 없이 로그아웃됐다)")
+        void concurrentRefreshFromAnotherTab_isServed() {
+            // 읽을 때는 회전 표시가 없었는데 표시에 실패(0건) = 방금 다른 요청이 먼저 회전시켰다
+            stored(null);
+            when(refreshTokenRepository.markRotated(eq(HASH), any())).thenReturn(0);
+            when(memberRepository.findById(1L)).thenReturn(Optional.of(memberFixture(1L)));
 
-            assertThatThrownBy(() -> authService.refresh(raw))
+            AuthResult result = authService.refresh(RAW);
+
+            assertThat(result.refreshToken()).isNotBlank();
+            verify(refreshTokenRepository, never()).deleteByFamilyId(any());
+            verify(tokenEpoch, never()).invalidate(anyLong());
+        }
+
+        @Test
+        @DisplayName("회전 직후(유예 안) 같은 RT가 다시 옴 — 탭 경합으로 보고 발급한다")
+        void reuseWithinGrace_isServed() {
+            stored(LocalDateTime.now().minusSeconds(3));
+            when(refreshTokenRepository.markRotated(eq(HASH), any())).thenReturn(0);
+            when(memberRepository.findById(1L)).thenReturn(Optional.of(memberFixture(1L)));
+
+            AuthResult result = authService.refresh(RAW);
+
+            assertThat(result.refreshToken()).isNotBlank();
+            verify(refreshTokenRepository, never()).deleteByFamilyId(any());
+        }
+
+        @Test
+        @DisplayName("이미 회전된 RT가 유예 밖에서 다시 옴 — 탈취로 보고 그 로그인의 RT 전부를 폐기, AT도 즉시 무효화")
+        void reuseAfterGrace_revokesFamily() {
+            stored(LocalDateTime.now().minus(AuthService.REUSE_GRACE).minusSeconds(1));
+            when(refreshTokenRepository.markRotated(eq(HASH), any())).thenReturn(0);
+
+            assertThatThrownBy(() -> authService.refresh(RAW))
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode").isEqualTo(ErrorCode.AUTH_REQUIRED);
+
+            verify(refreshTokenRepository).deleteByFamilyId("family-1");
+            verify(tokenEpoch).invalidate(1L);
             verify(refreshTokenRepository, never()).save(any(RefreshToken.class));
         }
 
@@ -290,17 +320,18 @@ class AuthServiceTest {
     class Logout {
 
         @Test
-        @DisplayName("RT가 있으면 row 삭제 + LOGOUT 로그")
-        void withToken_deletesAndLogs() {
+        @DisplayName("RT가 있으면 그 로그인의 RT 전부 삭제 + LOGOUT 로그")
+        void withToken_deletesFamilyAndLogs() {
             String raw = "raw-refresh-token";
             RefreshToken stored = RefreshToken.issue(1L, TokenHasher.sha256Hex(raw),
-                    LocalDateTime.now().plusDays(7));
+                    LocalDateTime.now().plusDays(7), "family-1");
             when(refreshTokenRepository.findByTokenHash(TokenHasher.sha256Hex(raw)))
                     .thenReturn(Optional.of(stored));
 
             authService.logout(raw, IP);
 
-            verify(refreshTokenRepository).delete(stored);
+            // 이 RT 하나가 아니라 패밀리 — 유예로 발급된 형제 RT가 남으면 로그아웃 뒤에도 재발급이 된다
+            verify(refreshTokenRepository).deleteByFamilyId("family-1");
             verify(accountEventLogger).log(1L, AccountEventType.LOGOUT, IP);
             // RT만 지우면 이미 나가 있는 AT가 30분간 살아남는다 — 탈취본이 그동안 통한다 (07 §3-2)
             verify(tokenEpoch).invalidate(1L);
@@ -311,7 +342,7 @@ class AuthServiceTest {
         void withoutToken_noException() {
             authService.logout(null, IP);
 
-            verify(refreshTokenRepository, never()).delete(any());
+            verify(refreshTokenRepository, never()).deleteByFamilyId(any());
             verify(tokenEpoch, never()).invalidate(anyLong());
         }
     }
