@@ -48,6 +48,10 @@
 - 네이티브 쿼리는 Mock 단위 테스트로 문법이 검증되지 않는다 — 통합 테스트(Testcontainers 등) 또는 실 DB 1회 실행이 필요
 - DB 예약어는 방언(MySQL/MariaDB)마다 다르다 — 별칭·컬럼명은 예약어 목록을 피해서
 
+### 후속 조치 (2026-11-16)
+
+교훈에 적어 두고도 석 달간 비어 있던 통합 테스트를 추가했다. `jarvis-backend`의 `RepositoryQueryIntegrationTest`가 Testcontainers로 MariaDB 11.4를 띄워 `@Query` 93건을 전부 한 번씩 실행한다. 이 사고를 되살려(별칭을 다시 `lines`로) 돌려 보면 `aggregateAiAttribution`에서 같은 1064 문법 오류로 실패한다 — 같은 종류의 오류는 이제 배포 전에 걸린다.
+
 ---
 
 ## 2. M-12 취향 수정 전면 500 — 업스트림(AI 서버) 오류가 INTERNAL_ERROR 로 합쳐져 FE에서 구분 불가

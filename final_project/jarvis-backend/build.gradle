@@ -50,6 +50,11 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    // 실제 MariaDB를 띄우는 통합 테스트 — 네이티브 SQL 문법·DB 제약·조건부 UPDATE 동시성은 목으로 검증되지 않는다.
+    // Docker가 없으면 건너뛴다(support/DockerRequired)
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mariadb'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
