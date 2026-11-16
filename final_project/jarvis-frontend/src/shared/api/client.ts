@@ -27,6 +27,9 @@ export interface ApiErrorBody {
   message: string;
   fields?: ApiFieldError[];
   detail?: ApiErrorDetail;
+  // 이 요청의 X-Request-Id — 서버가 오류 응답에 실어준다(공통 헤더 규약).
+  // 문의에 이 값을 붙이면 백엔드·AI 서버 로그를 한 번에 찾을 수 있다.
+  requestId?: string;
 }
 
 /**
@@ -57,6 +60,8 @@ export class ApiError extends Error {
    * 계정 잠금이 아니라 일시 차단이라, 이 초만큼 지나면 자동으로 풀린다.
    */
   retryAfterSeconds?: number;
+  /** 서버가 오류 응답에 실어준 요청 ID — 문의·로그 추적용. 서버가 안 보냈으면 undefined */
+  requestId?: string;
   constructor(body: ApiErrorBody, status?: number, retryAfterSeconds?: number) {
     super(body.message);
     this.name = "ApiError";
@@ -65,6 +70,7 @@ export class ApiError extends Error {
     this.fields = body.fields;
     this.detail = body.detail;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.requestId = body.requestId;
   }
 
   // 검증 실패면 필드 사유("수량은 99 이하여야 합니다.")를, 없으면 공통 message를 반환

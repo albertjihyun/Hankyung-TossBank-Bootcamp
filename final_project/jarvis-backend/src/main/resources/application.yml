@@ -1,6 +1,10 @@
 spring:
   application:
     name: jarvis-backend
+  lifecycle:
+    # graceful 종료가 처리 중인 요청을 기다리는 상한. 가장 긴 요청(AI 프록시 4s)보다 충분히 길게,
+    # ALB 등록 취소 대기(30s)보다는 짧게 둔다
+    timeout-per-shutdown-phase: 20s
   profiles:
     default: local
   datasource:
@@ -67,11 +71,19 @@ spring:
 
 server:
   port: 8080
+  # 종료 신호를 받으면 새 요청은 거절하고 처리 중인 요청은 끝까지 마친다. 배포는 ALB에서 인스턴스를 뺀 뒤
+  # 컨테이너를 내리지만(DEPLOY.md), 그 순서가 어긋나거나 수동으로 내릴 때 결제 중인 요청이 잘리지 않게 한다
+  shutdown: graceful
   # I-1은 후보 수 상한이 없어(05 §I-1) 응답이 커질 수 있다 — JSON은 압축률이 높아 전송 시간이 콜백 타임아웃(3s)을 먹는 걸 막는다
   compression:
     enabled: true
     mime-types: application/json
     min-response-size: 2KB
+
+logging:
+  pattern:
+    # 모든 로그 줄에 요청 ID를 찍는다 (docs/tracing-headers.md). 요청 밖(스케줄러·컨슈머)에서는 빈 칸
+    correlation: "[%X{requestId:-}] "
 
 management:
   endpoints:

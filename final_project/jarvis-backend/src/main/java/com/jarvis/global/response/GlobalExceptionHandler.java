@@ -84,6 +84,47 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.RESOURCE_CONFLICT));
     }
 
+    // 호출자가 요청 형식을 틀린 경우들 — 전용 핸들러가 없으면 아래 포괄 핸들러가 받아 500이 된다.
+    // 그러면 클라이언트의 실수가 서버 장애로 집계되고 error 로그가 스택트레이스로 부풀며,
+    // 무효 요청만 반복해도 장애 알람을 울릴 수 있다. 스택트레이스 없이 4xx로 돌려준다.
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(
+            org.springframework.web.HttpRequestMethodNotSupportedException e) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(ErrorCode.METHOD_NOT_ALLOWED.getStatus());
+        if (e.getSupportedHttpMethods() != null) {
+            response.allow(e.getSupportedHttpMethods().toArray(org.springframework.http.HttpMethod[]::new));
+        }
+        return response.body(ApiResponse.error(ErrorCode.METHOD_NOT_ALLOWED));
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnsupportedMediaType(
+            org.springframework.web.HttpMediaTypeNotSupportedException e) {
+        return ResponseEntity.status(ErrorCode.UNSUPPORTED_MEDIA_TYPE.getStatus())
+                .body(ApiResponse.error(ErrorCode.UNSUPPORTED_MEDIA_TYPE));
+    }
+
+    // 필수 쿼리 파라미터 누락 → 400 VALIDATION_ERROR + 어느 파라미터인지
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParameter(
+            org.springframework.web.bind.MissingServletRequestParameterException e) {
+        return missing(e.getParameterName());
+    }
+
+    // 필수 헤더 누락 → 400 VALIDATION_ERROR + 어느 헤더인지
+    @ExceptionHandler(org.springframework.web.bind.MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingHeader(
+            org.springframework.web.bind.MissingRequestHeaderException e) {
+        return missing(e.getHeaderName());
+    }
+
+    private static ResponseEntity<ApiResponse<Void>> missing(String name) {
+        return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.getStatus())
+                .body(ApiResponse.validationError(List.of(
+                        new ApiResponse.FieldErrorDetail(name, "필수 값입니다."))));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         log.error("Unexpected error", e);
