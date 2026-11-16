@@ -18,7 +18,11 @@ import type {
   PaymentMethod,
 } from "./types";
 import { PAYMENT_METHODS } from "./paymentMethods";
-import { useCreateOrder, useRetryPayment } from "./useCreateOrder";
+import {
+  isUnrecoverableRetryError,
+  useCreateOrder,
+  useRetryPayment,
+} from "./useCreateOrder";
 import {
   useAddresses,
   useAddressMutations,
@@ -185,7 +189,10 @@ export default function CheckoutPage() {
   const orderRejected =
     createOrder.error instanceof ApiError &&
     createOrder.error.code === "ORDER_PRODUCT_UNAVAILABLE";
-  const unrecoverable = paymentFailed?.reason === "OUT_OF_STOCK" || orderRejected;
+  // 재결제(O-2)가 품절·판매중지·가격 변경으로 거부된 경우도 같다 — 실패 주문은 고칠 수 없다.
+  const retryRejected = isUnrecoverableRetryError(retryPayment.error);
+  const unrecoverable =
+    paymentFailed?.reason === "OUT_OF_STOCK" || orderRejected || retryRejected;
 
   const handleSubmit = async () => {
     if (createOrder.isPending || retryPayment.isPending) return;

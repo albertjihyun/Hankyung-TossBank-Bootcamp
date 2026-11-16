@@ -53,6 +53,8 @@ public enum ErrorCode {
     // 미판매/HIDDEN 또는 재고 부족 — detail.unavailableItems[{productId,name,reason}] 동반 (04 §4, 2026-08-05 재고 포함으로 확장)
     ORDER_PRODUCT_UNAVAILABLE(HttpStatus.BAD_REQUEST, "구매할 수 없는 상품이 포함되어 있습니다."),
     ORDER_INVALID_TRANSITION(HttpStatus.BAD_REQUEST, "현재 상태에서 처리할 수 없는 요청입니다."),
+    // O-2 재결제 — 주문 시점 가격과 현재 판매가가 다르다. 재시도로 풀리지 않으므로 새 주문을 안내한다 (2026-11-16)
+    ORDER_PRICE_CHANGED(HttpStatus.CONFLICT, "주문 후 상품 가격이 변경되어 결제할 수 없습니다. 다시 주문해 주세요."),
     // I-30 재발송 — 멱등 200을 내지 않는다. HITL 쓰기는 "이미 된 일"과 "방금 한 일"을 구분해야
     // 에이전트의 거짓 성공 보고를 막는다(I-12와 같은 논리, 04 §11)
     ORDER_ALREADY_SHIPPED(HttpStatus.CONFLICT, "이미 발송 처리된 주문 상품입니다."),
