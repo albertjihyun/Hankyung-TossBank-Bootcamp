@@ -103,6 +103,31 @@ public class BehaviorEvent {
     }
 
     /**
+     * 같은 내용의 저장 전 사본 — id만 비어 있다.
+     *
+     * <p>저장을 시도했다가 롤백된 엔티티는 다시 저장할 수 없다. IDENTITY 채번은 INSERT 시점에 id를
+     * 채우는데 롤백은 그 값을 되돌리지 않아서, 같은 객체를 다시 {@code save}하면 "이미 있는 행의 수정"으로
+     * 취급돼 없는 행을 갱신하려다 실패한다. 배치 저장이 깨진 뒤 건별로 다시 넣을 때 이 사본을 쓴다.
+     */
+    BehaviorEvent unsavedCopy() {
+        BehaviorEvent copy = new BehaviorEvent();
+        copy.memberId = memberId;
+        copy.guestId = guestId;
+        copy.sessionKey = sessionKey;
+        copy.clientEventId = clientEventId;
+        copy.eventType = eventType;
+        copy.productId = productId;
+        copy.properties = properties;
+        copy.occurredAt = occurredAt;
+        copy.recommendationRequestId = recommendationRequestId;
+        copy.listId = listId;
+        copy.surface = surface;
+        copy.position = position;
+        copy.createdAt = createdAt;
+        return copy;
+    }
+
+    /**
      * 서버 적재 전용 (02 D38·D39·D40, 노션 E-1) — 추천 퍼널의 최상단.
      * occurred_at은 적재 시점 = created_at이다(브라우저 시계가 개입하지 않으니 이상치 보정 불필요).
      * productId는 목록 단위 이벤트라 NULL — 순위(position)도 없다.
