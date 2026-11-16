@@ -16,7 +16,7 @@
   <img alt="MariaDB" src="https://img.shields.io/badge/MariaDB-11.4-003545?logo=mariadb&logoColor=white">
   <img alt="Redis" src="https://img.shields.io/badge/Redis-cache%20%C2%B7%20state-DC382D?logo=redis&logoColor=white">
   <img alt="Kafka" src="https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-551%20passing-success">
+  <img alt="tests" src="https://img.shields.io/badge/tests-603%20passing-success">
 </p>
 
 ---
@@ -91,7 +91,7 @@ flowchart LR
 | 인증 | **JWT + HttpOnly 쿠키** | 스크립트가 토큰을 읽을 수 없어 유출 경로가 막히고, 서버 렌더링 첫 진입에서도 로그인 상태가 유지된다 ([ADR-0010](../docs/adr/0010-access-token-httponly-cookie.md)) |
 | AI 연동 인증 | **RS256 단명 티켓 + 공개키 배포** | AI 서버가 신원을 만들지 않고 백엔드가 서명한 티켓을 검증만 하게 해, 신원의 출처를 하나로 고정 |
 | 분산 락 | **ShedLock** | 스케줄러가 4대에서 동시에 돌아 같은 주문을 여러 번 처리하는 것을 방지 |
-| 테스트 | **JUnit 5 · Mockito · EmbeddedKafka** | 서비스 로직은 단위 테스트로, Kafka 직렬화 왕복은 EmbeddedKafka로 고정. 실제 DB를 띄우는 테스트는 아직 없다([알려진 한계](#알려진-한계)) |
+| 테스트 | **JUnit 5 · Mockito · Testcontainers · EmbeddedKafka** | 서비스 로직은 단위 테스트로, SQL 문법·DB 제약·동시성은 실제 MariaDB 컨테이너로, Kafka 직렬화 왕복은 EmbeddedKafka로 고정 |
 
 ---
 
@@ -114,11 +114,10 @@ flowchart LR
 
 | 영역 | 한계 | 영향 |
 |---|---|---|
-| 테스트 | 실제 DB를 띄우는 테스트가 없다. 리포지토리는 전부 목(mock)이다 | 네이티브 SQL 문법과 조건부 갱신의 동시성이 자동 검증되지 않는다. 운영에서 예약어 문법 오류를 한 번 겪었다([트러블슈팅 1번](../docs/troubleshooting.md)) |
-| 주문 | 주문 생성에 멱등 키가 없다 | "바로 구매"를 두 번 누르거나 응답 유실 후 재시도하면 주문이 2건 생길 수 있다. 설계는 `07-redis-design.md` §3-3에 있으나 미구현 |
+| 테스트 | 집계 쿼리의 **결과값**은 검증하지 않는다 | 통합 테스트는 `@Query` 93건이 실제 MariaDB에서 실행되는지와 재고·상태 전이·주문 멱등 키의 동시성을 확인한다. 판매자 분석 쿼리가 올바른 숫자를 내는지(픽스처 대조)는 아직 없다 |
 | 결제 | 결제·배송이 모의 구현이고, 결제 호출이 DB 트랜잭션 안에 있다 | 실제 결제사를 붙이려면 승인 취소(보상) 경로와 트랜잭션 분리가 먼저 필요하다 |
 | AI 연동 | 판매자 상품 등록(내부 API)에 멱등 장치가 없다 | AI 서버 타임아웃 뒤 재승인하면 같은 상품이 중복 등록될 수 있다 |
-| 내부 API | 방어가 공유 토큰 한 겹이다 | 문서의 "nginx 경로 차단"은 운영 설정에 적용되지 않았다 |
+| 내부 API | 네트워크 층 방어가 없다 | 문서의 "nginx 경로 차단"은 운영 설정에 적용되지 않았다. 앱 층은 토큰 필터와 시큐리티 권한 두 겹이지만, 토큰은 회전·만료가 없는 공유 값 하나다 |
 | DB 변경 | 마이그레이션이 수동 SQL이고 적용 이력 관리 도구가 없다 | 적용 순서를 사람이 기억해야 하며, 순서 실수로 배포가 실패한 적이 있다 |
 | 관측성 | 요청 ID·구조화 로그·메트릭·알림이 없다 | 장애 시 서버별 로그를 직접 대조해야 한다 |
 | 부하 테스트 | 읽기 경로만 측정했다 | 주문·재고 차감 같은 쓰기 경로의 한계는 측정한 적이 없다 |
@@ -174,7 +173,7 @@ JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.11.10-hotspot" ./gradlew bootRun
 curl http://localhost:8080/actuator/health     # {"status":"UP"}
 
 # 4. 테스트 · 빌드
-./gradlew test          # 단위 · 통합 551건
+./gradlew test          # 단위 584건 + 통합 19건 (통합은 Docker 필요 — 없으면 건너뜀)
 ./gradlew bootJar       # build/libs/jarvis-backend-*.jar
 ```
 
