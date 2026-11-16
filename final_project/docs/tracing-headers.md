@@ -26,6 +26,19 @@
 
 규약 제정 시점(07-30) 실측: FastAPI는 inbound를 무시하고 매번 새로 만들고 있었고(`app/core/errors.py`), Spring 호출 헤더에 `X-Internal-Token` 하나만 실려 있었다 — 이 간극을 메우는 것이 규약의 목적. 스트림 내부 오류에도 실린다 — CH-2·S-4의 in-stream `error` 이벤트에 `requestId` 추가(07-28). 종전에는 스트림 시작 전 실패(HTTP 봉투)에만 있어, 정작 사용자가 신고하는 쪽을 추적할 수 없었다.
 
+### 구현 현황 (2026-11-16)
+
+규약을 정한 뒤 Spring 쪽 구현이 빠져 있었다 — 아래 표의 Spring 행은 2026-11-16에 채웠다.
+
+| 역할 | Spring (`jarvis-backend`) | 상태 |
+|---|---|---|
+| 수용·검증 | `global/trace/RequestIdFilter` — 형식에 맞으면 유지, 아니면 새로 생성. 인증 필터보다 먼저 돈다 | 구현 |
+| MDC 기록 | 같은 필터가 MDC `requestId`에 넣고, `logging.pattern.correlation`으로 모든 로그 줄에 찍는다. `@Async` 스레드에도 이어진다(`AsyncConfig`) | 구현 |
+| 응답 echo | 모든 응답의 `X-Request-Id` 헤더 + 오류 응답 본문 `error.requestId` | 구현 |
+| AI 호출 시 전달 | `global/trace/RequestIdPropagator` — AI 서버로 가는 `RestClient` 두 개에 모두 적용 | 구현 |
+
+남은 것: **FE는 아직 요청마다 `X-Request-Id`를 만들어 보내지 않는다**(그래서 지금은 Spring이 최초 생성자다). 오류 응답의 `requestId`는 `ApiError.requestId`로 받도록 해 두었고, 화면에 노출하는 것은 미구현이다. FastAPI가 inbound 값을 유지하는지는 이번에 확인하지 않았다.
+
 ## 2. traceparent / tracestate — 분산 트레이싱
 
 [W3C Trace Context](https://www.w3.org/TR/trace-context/) 표준을 쓴다. tracing이 켜졌을 때만 전파.

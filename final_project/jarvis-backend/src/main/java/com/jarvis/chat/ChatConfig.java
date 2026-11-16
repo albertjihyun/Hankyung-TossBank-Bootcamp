@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import com.jarvis.global.trace.RequestIdPropagator;
 
 @Configuration
 @EnableConfigurationProperties({StreamTicketProperties.class, ChatProperties.class, LlmProperties.class})
@@ -27,7 +28,7 @@ public class ChatConfig {
     @Primary
     @Bean
     public RestClient llmRestClient() {
-        return RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(3))).build();
+        return llmClient(Duration.ofSeconds(3));
     }
 
     /**
@@ -38,7 +39,7 @@ public class ChatConfig {
      */
     @Bean
     public RestClient profileWriteRestClient() {
-        return RestClient.builder().requestFactory(requestFactory(Duration.ofSeconds(4))).build();
+        return llmClient(Duration.ofSeconds(4));
     }
 
     /**
@@ -53,6 +54,14 @@ public class ChatConfig {
      * <p>HTTP/1.1 고정: {@code HttpClient} 기본값(HTTP/2)은 평문 h2c 업그레이드를 시도한다. 상대는 uvicorn
      * 한 대뿐이고 얻을 게 없는데 프로토콜 협상이라는 실패 지점만 는다 — 종전 와이어 동작을 그대로 둔다.
      */
+    /** AI 서버로 가는 모든 호출에 현재 요청의 X-Request-Id를 싣는다 (docs/tracing-headers.md) */
+    private static RestClient llmClient(Duration readTimeout) {
+        return RestClient.builder()
+                .requestFactory(requestFactory(readTimeout))
+                .requestInterceptor(new RequestIdPropagator())
+                .build();
+    }
+
     private static ClientHttpRequestFactory requestFactory(Duration readTimeout) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder()
