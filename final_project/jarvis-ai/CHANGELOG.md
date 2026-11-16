@@ -12,6 +12,10 @@
 ## [Unreleased]
 
 ### Added
+- **I-10 상품 등록 호출에 멱등 키(`Idempotency-Key: draftId`)를 싣는다 (api-spec §4.5).**
+  등록은 타임아웃(3s) 뒤에도 BE에서 성공할 수 있는데, 그때 판매자가 같은 초안을 다시 승인하면
+  상품이 한 번 더 등록됐다. 이제 BE가 같은 초안의 재전송을 처음 등록한 상품으로 수렴시킨다
+  (jarvis-backend 02 D48). 와이어 본문은 그대로이고 헤더만 추가된다.
 - **#631 — 구매자 rerank 순위 계산을 `current`·`structured`·`hybrid` arm으로 선택할 수 있게 했다.**
   `structured`는 LLM의 제한된 intent/need/profile 점수를 결정론적 `4:2:1` 합산과 명시적
   tie-break로 정렬하고, `current`는 기존 LLM 순위·파서·fallback을 그대로 유지한다.

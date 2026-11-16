@@ -79,7 +79,11 @@ class _StubSpring:
     # [#524] I-10 422 INVALID_STOCK 주입용 — update_error 와 같은 규약.
     create_error: Exception | None = None
 
-    async def create_product(self, brand_id, payload):
+    # I-10 멱등 키(draftId) 관측용 — 마지막 등록 호출이 실은 키.
+    create_idempotency_key: str | None = None
+
+    async def create_product(self, brand_id, payload, *, idempotency_key=None):
+        self.create_idempotency_key = idempotency_key
         self.calls.append(("create", brand_id, payload))
         if self.create_error is not None:
             raise self.create_error
@@ -791,6 +795,26 @@ def test_confirm_create_maps_to_i10_without_image() -> None:
     assert (payload.name, payload.price, payload.stock_quantity) == ("한라봉청", 20000, 50)
     assert payload.image_url is None
     assert spring.calls[0][0] == "create"  # create 는 I-9 재조회(stale) 생략
+
+
+def test_confirm_create_sends_draft_id_as_idempotency_key() -> None:
+    """I-10 호출은 draftId 를 멱등 키로 싣는다 — 같은 초안의 재confirm 이 같은 키가 된다.
+
+    등록은 타임아웃 뒤에도 BE 에서 성공할 수 있다. 키가 없으면 판매자가 같은 초안을 다시
+    승인했을 때 상품이 한 번 더 등록된다(jarvis-backend 02 D48).
+    """
+    spring = _StubSpring()
+    set_spring_client(spring)
+    record = _record(op="create", product_id=None, changes=_create_changes())
+
+    async def run():
+        await hitl.start_draft(record)
+        return await hitl.confirm_draft(record.draft_id, seller_id=7, brand_id=3)
+
+    outcome = asyncio.run(run())
+
+    assert outcome.status == "executed"
+    assert spring.create_idempotency_key == record.draft_id
 
 
 def test_confirm_create_sends_numeric_category_id() -> None:
