@@ -195,8 +195,9 @@ public class OrderService {
         if (!order.isRetryable()) {
             throw new BusinessException(ErrorCode.ORDER_INVALID_TRANSITION);
         }
-        order.changePaymentMethod(request.paymentMethod());
         List<OrderItem> items = orderItemRepository.findAllByOrderId(orderId);
+        requireStillPurchasable(items);
+        order.changePaymentMethod(request.paymentMethod());
 
         String failureReason = completePayment(order, items, aggregateQuantities(items), request.paymentMethod());
         if (order.getStatus() == OrderStatus.PAID) {
@@ -204,6 +205,58 @@ public class OrderService {
             recordPurchase(order, items, sessionKey);
         }
         return OrderCreateResponse.from(order, failureReason);
+    }
+
+    /**
+     * 재결제 직전에 "이 주문을 지금도 그대로 팔 수 있는가"를 다시 확인한다 (01 §2-1, 2026-11-16).
+     *
+     * <p>결제에 실패한 주문은 만료 없이 남는다. 그 사이 판매자가 상품을 내리거나 가격을 바꿔도, 예전에는
+     * 재결제가 주문 시점의 스냅샷(가격·수량)만 믿고 그대로 결제·차감했다 — 판매 중지된 상품이 며칠 전
+     * 가격으로 팔렸다. O-1의 선검증(requireAllAvailable)과 같은 판정을 여기에도 건다.
+     *
+     * <ul>
+     *   <li>판매 중지·재고 부족 → 400 ORDER_PRODUCT_UNAVAILABLE + 어느 상품이 왜 안 되는지(O-1과 같은 모양).
+     *       예전에는 재고 부족만 결제 후 OUT_OF_STOCK으로 드러났다 — 그 경로는 경합용으로 남는다.</li>
+     *   <li>가격 변경 → 409 ORDER_PRICE_CHANGED. 스냅샷 가격으로 받으면 판매자가 올린 가격을 무시하고,
+     *       현재가로 받으면 사용자가 확인하지 않은 금액을 결제한다. 어느 쪽도 옳지 않아 새 주문을 안내한다.</li>
+     * </ul>
+     */
+    private void requireStillPurchasable(List<OrderItem> items) {
+        List<Long> productIds = items.stream().map(OrderItem::getProductId).distinct().toList();
+        Map<Long, Product> products = productRepository.findAllById(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product));
+        if (products.size() < productIds.size()) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+        Map<StockKey, Integer> quantities = aggregateQuantities(items);
+        Map<StockKey, Integer> available = availableStocks(productIds);
+        Map<Long, ProductOption> options = productOptionRepository.findAllById(
+                        items.stream().map(OrderItem::getOptionId).filter(Objects::nonNull).distinct().toList())
+                .stream().collect(Collectors.toMap(ProductOption::getId, option -> option));
+
+        List<UnavailableItemDetail> unavailable = quantities.entrySet().stream()
+                .map(entry -> {
+                    Long optionId = entry.getKey().optionId();
+                    ProductOption option = optionId == null ? null : options.get(optionId);
+                    return UnavailableItemDetail.of(products.get(entry.getKey().productId()), optionId,
+                            option == null ? null : option.getName(),
+                            available.getOrDefault(entry.getKey(), 0), entry.getValue());
+                })
+                .filter(Objects::nonNull)
+                .toList();
+        if (!unavailable.isEmpty()) {
+            throw new BusinessException(ErrorCode.ORDER_PRODUCT_UNAVAILABLE,
+                    Map.of("unavailableItems", unavailable));
+        }
+
+        for (OrderItem item : items) {
+            ProductOption option = item.getOptionId() == null ? null : options.get(item.getOptionId());
+            int currentPrice = products.get(item.getProductId()).getPrice()
+                    + (option == null ? 0 : option.getExtraPrice());
+            if (currentPrice != item.getPrice()) {
+                throw new BusinessException(ErrorCode.ORDER_PRICE_CHANGED);
+            }
+        }
     }
 
     /**

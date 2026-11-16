@@ -478,9 +478,10 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("O-2 재고 부족 재실패 — 응답 failureReason이 OUT_OF_STOCK (재결제로는 회복 불가 신호)")
+    @DisplayName("O-2 재확인을 통과한 뒤 경합으로 재고가 밀림 — 응답 failureReason이 OUT_OF_STOCK")
     void retryOutOfStockExposesReason() {
-        // O-2에는 O-1 같은 재고 선검증이 없다 — 몇 번을 눌러도 같은 결과라, 이 필드가 루프를 끊는 유일한 수단이다
+        // 재확인(requireStillPurchasable) 시점엔 재고가 있었지만 차감에서 진 경우 — 선검증은 경합 창을 좁힐 뿐이다
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
         Order order = Order.create(1L, "MOCK_CARD", 24000, "r", "p", "z", "a1", null, null);
         ReflectionTestUtils.setField(order, "id", 1L);
         ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 7, 17, 12, 0));
@@ -496,6 +497,104 @@ class OrderServiceTest {
 
         assertThat(response.failureReason()).isEqualTo("OUT_OF_STOCK");
         verify(cartService, never()).removeLinesMatching(anyLong(), anyList());
+    }
+
+    private Order failedOrder() {
+        Order order = Order.create(1L, "MOCK_CARD", 24000, "r", "p", "z", "a1", null, null);
+        ReflectionTestUtils.setField(order, "id", 1L);
+        ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 7, 17, 12, 0));
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PAYMENT_FAILED);
+        when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        return order;
+    }
+
+    /** 주문 시점 스냅샷: 상품 10, 단가 12,000 × 2 */
+    private void stubFailedOrderItem() {
+        OrderItem item = OrderItem.pending(1L, 10L, "린넨 셔츠", null, null, 12000, 15000, 2,
+                LocalDateTime.of(2026, 7, 17, 12, 0), null);
+        when(orderItemRepository.findAllByOrderId(1L)).thenReturn(List.of(item));
+    }
+
+    @Test
+    @DisplayName("O-2 재확인 — 그 사이 판매 중지된 상품은 결제하지 않는다: 400 ORDER_PRODUCT_UNAVAILABLE(HIDDEN)")
+    void retryRejectsProductHiddenSinceOrder() {
+        failedOrder();
+        stubFailedOrderItem();
+        when(product.getStatus()).thenReturn(com.jarvis.product.ProductStatus.HIDDEN);
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
+
+        assertThatThrownBy(() -> orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD")))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> {
+                    BusinessException rejected = (BusinessException) e;
+                    assertThat(rejected.getErrorCode()).isEqualTo(ErrorCode.ORDER_PRODUCT_UNAVAILABLE);
+                    assertThat(String.valueOf(rejected.getDetail())).contains("HIDDEN");
+                });
+        verify(paymentService, never()).pay(anyString(), anyInt());
+        verify(productStockService, never()).deduct(anyMap());
+    }
+
+    @Test
+    @DisplayName("O-2 재확인 — 재고가 모자라면 결제 전에 막는다: 400 ORDER_PRODUCT_UNAVAILABLE(SOLD_OUT)")
+    void retryRejectsWhenStockInsufficient() {
+        failedOrder();
+        stubFailedOrderItem();
+        stockRows.clear();
+        stubStock(10L, 1); // 주문 수량은 2
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
+
+        assertThatThrownBy(() -> orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD")))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> {
+                    BusinessException rejected = (BusinessException) e;
+                    assertThat(rejected.getErrorCode()).isEqualTo(ErrorCode.ORDER_PRODUCT_UNAVAILABLE);
+                    assertThat(String.valueOf(rejected.getDetail())).contains("SOLD_OUT");
+                });
+        verify(paymentService, never()).pay(anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("O-2 재확인 — 주문 뒤 가격이 바뀌면 옛 가격으로 결제하지 않는다: 409 ORDER_PRICE_CHANGED")
+    void retryRejectsWhenPriceChanged() {
+        failedOrder();
+        stubFailedOrderItem();
+        when(product.getPrice()).thenReturn(13000); // 주문 시점 12,000
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
+
+        assertThatThrownBy(() -> orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.ORDER_PRICE_CHANGED);
+        verify(paymentService, never()).pay(anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("O-2 재확인 — 거부되면 결제 수단도 바꾸지 않는다(주문을 건드리지 않고 끝낸다)")
+    void retryRejectionLeavesOrderUntouched() {
+        Order order = failedOrder();
+        stubFailedOrderItem();
+        when(product.getPrice()).thenReturn(13000);
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
+
+        assertThatThrownBy(() -> orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_OTHER")))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(order.getPaymentMethod()).isEqualTo("MOCK_CARD");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_FAILED);
+    }
+
+    @Test
+    @DisplayName("O-2 재확인 — 상품·재고·가격이 그대로면 결제로 넘어간다")
+    void retryProceedsWhenNothingChanged() {
+        failedOrder();
+        stubFailedOrderItem();
+        when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
+        when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
+        when(productStockService.deduct(anyMap())).thenReturn(true);
+
+        OrderCreateResponse response = orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
+
+        assertThat(response.status()).isEqualTo("PAID");
     }
 
     @Test

@@ -105,6 +105,33 @@ export function useCreateOrder() {
   };
 }
 
+// 재결제가 거부된 사유 안내 — 최초 주문과 달리 "빼고 다시 시도"가 불가능하다.
+// 실패 주문의 내용은 바꿀 수 없으므로 새 주문으로 유도한다.
+function toRetryUnavailableMessage(items: UnavailableItem[] | undefined): string {
+  const tail = "이 주문은 결제할 수 없어요. 장바구니에서 다시 주문해주세요.";
+  if (!items?.length) return `구매할 수 없게 된 상품이 있어요. ${tail}`;
+
+  const soldOut = items.filter((i) => i.reason === "SOLD_OUT").map(toItemLabel);
+  const hidden = items.filter((i) => i.reason === "HIDDEN").map(toItemLabel);
+
+  const parts: string[] = [];
+  if (soldOut.length)
+    parts.push(`${withJosa(joinNames(soldOut), "은")} 품절됐어요.`);
+  if (hidden.length)
+    parts.push(`${withJosa(joinNames(hidden), "은")} 판매가 중지됐어요.`);
+
+  return `${parts.join(" ")} ${tail}`;
+}
+
+/** 다시 눌러도 풀리지 않는 재결제 거부 — 결제 버튼을 막아야 하는 경우 */
+export function isUnrecoverableRetryError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === "ORDER_PRODUCT_UNAVAILABLE" ||
+      error.code === "ORDER_PRICE_CHANGED")
+  );
+}
+
 function toRetryErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.code === "ORDER_INVALID_TRANSITION")
@@ -113,6 +140,12 @@ function toRetryErrorMessage(error: unknown): string {
     // 주문이 존재한다는 사실이 드러나므로 "찾을 수 없다"로 안내한다.
     if (error.code === "ORDER_NOT_FOUND") return "주문을 찾을 수 없어요.";
     if (error.code === "AUTH_FORBIDDEN") return "이 주문을 처리할 권한이 없어요.";
+    // 결제에 실패한 뒤 그 사이 상품이 품절·판매중지됐거나 가격이 바뀐 경우(O-2 재확인).
+    // 이 주문은 내용을 고칠 수 없어 다시 눌러도 풀리지 않는다 — 새로 주문하도록 안내한다.
+    if (error.code === "ORDER_PRODUCT_UNAVAILABLE")
+      return toRetryUnavailableMessage(error.unavailableItems);
+    if (error.code === "ORDER_PRICE_CHANGED")
+      return "주문한 뒤 상품 가격이 바뀌어 이 주문은 결제할 수 없어요. 장바구니에서 다시 주문해주세요.";
     if (error.displayMessage) return error.displayMessage;
   }
   return "재결제에 실패했어요. 잠시 후 다시 시도해주세요.";
