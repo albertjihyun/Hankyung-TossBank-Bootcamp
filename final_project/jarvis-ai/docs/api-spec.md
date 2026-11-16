@@ -2100,7 +2100,7 @@ X-Internal-Token: {서비스 토큰}
 | BE No. | Method · 경로 | 용도 | 비고 |
 |---|---|---|---|
 | I-9 | GET `/internal/seller/{brandId}/products` | 자사 상품 목록 조회 · `status`(ON_SALE/HIDDEN/DELETED)·`q`·`limit`/`offset` | `status=DELETED` 질의는 400이 아니라 빈 `rows`다. draft의 `before` 소스. `rows[{productId,name,price,originalPrice,stockQuantity,status,displayedSalesCount,category,description,imageUrl}]` |
-| I-10 | POST `/internal/seller/{brandId}/products` | 상품 등록 · Body `name`·`price`·`stockQuantity`(≥0) 필수. ~~`price`(≤`originalPrice`)~~ 상한 검증은 2026-08-13 정책 폐지(BE 02 D47, ⚠️노션 API 명세서 미반영) | 201 `{productId,status:"ON_SALE"}`. 신규 등록은 변경 이력 미기록 |
+| I-10 | POST `/internal/seller/{brandId}/products` | 상품 등록 · Body `name`·`price`·`stockQuantity`(≥0) 필수. ~~`price`(≤`originalPrice`)~~ 상한 검증은 2026-08-13 정책 폐지(BE 02 D47, ⚠️노션 API 명세서 미반영) | 201 `{productId,status:"ON_SALE"}`. 신규 등록은 변경 이력 미기록 **[멱등 키 — 2026-11-16]** 요청 헤더 `Idempotency-Key`(선택, `[A-Za-z0-9_-]{16,64}`)에 **draftId**를 싣는다. BE는 같은 브랜드·같은 키의 등록을 한 상품으로 묶어, 재전송에는 새로 만들지 않고 처음 등록한 `{productId, status}`를 201로 그대로 돌려준다(jarvis-backend 02 D48). 이 호출은 타임아웃(3s) 뒤에도 BE에서 성공할 수 있어(이미지 복사), 키가 없으면 같은 초안의 재confirm이 상품을 중복 등록했다. 헤더를 안 보내면 종전 동작 그대로다 |
 | I-11 | PATCH `/internal/seller/{brandId}/products/{productId}` | 상품 수정(가격·설명·상태·재고 통합) · Body 바꿀 필드만 | `DELETED` 상품 수정은 409 `PRODUCT_DELETED`. 재고도 이 API. 변경 시 `product_change_logs` |
 | I-12 | DELETE `/internal/seller/{brandId}/products/{productId}` | 상품 삭제(soft) · Body 없음 | **HITL 승인 후에만 실행**. `HIDDEN`→`DELETED` 전환이며 200 `{productId,status:"DELETED"}`. 이미 `DELETED`면 409 `ALREADY_DELETED` |
 

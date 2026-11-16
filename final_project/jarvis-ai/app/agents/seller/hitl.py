@@ -606,7 +606,9 @@ async def _execute_draft(record: DraftRecord) -> tuple[str, str]:
             image_url=str(values["image_url"]) if "image_url" in values else None,
         )
         try:
-            await client.create_product(record.brand_id, payload)
+            # draftId 를 멱등 키로 싣는다 — 이 호출이 타임아웃으로 실패 처리된 뒤 판매자가 같은 초안을
+            # 다시 승인해도 BE 가 처음 등록한 상품으로 수렴시킨다(중복 등록 방지).
+            await client.create_product(record.brand_id, payload, idempotency_key=record.draft_id)
         except InvalidStock:
             # [#524] 등록 재고는 _parse_int 가 음수를 선차단하므로 정상 경로에선 안 온다.
             # 여기 오면 계약 해석이 어긋난 것이라 재시도를 권하지 않는다.

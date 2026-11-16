@@ -443,6 +443,41 @@ async def test_create_product_posts_body_by_alias() -> None:
     assert result.status == "ON_SALE"
 
 
+async def test_create_product_sends_idempotency_key_header() -> None:
+    """idempotency_key 를 주면 Idempotency-Key 헤더로 실린다 — 본문은 그대로다."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"productId": 101, "status": "ON_SALE"})
+
+    client = _client(handler)
+    payload = ProductCreate(name="여행용 파우치", price=10000, stock_quantity=5)
+    await client.create_product(
+        "brand-1", payload, idempotency_key="3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"
+    )
+
+    assert captured["headers"]["Idempotency-Key"] == "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"
+    assert "idempotencyKey" not in captured["body"]
+
+
+async def test_create_product_omits_idempotency_key_header_by_default() -> None:
+    """키를 안 주면 헤더 자체가 없다 — BE 는 종전대로 매 호출을 새 등록으로 본다."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        return httpx.Response(201, json={"productId": 101, "status": "ON_SALE"})
+
+    client = _client(handler)
+    await client.create_product(
+        "brand-1", ProductCreate(name="여행용 파우치", price=10000, stock_quantity=5)
+    )
+
+    assert "Idempotency-Key" not in captured["headers"]
+
+
 async def test_create_product_excludes_unset_optional_fields() -> None:
     """미설정 옵션 필드(originalPrice/category/description/imageUrl)는 바디에서 아예 빠진다.
 

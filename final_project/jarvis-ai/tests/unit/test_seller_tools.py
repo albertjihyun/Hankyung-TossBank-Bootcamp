@@ -165,7 +165,7 @@ class FakeSpringClient:
         self._maybe_fail("list_products")
         return SellerProductList(rows=[])
 
-    async def create_product(self, brand_id, payload):
+    async def create_product(self, brand_id, payload, *, idempotency_key=None):
         self.recorded_brand_id = brand_id
         self._maybe_fail("create_product")
         return ProductCreateResult(product_id=101, status="ON_SALE")

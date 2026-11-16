@@ -304,7 +304,7 @@ com.jarvis
 | 수단 | 어떤 쓰기에 | 사용처 |
 |---|---|---|
 | **DB UNIQUE + 중복은 무시하고 성공** | 삽입형 | `client_event_id`(02 D35) · 장바구니 `option_key` uk(02 D44) · `uk_address_default` |
-| **멱등 키 + DB UNIQUE, 재전송엔 처음 결과를 그대로** | 돈이 걸린 생성형 | O-1 주문 생성 — `Idempotency-Key` 헤더 + `uk_orders_idempotency`(02 D47, `IdempotentOrderCreator`). 위 행과 달리 "무시"가 아니라 **같은 응답을 재생**한다 — 응답 유실 후 재시도가 실패로 보이면 안 되기 때문 |
+| **멱등 키 + DB UNIQUE, 재전송엔 처음 결과를 그대로** | 돈이 걸린 생성형 | O-1 주문 생성 — `Idempotency-Key` 헤더 + `uk_orders_idempotency`(02 D47, `IdempotentOrderCreator`) · I-10 상품 등록 — 같은 헤더(AI의 draftId) + `uk_product_idempotency`(02 D48, `IdempotentProductCreator`). 위 행과 달리 "무시"가 아니라 **같은 응답을 재생**한다 — 응답 유실 후 재시도가 실패로 보이면 안 되기 때문 |
 | **조건부 UPDATE** — 1행 매치 = 내가 바꾼 것, 0행 = 이미 남이 함 | 상태 전이형 | I-30 발송 · 클레임 신청 · 재고 차감(02 D33) |
 | **이미 그 상태면 성공 반환** | 발급·승계형 | CH-1 세션 발급(노션 CH-1 2026-07-31) · 세션 claim 승계(07 §3-2) |
 | **`SETNX` / dedupKey** | 조정·통지형 | I-21 목록 저장 · I-20 종료 통지(`session-end:{userId}:{sessionId}`, 중복은 `202 duplicate`) |
@@ -312,7 +312,7 @@ com.jarvis
 - **`INSERT IGNORE` 금지 (02 D35)** — 중복 말고 다른 오류까지 삼킨다. 삽입 전 중복을 걸러내거나(`BehaviorEventAppender.dropKnownDuplicates`), 제약 위반 예외를 잡아 멱등 통과시킨다.
 - **동시 도착은 "검사 → 삽입" 사이를 빠져나가 제약에서 갈린다.** 그래서 `DataIntegrityViolationException`을 잡아 성공으로 돌리는 건 예외 처리가 아니라 **정상 경로**다(`RecommendationListService` — 경합을 warn 로그로만 남기고 통과).
 - **멱등하지 않기로 한 곳은 근거를 적는다** — C-4 장바구니 삭제는 삭제 연타의 두 번째가 404이고, *그래서* 삭제 이벤트를 성공(200)에만 적재한다(노션 C-4·I-24). 404까지 세면 이벤트가 부풀려진다는 게 근거다.
-- **현재 확인 필요**: `POST /internal/seller/{brandId}/products`(상품 생성)에 멱등 장치가 보이지 않는다 — 중복 호출 시 상품이 2건 생길 수 있고, "HITL confirm 뒤에만 호출된다"는 전제에만 기대고 있다. **판정 대상.**
+- ~~**확인 필요**: `POST /internal/seller/{brandId}/products`(상품 생성)에 멱등 장치가 보이지 않는다~~ → **2026-11-16 해결(02 D48)**. 판정 결과 실제로 중복 등록 경로가 있었다 — AI 서버의 3초 타임아웃 뒤 재승인. `Idempotency-Key`(AI의 draftId) + `uk_product_idempotency`로 막았다.
 
 **캐시** — `07-redis-design.md` §1을 따른다. 요약: TTL 없는 키 금지 · 사본(캐시)은 fail-open·원본(세션·락·카운터)은 fail-fast · 커밋 **전** 캐시 삭제 금지 · `KEYS` 금지.
 

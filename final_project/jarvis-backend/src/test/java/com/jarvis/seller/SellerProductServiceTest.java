@@ -325,7 +325,7 @@ class SellerProductServiceTest {
         Product saved = mock(Product.class);
         when(saved.getId()).thenReturn(205L);
         when(saved.getStatus()).thenReturn(ProductStatus.ON_SALE);
-        when(productRepository.save(any())).thenReturn(saved);
+        when(productRepository.saveAndFlush(any())).thenReturn(saved);
 
         SellerProductCreateResponse response = service.create(BRAND_ID,
                 new SellerProductCreateRequest("새 상품", 10000, null, List.of(new StockInput(null, 100)), null, 20L,
@@ -443,7 +443,7 @@ class SellerProductServiceTest {
         Product saved = mock(Product.class);
         when(saved.getId()).thenReturn(205L);
         when(saved.getStatus()).thenReturn(ProductStatus.ON_SALE);
-        when(productRepository.save(any())).thenReturn(saved);
+        when(productRepository.saveAndFlush(any())).thenReturn(saved);
 
         service.create(BRAND_ID, new SellerProductCreateRequest("새 상품", 10000, null,
                 null, 100, 20L, null, null, null, null, null));

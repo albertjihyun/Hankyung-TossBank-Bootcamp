@@ -1688,6 +1688,7 @@ class SpringClient:
         params: dict | None = None,
         json_body: dict | None = None,
         error_code_map: dict[str, type[Exception]] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict:
         """공용 요청 헬퍼. X-Internal-Token 헤더 부착 + raise_for_status +
         예외를 SpringUnavailableError 로 통일 변환한다.
@@ -1699,6 +1700,8 @@ class SpringClient:
         `SpringUnavailableError`(진짜 일시 장애) — `SpringRejected` 가 그 하위라 기존
         `except SpringUnavailableError` 호출부는 손대지 않아도 그대로 잡힌다."""
         headers = {"X-Internal-Token": self._internal_token} if self._internal_token else {}
+        if extra_headers:
+            headers = {**headers, **extra_headers}
         try:
             with _spring_span(operation, method) as span:
                 async with httpx.AsyncClient(
@@ -2068,8 +2071,16 @@ class SpringClient:
 
     # ── 쓰기 3종 (product_agent 전용, HITL 승인 후에만 호출, api-spec §4.5) ──
 
-    async def create_product(self, brand_id: int, payload: ProductCreate) -> ProductCreateResult:
+    async def create_product(
+        self, brand_id: int, payload: ProductCreate, *, idempotency_key: str | None = None
+    ) -> ProductCreateResult:
         """I-10 상품 등록 (§4.5). name/price/stockQuantity 필수(price ≤ originalPrice).
+
+        `idempotency_key` 를 주면 `Idempotency-Key` 헤더로 싣는다 — BE 는 같은 브랜드·같은 키의
+        등록을 한 상품으로 묶어, 재전송에는 새로 만들지 않고 처음 등록한 `{productId, status}` 를
+        그대로 돌려준다(jarvis-backend 02 D48). 이 호출은 타임아웃(3s) 뒤에도 BE 에서 성공할 수
+        있고(이미지 복사), 그때 판매자가 같은 초안을 다시 승인하면 상품이 중복 등록됐다. 호출부
+        (hitl)는 초안 id(draftId)를 키로 넘긴다 — 같은 초안의 재confirm 이 같은 키가 된다.
 
         미설정 옵션 필드(originalPrice/category/description/imageUrl 등)는 exclude_none 으로
         본문에서 제외한다(opus 리뷰 m4) — null 전송 대신 필드 자체를 생략한다.
@@ -2093,6 +2104,7 @@ class SpringClient:
                 "MISSING_FIELD": ProductFieldMissing,
                 "INVALID_PRICE": InvalidPrice,
             },
+            extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
         )
         return self._validate(ProductCreateResult, data)
 

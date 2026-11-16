@@ -14,6 +14,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
+    /** I-10 멱등 재전송 조회 — uk_product_idempotency(brand_id, idempotency_key)를 그대로 탄다 (02 D48) */
+    Optional<Product> findByBrandIdAndIdempotencyKey(Long brandId, String idempotencyKey);
+
+
     /**
      * 판매자 수정 진입점 전용 비관적 쓰기 락 — 절대값 재고 수정이 주문 조건부 차감(D33)과 경합해
      * 판매분을 유령 복원하는 lost update를 막는다. 락 안에서 읽은 현재 재고가 change log old_value가 된다.

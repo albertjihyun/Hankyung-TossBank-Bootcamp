@@ -38,6 +38,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -282,6 +283,17 @@ public class SellerProductService {
      */
     @Transactional
     public SellerProductCreateResponse create(Long brandId, SellerProductCreateRequest request) {
+        return create(brandId, request, null);
+    }
+
+    /**
+     * I-10 멱등 키 동반 등록 (02 D48) — 키를 상품에 함께 저장한다. 같은 키의 상품이 이미 있으면 INSERT가
+     * uk_product_idempotency에 걸려 이 트랜잭션은 통째로 롤백된다(이미지 복사·재고 행 생성 전이다).
+     * 그 예외를 기존 상품 응답으로 바꾸는 일은 트랜잭션 밖의 {@link IdempotentProductCreator}가 한다.
+     */
+    @Transactional
+    public SellerProductCreateResponse create(Long brandId, SellerProductCreateRequest request,
+                                              String idempotencyKey) {
         requireFields(request);
         // 삭제 상태로 상품을 만드는 건 의미가 없다 — 만들자마자 아무에게도 안 보인다
         if (request.status() == ProductStatus.DELETED) {
@@ -305,14 +317,23 @@ public class SellerProductService {
                 request.imageUrl() != null ? request.imageUrl() : PLACEHOLDER_IMAGE,
                 request.summary(), toJsonString(request.attributes()),
                 sanitizeDescription(request.description()),
-                request.status() != null ? request.status() : ProductStatus.ON_SALE);
-        Product saved = productRepository.save(product);
+                request.status() != null ? request.status() : ProductStatus.ON_SALE,
+                idempotencyKey);
+        // saveAndFlush — 멱등 키 충돌을 S3 복사보다 먼저 드러낸다. 뒤로 미루면 진 쪽 요청이 임시 이미지를
+        // 엉뚱한 상품 경로로 복사한 뒤에야 롤백된다(S3는 롤백되지 않는다)
+        Product saved = productRepository.saveAndFlush(product);
         // 이미지 복사는 여기서만 가능하다 — S-6은 발급 시점에 productId를 모른다 (04 §7 S-6, 2026-08-10)
         saved.changeImageUrl(resolveImageUrl(saved.getImageUrl(), saved.getId()));
         // 재고 행은 상품과 함께 생긴다 — 없으면 그 상품은 영원히 품절이다 (02 D33 개정)
         productStockRepository.save(ProductStock.of(saved.getId(), null,
                 stocks.get(0).quantity()));
         return new SellerProductCreateResponse(saved.getId(), saved.getStatus().name());
+    }
+
+    /** 같은 키로 이미 등록한 상품이 있으면 그때의 응답을 다시 만든다 (02 D48). 상태는 현재 값이다 */
+    public Optional<SellerProductCreateResponse> findCreated(Long brandId, String idempotencyKey) {
+        return productRepository.findByBrandIdAndIdempotencyKey(brandId, idempotencyKey)
+                .map(product -> new SellerProductCreateResponse(product.getId(), product.getStatus().name()));
     }
 
     /**
