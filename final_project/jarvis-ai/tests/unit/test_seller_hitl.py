@@ -97,7 +97,11 @@ class _StubSpring:
     # None 이 아닌 [] 로 덮어쓴다.
     update_result_changes: list[str] | None = None
 
-    async def update_product(self, brand_id, product_id, patch):
+    # I-11 멱등 키(draftId) 관측용 — 마지막 수정 호출이 실은 키.
+    update_idempotency_key: str | None = None
+
+    async def update_product(self, brand_id, product_id, patch, *, idempotency_key=None):
+        self.update_idempotency_key = idempotency_key
         self.calls.append(("update", brand_id, product_id, patch))
         if self.update_error is not None:
             raise self.update_error
@@ -419,6 +423,26 @@ def test_confirm_executes_update_with_draft_args() -> None:
     assert (op, brand_id, product_id) == ("update", 3, 101)
     assert patch.price == 12900  # draft after 그대로 — LLM 재개입 없음
     assert "참고" not in outcome.text  # 기본 판매량(999)은 임계 이상 — 경고 미부착
+
+
+def test_confirm_update_sends_draft_id_as_idempotency_key() -> None:
+    """I-11 호출은 draftId 를 멱등 키로 싣는다 — 같은 초안의 재confirm 이 같은 키가 된다.
+
+    재고 수정은 절대값이라, 키가 없으면 타임아웃 뒤의 재승인이 그 사이 팔린 수량을
+    되살린다(jarvis-backend 02 D52).
+    """
+    spring = _StubSpring()
+    set_spring_client(spring)
+    record = _record()
+
+    async def run():
+        await hitl.start_draft(record)
+        return await hitl.confirm_draft(record.draft_id, seller_id=7, brand_id=3)
+
+    outcome = asyncio.run(run())
+
+    assert outcome.status == "executed"
+    assert spring.update_idempotency_key == record.draft_id
 
 
 def test_confirm_update_appends_low_sales_note_when_below_threshold() -> None:

@@ -549,6 +549,41 @@ async def test_delete_product_maps_already_deleted() -> None:
         await client.delete_product("brand-1", 101)
 
 
+async def test_update_product_sends_idempotency_key_header() -> None:
+    """idempotency_key 를 주면 Idempotency-Key 헤더로 실린다 — 본문은 그대로다."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"productId": 101, "changes": ["STOCK"]})
+
+    client = _client(handler)
+    await client.update_product(
+        "brand-1",
+        101,
+        ProductUpdate(stock_quantity=20),
+        idempotency_key="3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b",
+    )
+
+    assert captured["headers"]["Idempotency-Key"] == "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"
+    assert "idempotencyKey" not in captured["body"]
+
+
+async def test_update_product_omits_idempotency_key_header_by_default() -> None:
+    """키를 안 주면 헤더 자체가 없다 — BE 는 종전대로 받은 값을 그대로 쓴다."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        return httpx.Response(200, json={"productId": 101, "changes": []})
+
+    client = _client(handler)
+    await client.update_product("brand-1", 101, ProductUpdate(stock_quantity=20))
+
+    assert "Idempotency-Key" not in captured["headers"]
+
+
 async def test_update_product_maps_product_deleted() -> None:
     """409 PRODUCT_DELETED → 전용 예외 — 삭제된 상품을 챗봇이 되살릴 수 없다."""
 
