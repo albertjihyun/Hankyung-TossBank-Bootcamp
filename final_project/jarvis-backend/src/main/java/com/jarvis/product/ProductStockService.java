@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,7 +41,7 @@ public class ProductStockService {
 
     /**
      * 여러 (상품, 옵션)의 재고를 함께 차감한다. 하나라도 부족하면 이미 차감한 분을 되돌리고 {@code false}.
-     * 결제 성공(PAID 전이)과 같은 트랜잭션에서만 호출 — 부분 차감 상태로 커밋되면 안 된다.
+     * 확보와 확정을 한 번에 한다 — 결제가 없는 경로용. 주문은 {@link #reserve}로 나눠 쓴다.
      *
      * <p>{@link #LOCK_ORDER} 오름차순으로 잠근다 — 동시 주문이 서로 다른 순서로 같은 행들을 잡으면
      * 데드락이 난다. 호출자가 정렬해 넘겨주길 기대하지 않고 여기서 보장한다(호출자가 늘면 놓치는 쪽이 생긴다).
@@ -50,8 +51,26 @@ public class ProductStockService {
      */
     @Transactional
     public boolean deduct(Map<StockKey, Integer> quantities) {
+        Optional<Reservation> reservation = reserve(quantities);
+        reservation.ifPresent(this::confirm);
+        return reservation.isPresent();
+    }
+
+    /**
+     * 결제 전에 재고를 먼저 잡아 둔다 (01 §2-1, 2026-11-17). 수량은 여기서 실제로 줄지만 품절 로그는 아직
+     * 쓰지 않는다 — 결제가 끝나야 이 차감이 판매인지 알 수 있다. 결과에 따라 {@link #confirm} 또는
+     * {@link #release}로 마무리한다. 셋 다 같은 트랜잭션 안에서 불러야 한다.
+     *
+     * <p>순서를 "결제 → 차감"에서 "확보 → 결제"로 바꾼 이유: 예전에는 결제를 승인받은 뒤에 재고가 없다는
+     * 걸 알게 될 수 있었다(마지막 1개를 두 명이 동시에 주문). 승인을 취소할 수단이 없으니 "돈은 받았는데
+     * 물건이 없는" 주문이 남는다.
+     *
+     * @return 전 품목을 확보했으면 예약, 하나라도 부족하면 비어 있다(재고는 호출 전 상태로 돌아가 있다)
+     */
+    @Transactional
+    public Optional<Reservation> reserve(Map<StockKey, Integer> quantities) {
         List<Map.Entry<StockKey, Integer>> applied = new ArrayList<>();
-        // 품절 로그는 버퍼에 모았다가 전 품목 차감 성공 후에만 저장 — 일부 실패로 보상 복원되면
+        // 품절 로그는 버퍼에 모았다가 판매가 확정된 뒤에만 저장 — 일부 실패나 결제 실패로 되돌려지면
         // 허위 품절 로그가 남지 않도록 (02 D32·D33)
         List<ProductChangeLog> stockOutLogs = new ArrayList<>();
         List<Map.Entry<StockKey, Integer>> ordered = quantities.entrySet().stream()
@@ -64,7 +83,7 @@ public class ProductStockService {
             if (productStockRepository.deduct(key.productId(), key.optionId(), qty) == 0) {
                 applied.forEach(done -> productStockRepository.restore(
                         done.getKey().productId(), done.getKey().optionId(), done.getValue()));
-                return false;
+                return Optional.empty();
             }
             applied.add(entry);
             if (productStockRepository.findQuantity(key.productId(), key.optionId()).orElse(-1) == 0) {
@@ -73,10 +92,31 @@ public class ProductStockService {
                         ProductChangeType.STOCK, String.valueOf(qty), "0"));
             }
         }
-        if (!stockOutLogs.isEmpty()) {
-            productChangeLogRepository.saveAll(stockOutLogs);
+        return Optional.of(new Reservation(Map.copyOf(quantities), List.copyOf(stockOutLogs)));
+    }
+
+    /** 결제 성공 — 확보한 재고를 판매로 확정한다. 이때에야 품절 전환 로그를 남긴다 */
+    @Transactional
+    public void confirm(Reservation reservation) {
+        if (!reservation.stockOutLogs().isEmpty()) {
+            productChangeLogRepository.saveAll(reservation.stockOutLogs());
         }
-        return true;
+    }
+
+    /**
+     * 결제 실패 — 확보했던 재고를 그대로 돌려놓는다. 같은 트랜잭션에서 방금 한 차감을 되돌리는 것이라
+     * 로그를 남기지 않는다(아무 일도 없었던 것과 같다). 이미 커밋된 판매분을 되돌리는 {@link #restore}와 다르다.
+     */
+    @Transactional
+    public void release(Reservation reservation) {
+        reservation.quantities().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(LOCK_ORDER))
+                .forEach(entry -> productStockRepository.restore(
+                        entry.getKey().productId(), entry.getKey().optionId(), entry.getValue()));
+    }
+
+    /** {@link #reserve}가 잡아 둔 재고. 결제 결과가 나올 때까지 들고 있다가 확정하거나 풀어 준다 */
+    public record Reservation(Map<StockKey, Integer> quantities, List<ProductChangeLog> stockOutLogs) {
     }
 
     /**

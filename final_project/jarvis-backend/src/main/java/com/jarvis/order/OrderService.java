@@ -471,16 +471,23 @@ public class OrderService {
     /** 실패 사유 코드를 돌려준다(성공이면 null) — 로그에만 남기던 값을 응답 failureReason으로도 내보내기 위해 */
     private String completePayment(Order order, List<OrderItem> items,
                                    Map<StockKey, Integer> quantitiesByOption, String paymentMethod) {
-        PaymentResult result = paymentService.pay(paymentMethod, order.getTotalAmount());
-        if (!result.success()) {
-            statusChanger.paymentFailed(order, result.failureCode());
-            return result.failureCode();
-        }
-        // 재고 차감은 결제 성공 처리와 같은 트랜잭션의 조건부 UPDATE (02 D33) — 실패 시 OUT_OF_STOCK 결제 실패
-        if (!productStockService.deduct(quantitiesByOption)) {
+        // 재고를 먼저 잡고 나서 결제한다 (01 §2-1, 2026-11-17 — 구 "결제 → 차감"). 순서가 반대면 결제를
+        // 승인받은 뒤에 재고가 없다는 걸 알게 될 수 있고, 승인을 취소할 수단이 없어 "돈은 받았는데 물건이 없는"
+        // 주문이 남는다. 확보는 조건부 UPDATE라 동시 주문 중 재고만큼만 통과한다 (02 D33)
+        Optional<ProductStockService.Reservation> reservation = productStockService.reserve(quantitiesByOption);
+        if (reservation.isEmpty()) {
+            // 결제를 시도하지 않는다 — 살 물건이 없는데 돈부터 받을 이유가 없다
             statusChanger.paymentFailed(order, OUT_OF_STOCK);
             return OUT_OF_STOCK;
         }
+        PaymentResult result = paymentService.pay(paymentMethod, order.getTotalAmount());
+        if (!result.success()) {
+            // 잡아 둔 재고를 풀어 준다. 결제 호출이 예외로 끝나는 경우는 트랜잭션 롤백이 같은 일을 한다
+            productStockService.release(reservation.get());
+            statusChanger.paymentFailed(order, result.failureCode());
+            return result.failureCode();
+        }
+        productStockService.confirm(reservation.get());
         statusChanger.paymentSucceeded(order, items, LocalDateTime.now());
         return null;
     }
