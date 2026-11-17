@@ -118,6 +118,9 @@ CREATE TABLE product (
     created_at        DATETIME     NOT NULL,
     updated_at        DATETIME     NOT NULL,               -- 예외적 NOT NULL — 생성 시 created_at과 동일 값 초기화, I-17 증분 커서 (D33)
     PRIMARY KEY (id),
+    -- 금액은 음수가 될 수 없고 판매가는 정가를 넘지 않는다 — 서비스 검증(D26·D28)을 DB가 한 번 더 막는다 (D51)
+    CONSTRAINT chk_product_price CHECK (price >= 0 AND original_price >= 0 AND price <= original_price),
+    CONSTRAINT chk_product_base_sales CHECK (base_sales_count >= 0),
     KEY idx_product_category (category_id),
     KEY idx_product_brand (brand_id),
     UNIQUE KEY uk_product_idempotency (brand_id, idempotency_key),  -- 브랜드 범위로 유일. NULL은 UNIQUE에 걸리지 않는다 (D48)
@@ -268,6 +271,7 @@ CREATE TABLE orders (                                      -- `order`는 SQL 예
     created_at        DATETIME     NOT NULL,
     updated_at        DATETIME     NULL,
     PRIMARY KEY (id),
+    CONSTRAINT chk_orders_total_amount CHECK (total_amount >= 0),   -- D51
     KEY idx_orders_member (member_id),
     UNIQUE KEY uk_orders_idempotency (member_id, idempotency_key),  -- 회원 범위로 유일. NULL은 UNIQUE에 걸리지 않아 키 없는 주문은 제한 없음 (D47)
     CONSTRAINT fk_orders_member FOREIGN KEY (member_id)
@@ -295,6 +299,9 @@ CREATE TABLE order_item (
     created_at         DATETIME     NOT NULL,
     updated_at         DATETIME     NULL,
     PRIMARY KEY (id),
+    -- 주문 줄은 매출 집계 SUM(price × quantity)의 재료다 — 음수·0 수량이 한 번 들어가면 집계가 조용히 틀린다 (D51)
+    CONSTRAINT chk_order_item_amount CHECK (price >= 0 AND original_price >= 0),
+    CONSTRAINT chk_order_item_quantity CHECK (quantity > 0),
     KEY idx_order_item_order (order_id),
     KEY idx_order_item_status (status, status_changed_at), -- 배송 전이 스케줄러 스캔용
     KEY idx_order_item_option (option_id, product_id),     -- 복합 FK 받침 (D44)

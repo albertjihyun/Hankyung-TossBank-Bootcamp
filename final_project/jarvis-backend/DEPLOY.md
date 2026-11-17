@@ -129,6 +129,7 @@ done
 | `migrate-2026-11-16-product-idempotency-key.sql` | `product.idempotency_key` 컬럼 + 브랜드 범위 UNIQUE 신설 (I-10 멱등 키, 02 D48) | **앱 배포 전.** 새 앱은 이 컬럼이 없으면 `ddl-auto=validate`에 걸려 기동을 거부한다. NULL 허용이라 구 앱과 무해하게 공존한다 |
 | `migrate-2026-11-16-refresh-token-family-pre.sql` | `refresh_token`에 `family_id`(NULL 허용)·`rotated_at` 추가 + 기존 행 백필 (RT 재사용 탐지, 02 D50) | **앱 배포 전.** 새 앱은 이 컬럼이 없으면 기동을 거부한다 |
 | `migrate-2026-11-16-refresh-token-family-post.sql` | `refresh_token.family_id`를 `NOT NULL`로 | **앱 배포 후.** 순서: 새 이미지 배포 → 전 인스턴스 교체 확인 → 적용. 먼저 적용하면 아직 떠 있는 구 앱의 로그인·토큰 재발급이 INSERT 실패로 죽는다 |
+| `migrate-2026-11-17-money-quantity-checks.sql` | 금액·수량 CHECK 제약 5개 (02 D51) | **앱 배포와 무관.** 기존 데이터에 위반 행이 있으면 실패하므로 스크립트 머리말의 점검 쿼리를 먼저 돌린다 |
 
 ## 5. 헬스체크
 

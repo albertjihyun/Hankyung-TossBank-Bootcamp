@@ -453,6 +453,21 @@ FK는 "참조 행이 존재하는가"만 보장하고 "**올바른** 행을 참�
 - **하지 않은 것**: 패밀리의 절대 수명. 회전할 때마다 만료가 14일 뒤로 밀리므로 계속 쓰는 한 세션은 끝나지 않는다. 회원당 동시 로그인 수 제한도 없다.
 - **마이그레이션**: expand/contract 2단계 — `…-refresh-token-family-pre.sql`(컬럼 NULL 허용 추가 + 백필, 앱 배포 **전**) → 앱 배포 → `…-post.sql`(NOT NULL, 앱 배포 **후**). 한 번에 NOT NULL로 넣으면 배포 창 동안 구 앱의 로그인이 INSERT 실패로 죽는다.
 
+### D51. 금액·수량의 불변식도 DB가 막는다 — CHECK 5개 추가 (2026-11-17, D44 확장)
+
+- **문제**: D44는 "한 행 안에서 닫히는 제약은 DB가 막는다"고 정했지만 CHECK는 재고·장바구니 수량·후기 별점 셋뿐이었다. 정작 돈과 직결된 `product.price`·`order_item.price/quantity`·`orders.total_amount`는 서비스 검증(D26·D28)에만 기대고 있었다. 옵션 소속에는 복합 FK까지 쓴 스키마가 여기만 비어 일관성이 없었고, 시드·수동 SQL·코드 버그가 음수 금액이나 0 수량을 넣어도 DB가 받아들였다. 그런 행은 오류 없이 매출 집계(`SUM(price × quantity)`)를 틀리게 만든다.
+- **선택**: CHECK 5개 추가.
+  - `product`: `price >= 0 AND original_price >= 0 AND price <= original_price`, `base_sales_count >= 0`
+  - `orders`: `total_amount >= 0`
+  - `order_item`: `price >= 0 AND original_price >= 0`, `quantity > 0`
+- **넣지 않은 것과 이유**:
+  - `order_item.price <= original_price` — 주문 줄은 스냅샷이다. 옵션 추가금이 얹힌 값이라 상품의 관계식을 그대로 요구할 근거가 없다.
+  - `product_option.extra_price >= 0` — 옵션이 기본보다 싼 경우를 막을 이유가 없다.
+  - `product_option (product_id, name)` UNIQUE — 크롤링 데이터에 같은 이름의 옵션이 있을 수 있어(2026-08-09 마이그레이션 주석) 기존 데이터 정리 없이는 걸 수 없다.
+- **앱 영향 없음**: 서비스가 이미 같은 규칙을 지키므로 정상 요청은 달라지지 않는다. 위반은 `DataIntegrityViolationException` → 409로 떨어진다(앞단 검증을 빠져나간 버그의 신호다).
+- **검증**: 시드 4종이 새 스키마에 전부 적재되는 것, 기존 스키마에 마이그레이션을 두 번 적용해도 되는 것을 일회용 MariaDB에서 확인했다. `SchemaIntegrationTest`가 각 제약이 실제로 거부하는지 본다.
+- **마이그레이션**: `scripts/migrate-2026-11-17-money-quantity-checks.sql` — 앱 배포와 무관. 적용 전 위반 행 점검 쿼리를 머리말에 실었다.
+
 > **피그마 검토로 "디자인 수정" 확정된 항목 (스키마 무변경, 2026-07-09)**: 옵션 2축(컬러×사이즈) UI → 단일 옵션 선택으로 수정(D2 유지) · 이미지 썸네일 갤러리 → 단일 이미지(D14 유지) · 리뷰 "도움이 됐어요" 제거 · 배송비 표기 제거(배송비 미모델링 — 전 주문 무료, D36으로 명문화) · 모의 결제 "테스트: 결제 실패" 트리거 UI 추가 예정(01 D7). 문의 챗봇·판매자 페이지 등 미디자인 화면은 디자인 백로그.
 
 ---
