@@ -72,7 +72,7 @@ FastAPI       : JWKS로 signature·exp·iss·aud·scope 검증 → 스트리밍
 - **`channel`은 body 필드가 아니다** — 대화 종류(SHOPPING/SELLER — CS는 2026-08-11 폐기)는 **세션 발급 시점**에 확정된다. SHOPPING은 CH-1(`POST /api/chat/sessions`, body `channel`)에서, SELLER는 S-4(`POST /api/chat/seller/sessions` — 입구 자체가 SELLER 전용)에서 정해져 티켓 claim·세션에 실리고, SELLER 스트림은 `/seller/chat` 별도 엔드포인트로 간다(일반 CH-1의 `channel:"SELLER"`는 400).
 - **신원(userId/guestId)은 body에 없다 — 티켓 claim(`sub`/`sub_type`)에서** 취한다(§1-0). 게스트면 `sub_type:guest`, 개인화 없이 응답.
 - 멀티턴 맥락은 sessionId 기준으로 **FastAPI가 인메모리/자체 스토어에 유지** (BE는 메시지를 저장하지 않음). 세션 종료 시 Spring이 **I-20 `POST {LLM_BASE_URL}/events/session-end`** 로 정리 통지(§2-1) — 트리거: **로그아웃 하나뿐**(노션 I-20 정본 2026-07-30 — 새 대화는 CH-1을 부르지 않게 되어 사유 소멸, 가입·로그인 게스트 승계는 게스트라 원래 미발화). 유휴·탭 종료는 통지 없이 TTL 소멸(FastAPI 자체 TTL 백스톱 §3 — enum의 IDLE_TIMEOUT·TAB_CLOSE는 예약). *(구 `DELETE {LLM_BASE_URL}/sessions/{id}` 안(OPEN이었음)을 대체 — 2026-07-17 확정. sessionId 형식도 UUID로 합의 완료)*
-- 카테고리 진입(메인에서 카테고리 클릭)은 별도 필드 없이 message로 전달: FE가 `"[카테고리] 주방용품 보여줘"` 형태로 첫 메시지 구성. **(OPEN: 전용 필드로 분리할지)**
+- 카테고리 진입(메인에서 카테고리 클릭)은 별도 필드 없이 message로 전달: FE가 `"[카테고리] 주방용품 보여줘"` 형태로 첫 메시지 구성. *(2026-11-17: 카테고리에서 채팅을 여는 경로가 FE에 없어 종결 — §4)*
 
 ### 1-2. 응답: SSE 스트림
 
@@ -130,7 +130,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 
 - **벡터DB 구성**: `productId`(커머스 DB 공유 키) · `attributes` · `embedding`. 임베딩·의미검색은 FastAPI 소유·직접 접근(03 D-분산9, D7 예외).
 - **동기화 방식**: 상품 신규/수정(크롤링 적재·챗봇 수정 I-11 포함)은 **매번 실시간 락 대신 배치로 임베딩 재생성·upsert**(비용 큼 — 크롤링 상품 1만+). 변경분 수집은 **I-17(`GET /internal/products/changes` — since 커서+limit) 배치 pull**(§I-17). 정합성이 치명적이지 않은 이유는 위 "정합성 경계".
-- **(OPEN — 협의 중)**: 배치 트리거·주기, 크롤링 파이프라인과의 연결 지점 — **LLM 팀 + 데이터 파이프라인 합의 필요**. (I-17 커서 방식=Base64URL `(updatedAt,id)` keyset·리뷰 포함=`rating`/`reviewCount` 집계는 2026-07-23 확정 §I-17.)
+- **(2026-11-17 종결)**: AI가 I-17을 5분마다 증분 pull한다(§4). 크롤링 결과는 Spring DB를 거쳐 들어간다. (I-17 커서 방식=Base64URL `(updatedAt,id)` keyset·리뷰 포함=`rating`/`reviewCount` 집계는 2026-07-23 확정 §I-17.)
 
 ### 1-3. CS/판매자 챗봇
 
@@ -140,7 +140,7 @@ DB가 둘(커머스 MariaDB=Spring / 벡터=FastAPI)이라 조회가 둘로 갈�
 - SELLER 상품 수정 — **draft + 2왕복 confirm, HITL (0-1 검토 순서 ①의 적용 사례)**:
   1. **[스트림1]** LLM이 I-9로 자사 상품을 읽고 수정안 생성 → `draft` 이벤트 발행: `{draftId, op: update|create|delete, productId, changes: [{field, before, after}]}` — field는 `name/description/price/stocks/status` (2026-08-09 — 구 `stockQuantity`)
   2. FE가 채팅 스트림 안에 diff 카드 + [적용]/[취소] 버튼 렌더
-  3. 판매자가 [적용] 클릭 → FE가 FastAPI에 **confirm 요청** 전송 → **[스트림2]** FastAPI가 confirm된 draft 내용 그대로 I-10(등록)/I-11(수정)/I-12(삭제)를 호출하고 실행 결과를 이벤트로 발행. confirm 전송 형식(전용 필드 `{action:"confirm", draftId}` vs 특수 메시지) — **OPEN(LLM 확정 대기)**
+  3. 판매자가 [적용] 클릭 → FE가 FastAPI에 **confirm 요청** 전송 → **[스트림2]** FastAPI가 confirm된 draft 내용 그대로 I-10(등록)/I-11(수정)/I-12(삭제)를 호출하고 실행 결과를 이벤트로 발행. confirm 전송 형식은 **전용 필드 `{action:"confirm", draftId}`로 구현됨**(2026-11-17 확인, §4)
   - **HITL 안전장치 5종**: ① **draftId 바인딩** — 실행은 confirm된 draftId의 확정 내용만(발화 재해석·재생성 금지) ② **명시 액션만** — 채팅 발화("그냥 수정해줘")는 동의로 인정하지 않음(동의 판정이 LLM 안으로 들어가면 리뷰·문의 등 고객 텍스트 경유 간접 인젝션이 동의를 위조할 수 있다 — 인젝션이 성공해도 피해는 "이상한 초안이 보인다"에서 끝나는 구조) ③ **멱등** — 같은 draftId 재confirm 무해 ④ **brandId 하드게이트** — 티켓 claim 도출 값만 사용, I-9~I-12가 소유권을 반복 검증(타 브랜드 소유·미존재 모두 404 `PRODUCT_NOT_FOUND` — 존재 은닉, 노션 I-11 확정) ⑤ **대기 TTL** — 만료된 초안은 실행 불가(재초안 유도)
   - **삭제는 필수 HITL + soft delete**: I-12는 status=HIDDEN 전환만(hard delete 문 없음), STATUS 변경 로그 기록.
   - 상품 수정은 **챗봇 경로(I-11)가 유일**(2026-07-21) — 판매자 직접 수정(구 S-5 PATCH)은 폐기. 검증(price ≤ originalPrice, stock ≥ 0)·product_change_logs 기록은 I-11 소관.
@@ -371,7 +371,7 @@ I-35(되돌리기)는 M-14와 함께 폐기(2026-08-07) — 개별 삭제는 즉
 | FE→Spring 추천 목록 조회(CH-5) | 짧은 동기 조회(Redis 목록 + 카드 필드 부착) — 실패 시 FE가 카드 없이 텍스트만 우선 렌더 후 재시도. 티켓 만료 401은 CH-1b 재발급 → 1회 재시도(§1-0) |
 | 재시도 | 자동 재시도 없음(중복 담기·중복 과금 방지). 실패는 사용자에게 노출하고 수동 재시도 |
 | 게스트 제한 | 없음 — 횟수 제한 폐지(2026-07-07 회의). 게스트는 개인화 없이 응답 |
-| 남용 방어(rate limit) | **FastAPI(LLM팀) 소유** — 세션/IP당 분당 N건 스로틀. **직결이라 FastAPI가 공개 진입점**이 됐으므로 여기가 1차 방어선(공개 문 경비 — 03 D5). 실 LLM 비용이 나가는 공격면. 기준치는 OPEN. 필요 시 Spring이 티켓 발급 앞단(CH-1)에 보조 스로틀 |
+| 남용 방어(rate limit) | **FastAPI(LLM팀) 소유** — 토큰 주체당 분 10회·시간 100회, IP는 그 5배(2026-11-17 AI 설정 확인, §4). **직결이라 FastAPI가 공개 진입점**이 됐으므로 여기가 1차 방어선(공개 문 경비 — 03 D5). 실 LLM 비용이 나가는 공격면. Spring은 티켓 발급 앞단(CH-1·CH-1b)에 IP당 60초 60회 보조 제한을 둔다(07 §3-4) |
 | 장애 시 | FastAPI 다운 → **직결이라 FE의 SSE 연결이 실패**하거나 FastAPI가 `error{LLM_UNAVAILABLE}` 발행 → FE가 안내 표시. 상품 조회·주문 등 비채팅(Spring)은 정상 동작(D-분산8) |
 
 ## 4. OPEN — LLM 팀 합의 필요 목록
@@ -382,18 +382,22 @@ I-35(되돌리기)는 M-14와 함께 폐기(2026-08-07) — 개별 삭제는 즉
 - [x] ~~추천 조회 흐름~~ — **2왕복(정형 후보조회 I-1 → 벡터 리랭킹 → Top5 → 카드 하이드레이션 P-7)** 확정(§1-2-1). *(2026-07-17: 마지막 단계에 I-21 콜백 저장 + CH-5 조회 추가 — §1-2-1)*
 - [x] ~~세션 만료 통지 방식~~ — **I-20 `POST {LLM_BASE_URL}/events/session-end`로 확정(2026-07-17, §2-1)**. sessionId 형식도 **UUID로 합의 완료**(구 `S-` 접두 제약 폐기)
 
-**[남은 OPEN]**
-- [ ] **벡터DB 배치 동기화**(§1-2-2): 트리거·주기, 전체 재적재 vs 델타, 크롤링 파이프라인(상품 1만+) 연결 지점 — LLM팀 + 데이터 파이프라인 합의
-- [ ] **라운드1 LIMIT·top-K 기준치**(§1-2-1): I-1 후보 상한(기본 50/최대 200 제안)과 LLM 투입 top-K(20~30 제안)의 실측 튜닝
-- [ ] **프로필 추출 저장 시점** (세션 만료 시? 매 N턴?) — 기능 정의에도 미확정
-- [ ] 카테고리 진입을 message 관성으로 갈지 전용 필드로 갈지
-- [ ] P-5 개인화 추천(메인) API: `GET {LLM_BASE_URL}/recommendations?userId=` 형태 제안 — 응답이 상품 ID 목록이면 BE가 카드 데이터 조립(P-4 카드와 동형 — `purchaseState` 없음, 04 2026-07-28 결정. 구 이름은 `purchasable`). BE 측 타임아웃 연결 2s/응답 3s(04 P-5, 초과 시 인기 상품 fallback)
-- [ ] 채팅 남용 방어(rate limit) 기준치 — 소유는 FastAPI로 확정(§3, 직결 공개 진입점), 수치만 OPEN
-- [ ] 상세페이지 연관 추천 2종(함께 구매/대체)의 소스: LLM 생성 vs BE 규칙 기반(같은 카테고리 인기순) — MVP는 BE 규칙 기반 제안
-- [ ] **confirm 전송 형식**(§1-3): 전용 필드 `{action:"confirm", draftId}` vs 특수 메시지 — LLM 확정 대기 (draft 이벤트 필드 자체는 §1-3으로 확정)
+**[2026-11-17 정리 — 노션 종료 후 세 저장소의 실제 구현으로 판정]**
+노션이 없어진 뒤로 합의 기록을 더 받을 곳이 없다. 아래는 "무엇을 합의할까"가 아니라 "실제로 무엇이 돌고 있나"를
+`jarvis-ai`·`jarvis-frontend` 코드에서 확인해 닫은 것이다. 근거 위치를 함께 적는다.
+- [x] ~~**벡터DB 배치 동기화**~~ — **AI가 I-17을 5분마다 증분 pull**한다(`catalog_batch_interval_s=300`, 페이지 500건, 커서 keyset). 전체 재적재가 아니라 델타. 크롤링 파이프라인과는 Spring DB를 사이에 둔다(크롤링 → Spring DB → I-17 → 벡터DB)
+- [x] ~~**라운드1 LIMIT·top-K**~~ — AI 설정값으로 고정: I-1 검색 30건(`search_default_limit`), 의미 재정렬 후 LLM 투입 30건(`embedding_rerank_limit`·`top_k`). 제안했던 50/200은 쓰이지 않는다
+- [x] ~~카테고리 진입~~ — **기능 자체가 없다**. FE에 카테고리 화면에서 채팅을 여는 경로가 없어 전용 필드도 메시지 관성도 필요 없다. 생기면 다시 연다
+- [x] ~~P-5 개인화 추천 API~~ — **구현 완료**: Spring이 `POST {LLM_BASE_URL}/internal/recommendations/home`을 부르고(`HomeRecommendationClient`) 카드는 Spring이 조립한다. 실패 시 인기 상품 대체(04 P-5)
+- [x] ~~채팅 남용 방어 기준치~~ — **AI가 토큰 주체당 분 10회·시간 100회, 같은 IP는 그 5배**(`rate_limit_per_min`·`rate_limit_per_hour`·`rate_limit_host_multiplier`, 인메모리·단일 인스턴스 전제). Spring은 그 앞의 CH-1·CH-1b(세션·티켓 발급)를 IP당 60초 60회로 막는다(2026-11-17, 07 §3-4)
+- [x] ~~상세페이지 연관 추천 2종~~ — **구현하지 않았다**. 상세 화면에 연관 추천 영역이 없고 API도 없다. 범위 밖으로 닫는다
+- [x] ~~**confirm 전송 형식**~~ — **전용 필드로 확정·구현**: FE가 `{action:"confirm", draftId}`를 최상위로 보내고(`jarvis-frontend/src/shared/types/chat.ts`), AI가 LLM을 부르기 전에 이 필드로 먼저 판정한다(`jarvis-ai/app/api/seller.py` confirm 레인)
+
+**[남은 OPEN]** — 백엔드 계약에는 영향이 없고 AI 내부 동작이다
+- [ ] **프로필 추출 저장 시점** (세션 만료 시? 매 N턴?) — AI 코드에서 명시적 설정을 찾지 못했다. 백엔드는 I-32~I-37 프록시만 하므로 계약 변경은 없다
 - [x] ~~I-21/CH-5 추천 목록 스키마~~ — **확정(2026-07-18 LLM 합의, §I-21)**: listId FastAPI 생성, reasons 콜백 포함(카드용) → CH-5 echo, SSE 이유는 채팅용으로 이원화
 - [x] ~~**I-13 행동 이벤트 조회/집계**(`GET /internal/seller/{brandId}/events`) 본문 명세~~ — **노션 확정·구현 완료(2026-07-18)**, 상세 §I-6b
 - [x] ~~I-20 sessionId 형식~~ — **UUID로 합의 완료(2026-07-17 LLM 팀 확인, §2-1)**
 - [x] ~~**CH-3(CS 챗봇) 폐지/유지**~~ — **폐기 확정(2026-08-07)**: 문의 기능 전체를 걷어냈다(노션 I-5·M-9·AD-1·AD-2·CH-3 폐기, `inquiry` 테이블 제거)
-- [ ] **SELLER 툴 바인딩**: `brandId`(및 신원 필드 전부)는 LLM 툴 파라미터로 노출 금지 — **티켓 claim/세션 컨텍스트에서 코드 주입**(§1-0). 인젝션으로 타 브랜드 id를 넣는 경로 차단
-- [ ] **SELLER 프롬프트 가드레일**: ① "직접 반영했어요" 류 발화 금지(쓰기 툴이 없는데 성공 환각 시 판매자가 적용 버튼을 안 누름) ② 직접 반영 요구엔 "확인 후 적용 버튼으로 즉시 반영" 안내
+- [x] ~~**SELLER 툴 바인딩**~~ — **구현 확인(2026-11-17)**: AI가 `brandId`·`sellerId`를 LLM 출력이 아니라 세션 컨텍스트(`context.brand_id`)에서 넣는다(`jarvis-ai/app/api/seller.py`). 백엔드는 분석 API(I-6~I-16)에서 서비스 토큰만 확인하고 경로의 brandId를 그대로 쓰므로, **조회 범위의 방어선은 AI 쪽 주입 하나다**. 상품 쓰기(I-11·I-12)는 백엔드가 소유권을 다시 확인한다
+- [ ] **SELLER 프롬프트 가드레일** (AI 소관 — 프롬프트라 백엔드에서 확인할 방법이 없다): ① "직접 반영했어요" 류 발화 금지(쓰기 툴이 없는데 성공 환각 시 판매자가 적용 버튼을 안 누름) ② 직접 반영 요구엔 "확인 후 적용 버튼으로 즉시 반영" 안내
