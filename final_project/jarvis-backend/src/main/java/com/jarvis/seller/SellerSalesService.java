@@ -1,7 +1,9 @@
 package com.jarvis.seller;
 
 import com.jarvis.brand.Brand;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.jarvis.brand.BrandRepository;
+import com.jarvis.global.cache.RedisCache;
 import com.jarvis.global.event.BehaviorEventRepository;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
@@ -16,6 +18,7 @@ import com.jarvis.product.ProductStockRepository;
 import com.jarvis.seller.dto.SellerSalesResponse;
 import com.jarvis.seller.dto.SellerSummaryResponse;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -58,6 +61,10 @@ public class SellerSalesService {
     private final BrandRepository brandRepository;
     private final SellerAttributionService sellerAttributionService;
     private final ActiveVisitorStore activeVisitorStore;
+    private final RedisCache cache;
+
+    private static final String AI_ATTRIBUTION_KEY_PREFIX = "v1:seller:ai-attribution:";
+    private static final Duration AI_ATTRIBUTION_TTL = Duration.ofSeconds(60);
 
     private static final int DEFAULT_LOW_STOCK = 10;
     private static final int DEFAULT_TREND_DAYS = 7;
@@ -203,11 +210,17 @@ public class SellerSalesService {
      * 예외가 경계를 지나며 rollback-only로 마킹돼, 여기서 잡아도 커밋 시점에
      * UnexpectedRollbackException으로 되돌아온다. 2026-08-08 S-1 전건 500이 그 경로였다.
      * 집계를 이 클래스 안으로 다시 인라인하면 그 버그가 그대로 복구된다.
+     *
+     * <p><b>60초 캐시</b>(2026-11-17) — 이 블록은 behavior_events 전체를 기간으로 훑는, S-1에서 가장 무거운
+     * 집계다. 대시보드는 열어 둔 채 새로고침되는 화면이라 같은 (브랜드, 기간)을 반복 계산하지 않는다.
+     * 실패는 캐시하지 않는다 — 로더 예외는 아래 catch로 그대로 와서 다음 요청이 다시 시도한다.
      */
     private SellerSummaryResponse.AiAttribution aiAttribution(Long brandId, LocalDate from,
                                                               LocalDate to) {
         try {
-            return sellerAttributionService.aggregate(brandId, from, to);
+            return cache.get(AI_ATTRIBUTION_KEY_PREFIX + brandId + ":" + from + ":" + to,
+                    AI_ATTRIBUTION_TTL, new TypeReference<>() { },
+                    () -> sellerAttributionService.aggregate(brandId, from, to));
         } catch (Exception e) {
             log.warn("AI 추천 성과 집계 실패 — 이 블록만 비우고 대시보드는 내려보낸다 (brandId={})",
                     brandId, e);
