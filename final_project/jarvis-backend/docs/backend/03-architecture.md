@@ -337,7 +337,7 @@ com.jarvis
 
 **JPA 구현 규약**
 - **`spring.jpa.open-in-view: false`** — 지연 로딩은 트랜잭션(서비스) 안에서 끝낸다. 기본값(on)은 커넥션을 응답 렌더링까지 점유하고 LazyInitializationException을 컨트롤러에서 만나게 함.
-- **`ddl-auto: validate`** — 스키마 원본은 02/schema.sql(사람이 적용·리뷰), JPA는 스키마를 만들지도 바꾸지도 않는다. 로컬 최초 기동은 schema.sql 수동 적용(또는 compose init 스크립트).
+- **`ddl-auto: validate`** — 스키마는 Flyway(`db/migration/V*.sql`)가 앱 기동 시 적용하고(02 D54), JPA는 만들지도 바꾸지도 않고 일치만 확인한다. 전체 스냅샷은 02/schema.sql로 유지하며, 마이그레이션 결과와 다르면 `SchemaIntegrationTest`가 실패한다.
 - 전역 LAZY(Entity 항) 전제에서 **목록 조회의 N+1은 fetch join/`@EntityGraph`로 해소** — 리뷰 기준: 쿼리 로그에서 같은 SELECT가 행 수만큼 반복되면 N+1.
 - 수정은 "조회 → 엔티티 메서드 호출 → 커밋 시 더티체킹". `save()` 재호출로 UPDATE하지 않는다.
 - ID 전략은 `IDENTITY`(MariaDB auto_increment 정합). Hibernate 배치 INSERT 제약은 감수 — 대량 시드는 JdbcTemplate batch 허용(§4와 일관).

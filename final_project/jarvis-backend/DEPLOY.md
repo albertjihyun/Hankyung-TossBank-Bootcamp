@@ -90,24 +90,52 @@ openssl rand -hex 32
 
 ## 4. DB 준비 (필수)
 
-JPA는 `ddl-auto: validate` — **스키마를 만들지도 바꾸지도 않는다.** 엔티티가 기대하는 테이블·컬럼이
-DB에 없으면 앱이 **기동 자체를 거부**하므로, DB 반영이 항상 앱 배포보다 먼저다.
+**2026-11-17부터 스키마는 앱이 기동하면서 Flyway로 적용한다**(02 D54). `src/main/resources/db/migration/V*.sql`을
+번호 순으로 실행하고, 어디까지 적용했는지는 DB의 `flyway_schema_history` 테이블이 기억한다. 여러 인스턴스가
+동시에 떠도 Flyway가 DB 락으로 하나만 적용한다. 그 뒤 JPA `ddl-auto: validate`가 엔티티와 일치하는지 확인한다.
+
+- 앱 DB 계정에 **DDL 권한**(CREATE·ALTER·INDEX·DROP·REFERENCES)이 있어야 한다.
+- `V1__baseline.sql`은 2026-11-17 시점의 `docs/backend/schema.sql` 전체다.
+- 마이그레이션 파일은 **배포된 뒤 고치지 않는다** — 체크섬이 달라지면 앱이 기동을 거부한다. 고칠 게 있으면 새 번호로 낸다.
+- `docs/backend/schema.sql`은 사람이 읽는 전체 스냅샷으로 남는다. 둘이 어긋나면 `SchemaIntegrationTest`가 실패한다.
 
 ### 4-1. 신규 DB (처음 구축)
 
-1. [docs/backend/schema.sql](docs/backend/schema.sql) — 스키마 전체 (최초 1회 전용 — 재실행 불가 DDL)
-2. [scripts/](scripts/) 시드 — `seed-accounts.sql` → `seed-catalog.sql` → `seed-commerce-demo.sql` → `seed-analytics-demo.sql` 순 (재실행 무해)
+빈 DB에 앱을 띄우면 V1부터 전부 적용된다. 그 뒤 [scripts/](scripts/) 시드를 넣는다 — `seed-accounts.sql` →
+`seed-catalog.sql` → `seed-commerce-demo.sql` → `seed-analytics-demo.sql` 순 (재실행 무해).
 
 ```bash
-mariadb -h <host> -u <user> -p<pw> <db> < docs/backend/schema.sql
+# 1) 앱을 한 번 띄워 스키마를 만든다 (/actuator/health = UP 확인)
+# 2) 시드
 mariadb -h <host> -u <user> -p<pw> <db> < scripts/seed-accounts.sql   # 이후 catalog, commerce-demo, analytics-demo 순
 ```
 
-### 4-2. 이미 운영 중인 DB (스키마가 변경됐을 때)
+`schema.sql`을 손으로 먼저 흘려도 된다(로컬 셋업 스크립트가 그렇게 한다) — 이력 테이블이 없는 DB는 V1로 기준선만
+찍히고(`baseline-on-migrate`) V2부터 적용된다.
 
-`schema.sql`을 다시 흘리면 "table already exists"로 중단된다 — 대신 **증분 마이그레이션**을 적용한다.
-`scripts/migrate-*.sql`을 **날짜 접두사 오름차순**으로 전부 실행하면 된다(전부 재실행 무해 —
-이미 적용된 것은 조용히 건너뛰므로 어디까지 적용했는지 기억할 필요 없음). 쌓인 데이터는 보존된다.
+### 4-2. 이미 운영 중인 DB — Flyway 도입 전환 (한 번만)
+
+이력 테이블이 없는 기존 DB는 첫 기동 때 **"이미 V1 상태"라고 간주**된다. 그러므로 Flyway가 들어간 버전을 처음
+배포하기 전에, 아래 표의 `scripts/migrate-*.sql`이 **전부 적용돼 있어야** 한다. 빠진 게 있으면 Flyway는 그걸 모른다.
+
+```bash
+for f in scripts/migrate-*.sql; do      # 날짜 오름차순
+  mariadb -h <host> -u <user> -p<pw> <db> < "$f"
+done
+```
+
+일부 과거 스크립트(`2026-08-06-order-status-logs-item`, `2026-08-07-recommendation-attribution`,
+`2026-08-09-option-stock-*`, `2026-08-11-erd-hardening-post`)는 **이미 적용된 DB에서 "already exists"로 실패한다** —
+재실행 무해가 아니다(2026-11-17 확인). 오류 문구가 "이미 있다"류면 적용된 것이므로 넘어간다. 확실히 하려면 전환 후
+빈 DB에 schema.sql을 올린 것과 `information_schema`를 비교한다(`SchemaIntegrationTest`와 같은 방법).
+
+전환 후의 스키마 변경은 새 `V{n}__설명.sql`을 추가하고 배포하면 끝이다. 단, **제약을 조이는 변경**(NOT NULL 등)은
+구 앱과 공존할 수 없으므로 두 번에 나눈다 — 이번 배포에 "컬럼 추가 + 백필", 다음 배포에 "NOT NULL". 앱이 기동하면서
+적용하므로 예전처럼 "배포 후에 손으로 적용"하는 단계를 둘 수 없기 때문이다.
+
+### 4-3. 과거 수동 마이그레이션 기록 (Flyway 도입 전)
+
+아래는 V1에 이미 포함된 변경들이다. 4-2 전환 전에 기존 DB를 최신화할 때만 쓴다.
 
 ```bash
 for f in scripts/migrate-*.sql; do
@@ -164,7 +192,7 @@ done
       - `JWT_SECRET`은 **배포 서버 전용 값**으로 생성(로컬 개발값과 달라도 무방 — 각 서버가 자기 키로 서명·검증).
         기본값이 없으므로 미설정 시 기동 실패. **운영 중 교체하면 발급된 AT/RT가 전부 무효화**되어 전원 재로그인.
 - [ ] **`APP_KAFKA_PREFIX=dev-` 설정 (§2-1)** — 운영 브로커를 공유하므로, 비워두면 이 서버가 운영 컨슈머 그룹에 합류해 운영 이벤트를 가져간다. 조용히 일어나므로 배포 후에는 드러나지 않는다
-- [ ] 배포 DB 반영 — 신규 DB면 `docs/backend/schema.sql` + 시드 4종(§4-1), **이미 운영 중이면 `scripts/migrate-*.sql`만**(§4-2, 앱 재기동 전에)
+- [ ] 배포 DB 반영 — 스키마는 앱 기동 시 Flyway가 적용한다(§4). 신규 DB는 기동 후 시드 4종(§4-1). **Flyway 도입 전부터 쓰던 DB는 첫 배포 전에 `scripts/migrate-*.sql`을 전부 적용**(§4-2)
 - [ ] 컨테이너 실행 후 `/actuator/health` = UP 확인
 - [ ] FE팀에 **공개 API URL** 공유 (FE는 프록시 타깃으로 사용)
 - [ ] (공개 노출 시) `/internal/**` 인그레스 차단

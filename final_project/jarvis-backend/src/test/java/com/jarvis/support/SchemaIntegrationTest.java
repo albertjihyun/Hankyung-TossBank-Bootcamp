@@ -3,8 +3,11 @@ package com.jarvis.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DataIntegrityViolationException;
 
 /**
@@ -20,9 +23,41 @@ class SchemaIntegrationTest extends MariaDbIntegrationTest {
         // 운영에서는 같은 불일치가 배포 후 기동 거부로 드러났다(DEPLOY.md §4-2, 2026-07-31).
         Integer tables = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables "
-                        + "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'", Integer.class);
+                        + "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' AND table_name <> ?",
+                Integer.class, FLYWAY_HISTORY);
 
         assertThat(tables).isEqualTo(23);
+    }
+
+    /**
+     * 같은 스키마가 두 군데 있다 — 앱이 실제로 적용하는 마이그레이션(db/migration)과, 사람이 읽는 전체 스냅샷
+     * (docs/backend/schema.sql). V2를 추가하면서 스냅샷 갱신을 잊거나 그 반대를 하면 여기서 깨진다(02 D54).
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"columns", "indexes", "foreignKeys", "checks"})
+    @DisplayName("Flyway 마이그레이션 결과와 schema.sql 스냅샷이 같다")
+    void migrationsMatchSnapshot(String aspect) {
+        // 각 행을 한 줄 문자열로 펴서 정렬 비교한다 — 어긋나면 실패 메시지에 다른 줄이 그대로 보인다
+        String sql = switch (aspect) {
+            case "columns" -> "SELECT CONCAT_WS('|', table_name, column_name, ordinal_position, column_type, "
+                    + "is_nullable, IFNULL(column_default, '-'), extra, IFNULL(generation_expression, '-'), "
+                    + "IFNULL(collation_name, '-')) AS r FROM information_schema.columns WHERE table_schema = ?";
+            case "indexes" -> "SELECT CONCAT_WS('|', table_name, index_name, seq_in_index, column_name, "
+                    + "non_unique) AS r FROM information_schema.statistics WHERE table_schema = ?";
+            case "foreignKeys" -> "SELECT CONCAT_WS('|', table_name, constraint_name, column_name, "
+                    + "referenced_table_name, referenced_column_name, ordinal_position) AS r "
+                    + "FROM information_schema.key_column_usage "
+                    + "WHERE table_schema = ? AND referenced_table_name IS NOT NULL";
+            default -> "SELECT CONCAT_WS('|', table_name, constraint_name, check_clause) AS r "
+                    + "FROM information_schema.check_constraints WHERE constraint_schema = ?";
+        };
+        String filtered = "SELECT r FROM (" + sql + ") t WHERE r NOT LIKE '" + FLYWAY_HISTORY + "|%' ORDER BY r";
+
+        List<String> migrated = jdbc.queryForList(filtered, String.class, "jarvis");
+        List<String> snapshot = jdbc.queryForList(filtered, String.class, SNAPSHOT_DB);
+
+        assertThat(migrated).isNotEmpty();
+        assertThat(migrated).containsExactlyElementsOf(snapshot);
     }
 
     @Test

@@ -1,7 +1,28 @@
+// 로컬 셋업 스크립트가 앱을 띄우기 전에 스키마를 만들 때 쓴다(./gradlew flywayMigrate) — 앱 기동 시 적용과
+// 같은 파일·같은 이력 테이블이라, 손으로 schema.sql을 흘린 DB에 다음 V번호가 중복 적용되는 일이 없다(02 D54).
+// 버전은 Spring Boot가 앱에 넣는 Flyway·드라이버와 맞춘다
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.flywaydb:flyway-mysql:11.7.2'
+        classpath 'org.mariadb.jdbc:mariadb-java-client:3.5.8'
+    }
+}
+
 plugins {
     id 'java'
     id 'org.springframework.boot' version '3.5.16'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.flywaydb.flyway' version '11.7.2'
+}
+
+flyway {
+    locations = ['filesystem:src/main/resources/db/migration']
+    baselineOnMigrate = true
+    baselineVersion = '1'
+    cleanDisabled = true
 }
 
 group = 'com.jarvis'
@@ -30,7 +51,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
-
+    // 스키마 마이그레이션 (02 D54) — 사람이 SQL을 순서대로 흘리던 것을 앱 기동 시 자동 적용으로 바꾼다.
+    // MariaDB 지원은 flyway-mysql 모듈에 있다(Flyway 10+)
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
 
     // 행동 이벤트 스트림 (08 §0) — 프로듀서·컨슈머 모두 앱 안에 둔다 (08 D9)
     implementation 'org.springframework.kafka:spring-kafka'
