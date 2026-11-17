@@ -8,6 +8,21 @@ import org.springframework.data.repository.query.Param;
 
 public interface ProductChangeLogRepository extends JpaRepository<ProductChangeLog, Long> {
 
+    /**
+     * 이 요청(멱등 키)이 그 상품·옵션의 재고를 이미 바꿨는가 (02 D52).
+     * 옵션 없는 상품은 optionId가 null이라 IS NULL로 맞춘다.
+     */
+    @Query("""
+            select count(l) > 0 from ProductChangeLog l
+            where l.productId = :productId
+              and l.idempotencyKey = :idempotencyKey
+              and l.changeType = com.jarvis.product.ProductChangeType.STOCK
+              and ((:optionId is null and l.optionId is null) or l.optionId = :optionId)
+            """)
+    boolean existsStockChangeBy(@Param("productId") Long productId, @Param("optionId") Long optionId,
+                                @Param("idempotencyKey") String idempotencyKey);
+
+
     interface ChangeRow {
         Long getProductId();
         String getProductName();

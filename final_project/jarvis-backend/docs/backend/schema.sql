@@ -476,9 +476,11 @@ CREATE TABLE product_change_logs (
     change_type  VARCHAR(20) NOT NULL,                     -- PRICE/STOCK/STATUS — 어휘는 Java enum이 강제 (D45, 구 DB ENUM)
     old_value    VARCHAR(50) NULL,
     new_value    VARCHAR(50) NULL,                         -- 품절 신호 = STOCK new_value 0 (SOLD_OUT 상태 미도입)
+    idempotency_key VARCHAR(64) NULL,                    -- 이 변경을 일으킨 I-11 요청의 Idempotency-Key(AI의 draftId). 같은 수정 승인의 재전송이 재고를 다시 덮어쓰지 않게 한다 (D52)
     created_at   DATETIME(6) NOT NULL,
     PRIMARY KEY (id),
-    KEY idx_pclog_prod (product_id, created_at)
+    KEY idx_pclog_prod (product_id, created_at),
+    KEY idx_pclog_idempotency (product_id, idempotency_key)   -- "이 초안이 이 상품의 재고를 이미 바꿨는가" 조회 (D52)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- 전후 값 동일 시 미기록. 주문에 의한 재고 -1도 미기록(order_item으로 복원) — 수동 조정·품절/재입고 전환만 (D32)
 
