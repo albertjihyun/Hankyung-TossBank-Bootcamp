@@ -16,7 +16,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,6 +30,7 @@ class ActiveVisitorStoreTest {
     @Mock StringRedisTemplate redisTemplate;
     @Mock ZSetOperations<String, String> zSetOperations;
     @Mock BehaviorStreamHealth streamHealth;
+    @Spy RedisCircuitBreaker breaker = new RedisCircuitBreaker();
 
     @InjectMocks ActiveVisitorStore store;
 

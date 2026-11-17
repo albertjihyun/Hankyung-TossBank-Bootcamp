@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import com.jarvis.global.ratelimit.PublicWriteRateLimiter.Scope;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -28,7 +29,7 @@ class PublicWriteRateLimiterTest {
 
     /** 창 60초 / 이벤트 300회 / 채팅 60회 */
     private PublicWriteRateLimiter limiter() {
-        return new PublicWriteRateLimiter(new FixedWindowCounter(redisTemplate), 60, 300, 60);
+        return new PublicWriteRateLimiter(new FixedWindowCounter(redisTemplate, new RedisCircuitBreaker()), 60, 300, 60);
     }
 
     private void stub(String key, long count) {
