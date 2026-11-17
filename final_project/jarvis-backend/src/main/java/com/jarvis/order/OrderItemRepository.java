@@ -452,17 +452,25 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
      * S-1 수집 커버리지 — 기간 내 자사 상품 포함 PAID 주문 수 대비 {@code purchase_complete}
      * 이벤트로 관측된 주문 수. 0.93이면 결제 이벤트 7%가 유실되는 파이프라인이라는 뜻이고,
      * AI 매출도 유사한 비율로 과소집계되고 있다고 읽는다(수집 장애 조기 감지에도 쓴다).
+     *
+     * <p><b>결제 이벤트를 한 번만 읽는다</b>(2026-11-17). 예전에는 주문마다 {@code purchase_complete} 전체를
+     * 상관 서브쿼리로 훑으며 JSON을 파싱했다 — 기간에 시각 조건이 없어 인덱스를 못 탔고, 비용이 주문 수 ×
+     * 이벤트 수였다. 지금은 기간 안의 이벤트에서 주문 id만 한 번 뽑아 조인한다
+     * ({@code idx_behavior_type(event_type, created_at)}을 탄다). 이벤트는 결제 커밋 직후 서버가 적재하므로
+     * 기간 끝에 하루 여유를 둔다 — 그보다 늦게 적재된 이벤트(브로커 장애 후 재처리 등)는 관측되지 않은 것으로 센다.
      */
     @Query(value = """
             SELECT COUNT(DISTINCT o.id) AS paidOrders,
-                   COUNT(DISTINCT CASE WHEN EXISTS (
-                       SELECT 1 FROM behavior_events be
-                       WHERE be.event_type = 'purchase_complete'
-                         AND JSON_UNQUOTE(JSON_EXTRACT(be.properties, '$.orderId')) = CAST(o.id AS CHAR)
-                   ) THEN o.id END) AS observedOrders
+                   COUNT(DISTINCT seen.order_id) AS observedOrders
             FROM orders o
             JOIN order_item oi ON oi.order_id = o.id
             JOIN product p ON p.id = oi.product_id AND p.brand_id = :brandId
+            LEFT JOIN (
+                SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(be.properties, '$.orderId')) AS order_id
+                FROM behavior_events be
+                WHERE be.event_type = 'purchase_complete'
+                  AND be.created_at >= :from AND be.created_at < DATE_ADD(:to, INTERVAL 1 DAY)
+            ) seen ON seen.order_id = CAST(o.id AS CHAR)
             WHERE o.status = 'PAID' AND o.paid_at >= :from AND o.paid_at < :to
             """, nativeQuery = true)
     CoverageRow aggregateCollectionCoverage(@Param("brandId") Long brandId,
