@@ -4,14 +4,27 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface BehaviorEventRepository extends JpaRepository<BehaviorEvent, Long> {
 
     /** INSERT 전 중복 검증용 — INSERT IGNORE 금지 (02 D35) */
     @Query("select be.clientEventId from BehaviorEvent be where be.clientEventId in :ids")
     List<String> findExistingClientEventIds(@Param("ids") Collection<String> ids);
+
+    /**
+     * 보존 기간이 지난 로그를 {@code batchSize}건만 지운다 (02 D53). 한 번에 다 지우면 거대한 트랜잭션이
+     * 언두 로그를 키우고 적재 INSERT를 오래 막는다 — 호출마다 자기 트랜잭션으로 짧게 끊는다.
+     * {@code idx_behavior_time(created_at)}을 타서 지울 행만 읽는다.
+     */
+    @Modifying
+    @Transactional
+    @Query(value = "DELETE FROM behavior_events WHERE created_at < :cutoff ORDER BY created_at LIMIT :batchSize",
+            nativeQuery = true)
+    int deleteOlderThan(@Param("cutoff") LocalDateTime cutoff, @Param("batchSize") int batchSize);
 
     interface TypeCountRow {
         String getEventType();
