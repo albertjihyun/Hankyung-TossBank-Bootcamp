@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.jarvis.brand.Brand;
 import com.jarvis.brand.BrandRepository;
+import com.jarvis.global.cache.RedisCache;
 import com.jarvis.global.event.BehaviorEventRepository;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
@@ -25,6 +26,8 @@ import com.jarvis.seller.dto.SellerSalesResponse;
 import com.jarvis.seller.dto.SellerSummaryResponse;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.function.Supplier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,7 +51,16 @@ class SellerSalesServiceTest {
     @Mock private SellerAttributionService sellerAttributionService;
     @Mock private ActiveVisitorStore activeVisitorStore;
 
+    @Mock private RedisCache cache;
+
     @InjectMocks private SellerSalesService service;
+
+    /** 캐시는 항상 미스로 보고 로더를 그대로 부른다 — 캐시 자체 동작은 RedisCacheTest가 본다 */
+    @BeforeEach
+    void cacheAlwaysMisses() {
+        lenient().when(cache.get(anyString(), any(), any(), any()))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
+    }
 
     private static OrderItemRepository.SalesTotalsRow totals(long sales, long orders, long qty) {
         return new OrderItemRepository.SalesTotalsRow() {
