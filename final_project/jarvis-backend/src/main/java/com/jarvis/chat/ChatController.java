@@ -6,7 +6,9 @@ import com.jarvis.chat.dto.ChatSessionResponse;
 import com.jarvis.chat.dto.RecommendationListResponse;
 import com.jarvis.chat.dto.TicketReissueRequest;
 import com.jarvis.global.auth.AuthUser;
+import com.jarvis.global.auth.ClientIp;
 import com.jarvis.global.auth.GuestCookieManager;
+import com.jarvis.global.ratelimit.PublicWriteRateLimiter;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
 import com.jarvis.member.GuestService;
@@ -38,6 +40,8 @@ public class ChatController {
     private final GuestCookieManager guestCookieManager;
     private final GuestService guestService;
     private final SellerBrandResolver sellerBrandResolver;
+    private final ClientIp clientIp;
+    private final PublicWriteRateLimiter publicWriteRateLimiter;
 
     /**
      * CH-1 — 멱등 발급(노션 CH-1 2026-07-31 개정): 같은 신원·채널의 활성 세션이 있으면 그대로 돌려준다.
@@ -49,6 +53,7 @@ public class ChatController {
                                                           @AuthenticationPrincipal AuthUser authUser,
                                                           HttpServletRequest httpRequest,
                                                           HttpServletResponse httpResponse) {
+        publicWriteRateLimiter.check(PublicWriteRateLimiter.Scope.CHAT, clientIp.resolve(httpRequest));
         ChatChannel channel = request == null || request.channel() == null
                 ? ChatChannel.SHOPPING : request.channel();
         if (channel == ChatChannel.SELLER) {
@@ -88,6 +93,7 @@ public class ChatController {
     public ApiResponse<ChatSessionResponse> reissueTicket(@Valid @RequestBody TicketReissueRequest request,
                                                           @AuthenticationPrincipal AuthUser authUser,
                                                           HttpServletRequest httpRequest) {
+        publicWriteRateLimiter.check(PublicWriteRateLimiter.Scope.CHAT, clientIp.resolve(httpRequest));
         ChatIdentity identity = authUser != null
                 ? ChatIdentity.member(authUser.memberId())
                 : guestCookieManager.resolve(httpRequest).map(ChatIdentity::guest).orElse(null);

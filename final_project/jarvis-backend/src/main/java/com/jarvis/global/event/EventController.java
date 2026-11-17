@@ -3,6 +3,7 @@ package com.jarvis.global.event;
 import com.jarvis.global.auth.AuthUser;
 import com.jarvis.global.auth.ClientIp;
 import com.jarvis.global.auth.GuestCookieManager;
+import com.jarvis.global.ratelimit.PublicWriteRateLimiter;
 import com.jarvis.global.event.dto.EventBatchRequest;
 import com.jarvis.member.GuestService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,6 +26,7 @@ public class EventController {
     private final GuestCookieManager guestCookieManager;
     private final GuestService guestService;
     private final ClientIp clientIp;
+    private final PublicWriteRateLimiter publicWriteRateLimiter;
 
     @PostMapping("/api/events")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -32,6 +34,9 @@ public class EventController {
                         @AuthenticationPrincipal AuthUser authUser,
                         HttpServletRequest httpRequest,
                         HttpServletResponse httpResponse) {
+        String ip = clientIp.resolve(httpRequest);
+        // 게스트 발급보다 먼저 — 쿠키 없는 요청을 쏟아부어 게스트 행을 찍어내지 못하게
+        publicWriteRateLimiter.check(PublicWriteRateLimiter.Scope.EVENTS, ip);
         Long memberId = authUser == null ? null : authUser.memberId();
         String guestId = guestCookieManager.resolve(httpRequest).orElse(null);
         // 익명 요청인데 쿠키가 없으면 여기서 게스트 발급(노션 E-1 2026-07-20 변경) — 종전엔 첫 담기·
@@ -44,6 +49,6 @@ public class EventController {
                 guestId = issued;
             }
         }
-        eventService.collect(request, memberId, guestId, clientIp.resolve(httpRequest));
+        eventService.collect(request, memberId, guestId, ip);
     }
 }
