@@ -77,6 +77,10 @@ class OrderServiceTest {
 
     @InjectMocks OrderService orderService;
 
+    /** 재고 확보 성공을 나타내는 예약 — 내용은 이 테스트들의 관심 밖이다 */
+    private static final com.jarvis.product.ProductStockService.Reservation RESERVED =
+            new com.jarvis.product.ProductStockService.Reservation(java.util.Map.of(), List.of());
+
     private com.jarvis.product.Product product;
 
     /** 옵션 없는 상품의 재고 행들 — 선검증(availableStocks)이 이 목록을 읽는다 */
@@ -135,7 +139,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         OrderCreateResponse response = orderService.create(1L, directRequest("MOCK_CARD", 2));
 
@@ -148,7 +152,7 @@ class OrderServiceTest {
         verify(statusChanger).paymentSucceeded(any(Order.class), anyList(), any(LocalDateTime.class));
         verify(cartService, never()).removeOrderedLines(anyList());
         // 같은 상품이 여러 라인이어도 재고는 합산해 한 번만 요청한다
-        verify(productStockService).deduct(
+        verify(productStockService).reserve(
                 Map.of(new com.jarvis.product.ProductStockService.StockKey(10L, null), 2));
     }
 
@@ -159,7 +163,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         orderService.create(1L, directRequest("MOCK_CARD", 2), "fe-session-key");
 
@@ -174,10 +178,11 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("O-1 MOCK_FAIL — PAYMENT_FAILED 기록, 재고·장바구니 미접촉, 아이템은 PENDING 잔존")
+    @DisplayName("O-1 결제 거절 — PAYMENT_FAILED 기록, 잡아 둔 재고는 풀어 주고 판매로 확정하지 않는다")
     void createPaymentFailed() {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
         when(paymentService.pay(eq("MOCK_FAIL"), anyInt()))
                 .thenReturn(PaymentResult.declined("MOCK_DECLINED"));
 
@@ -189,7 +194,9 @@ class OrderServiceTest {
         verify(orderEventRecorder, never()).record(any());
         verify(statusChanger).paymentFailed(any(Order.class), eq("MOCK_DECLINED"));
         verify(statusChanger, never()).paymentSucceeded(any(), anyList(), any());
-        verify(productStockService, never()).deduct(anyMap());
+        // 결제 전에 잡았던 재고를 그대로 돌려놓는다 — 거절된 주문이 재고를 쥐고 있으면 안 된다
+        verify(productStockService).release(RESERVED);
+        verify(productStockService, never()).confirm(any());
         verify(orderItemRepository).saveAll(itemsCaptor.capture());
         assertThat(itemsCaptor.getValue()).allMatch(i -> i.getStatus() == OrderItemStatus.PENDING);
     }
@@ -256,8 +263,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productRepository.findById(20L)).thenReturn(Optional.of(second));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(anyLong())).thenReturn(List.of());
-        when(paymentService.pay(anyString(), anyInt())).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(false);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.empty());
 
         OrderCreateRequest request = new OrderCreateRequest(null,
                 List.of(new OrderCreateRequest.OrderLine(10L, null, 1, null),
@@ -269,6 +275,25 @@ class OrderServiceTest {
 
         verify(statusChanger).paymentFailed(any(Order.class), eq("OUT_OF_STOCK"));
         assertThat(response.failureReason()).isEqualTo("OUT_OF_STOCK");
+        // 재고를 못 잡았으면 결제를 시도조차 하지 않는다 — 승인받고 나서 물건이 없는 주문이 생기지 않는다
+        verify(paymentService, never()).pay(anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("O-1 결제 성공 — 재고 확보 → 결제 → 확정 순서다(결제가 확보보다 먼저 나가지 않는다)")
+    void createReservesStockBeforePaying() {
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
+        when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
+
+        orderService.create(1L, directRequest("MOCK_CARD", 1));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(productStockService, paymentService);
+        order.verify(productStockService).reserve(anyMap());
+        order.verify(paymentService).pay("MOCK_CARD", 12000);
+        order.verify(productStockService).confirm(RESERVED);
+        verify(productStockService, never()).release(any());
     }
 
     @Test
@@ -292,7 +317,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         OrderCreateRequest request = new OrderCreateRequest(List.of(5L), null, null,
                 new OrderCreateRequest.AddressInput("김자비", "010-1234-5678", "06236", "서울", null),
@@ -317,7 +342,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         orderService.create(1L, new OrderCreateRequest(List.of(5L), null, null,
                 new OrderCreateRequest.AddressInput("김자비", "010-1234-5678", "06236", "서울", null),
@@ -338,7 +363,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
         when(attributionResolver.resolveForConversion(context, 10L, 1L, null))
                 .thenReturn(new ConversionAttribution(REQUEST_ID, LIST_ID));
 
@@ -358,7 +383,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         OrderCreateResponse response = orderService.create(1L, new OrderCreateRequest(null,
                 List.of(new OrderCreateRequest.OrderLine(10L, null, 1,
@@ -377,7 +402,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         orderService.create(1L, directRequest("MOCK_CARD", 1), null, "key-0123456789abcdef");
 
@@ -392,7 +417,7 @@ class OrderServiceTest {
         when(productRepository.findById(10L)).thenReturn(Optional.of(product));
         when(productOptionRepository.findAllByProductIdOrderByIdAsc(10L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 12000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         orderService.create(1L, directRequest("MOCK_CARD", 1), null);
 
@@ -469,7 +494,7 @@ class OrderServiceTest {
         when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrderId(1L)).thenReturn(List.of());
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
 
@@ -490,8 +515,7 @@ class OrderServiceTest {
                 LocalDateTime.of(2026, 7, 17, 12, 0), null);
         when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findAllByOrderId(1L)).thenReturn(List.of(item));
-        when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(false);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.empty());
 
         OrderCreateResponse response = orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
 
@@ -531,7 +555,7 @@ class OrderServiceTest {
                     assertThat(String.valueOf(rejected.getDetail())).contains("HIDDEN");
                 });
         verify(paymentService, never()).pay(anyString(), anyInt());
-        verify(productStockService, never()).deduct(anyMap());
+        verify(productStockService, never()).reserve(anyMap());
     }
 
     @Test
@@ -590,7 +614,7 @@ class OrderServiceTest {
         stubFailedOrderItem();
         when(productRepository.findAllById(List.of(10L))).thenReturn(List.of(product));
         when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.deduct(anyMap())).thenReturn(true);
+        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
 
         OrderCreateResponse response = orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
 
