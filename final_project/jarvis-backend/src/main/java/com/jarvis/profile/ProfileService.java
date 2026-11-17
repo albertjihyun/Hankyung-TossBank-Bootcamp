@@ -1,6 +1,7 @@
 package com.jarvis.profile;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
 import com.jarvis.recommendation.HomeRecommendationService;
@@ -65,6 +66,22 @@ public class ProfileService {
         homeRecommendationService.evictCache(memberId);
         return data;
     }
+
+    /**
+     * 탈퇴(M-17, 02 D55) 시 AI 쪽 취향·대화 기록을 지운다 — M-15와 같은 I-36을 서버가 대신 부른다.
+     * If-Match는 직전에 읽은 버전을 쓴다. 프로필이 없으면 할 일이 없다.
+     */
+    public void purgeForWithdrawal(long memberId) {
+        JsonNode graph = profileGraphClient.getGraph(memberId);
+        String version = graph == null ? null : graph.path("graphVersion").asText(null);
+        if (graph == null || !graph.path("exists").asBoolean(true) || version == null || version.isBlank()) {
+            return;
+        }
+        profileGraphClient.reset(memberId, RESET_ALL, version);
+        homeRecommendationService.evictCache(memberId);
+    }
+
+    private static final JsonNode RESET_ALL = JsonNodeFactory.instance.objectNode().put("scope", "ALL");
 
     /**
      * M-12·M-13·M-15는 {@code If-Match} <b>필수</b>다 — 누락은 실행하지 않고 400이다.

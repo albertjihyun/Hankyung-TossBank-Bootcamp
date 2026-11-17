@@ -32,6 +32,9 @@ public enum ErrorCode {
     // member
     MEMBER_EMAIL_DUPLICATE(HttpStatus.CONFLICT, "이미 가입된 이메일입니다."),
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
+    // 탈퇴 (02 D55) — 401이 아니라 400이다. 401은 FE가 토큰 재발급으로 해석한다
+    MEMBER_PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "비밀번호가 올바르지 않습니다."),
+    MEMBER_HAS_ACTIVE_ORDERS(HttpStatus.CONFLICT, "진행 중인 주문이 있어 탈퇴할 수 없습니다. 구매 확정 또는 취소·반품 완료 후 다시 시도해주세요."),
 
     // catalog
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
