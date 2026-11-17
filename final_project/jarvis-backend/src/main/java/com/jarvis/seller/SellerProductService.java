@@ -38,6 +38,10 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.parser.Parser;
+import org.jsoup.safety.Safelist;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Objects;
@@ -557,18 +561,37 @@ public class SellerProductService {
     }
 
     /**
-     * 서버측 XSS 최소 방어 (04 §10 I-10/I-11) — 실행 가능 태그·인라인 핸들러·javascript: 제거.
-     * 라이브러리 없이 정규식 수준 — 고도화 시 전용 sanitizer로 교체.
+     * 상품 설명은 <b>일반 텍스트</b>다 — HTML 태그를 전부 걷어내고 글자만 남긴다 (04 §10 I-10/I-11, 2026-11-17).
+     *
+     * <p>예전에는 정규식으로 위험한 태그·속성만 지웠는데 우회됐다: {@code <img/src=x/onerror=alert(1)>}처럼
+     * 공백 대신 {@code /}를 쓰면 핸들러 제거 패턴이 걸리지 않는다. 정규식으로 HTML을 막는 건 원리적으로
+     * 끝이 없어서, "태그는 하나도 허용하지 않는다"로 바꾸고 판정은 HTML 파서(jsoup)에 맡긴다.
+     * 정상 텍스트도 덜 망가진다 — 예전 규칙은 설명 속 "javascript:"라는 글자까지 지웠다.
+     *
+     * <p><b>결과가 변하지 않을 때까지 반복한다.</b> 한 번만 걷어내고 엔티티를 되돌리면
+     * {@code &lt;script&gt;}처럼 한 겹 숨긴 태그가 다시 살아난다. 반복이 끝나면 결과를 HTML로 읽어도 요소가
+     * 하나도 없다. 그래도 최종 방어선은 출력 쪽 이스케이프다(FE는 설명을 텍스트로만 그린다).
      */
     static String sanitizeDescription(String description) {
         if (description == null) {
             return null;
         }
-        return description
-                .replaceAll("(?is)<(script|style|iframe|object|embed)[^>]*>.*?</\\1\\s*>", "")
-                .replaceAll("(?is)<(script|style|iframe|object|embed)[^>]*/?>", "")
-                .replaceAll("(?i)\\son\\w+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)", "")
-                .replaceAll("(?i)javascript\\s*:", "");
+        String current = description;
+        for (int i = 0; i < SANITIZE_MAX_PASSES; i++) {
+            String stripped = Parser.unescapeEntities(
+                    Jsoup.clean(current, "", Safelist.none(), PLAIN_OUTPUT), false);
+            if (stripped.equals(current)) {
+                return current;
+            }
+            current = stripped;
+        }
+        // 정상 입력은 한두 번에 수렴한다. 여기까지 왔다면 겹겹이 숨긴 입력이다 — 꺾쇠를 모두 지워 끝낸다
+        return current.replace("<", "").replace(">", "");
     }
+
+    private static final int SANITIZE_MAX_PASSES = 5;
+    /** 줄바꿈·공백을 그대로 두고(prettyPrint 끔) 글자만 내보낸다 — 설명의 문단 구분을 지키기 위해 */
+    private static final Document.OutputSettings PLAIN_OUTPUT =
+            new Document.OutputSettings().prettyPrint(false);
 
 }

@@ -45,6 +45,9 @@ dependencies {
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 
+    // 상품 설명의 HTML 제거 — 정규식은 우회된다(<img/src=x/onerror=...>). 파서로 태그를 걷어낸다
+    implementation 'org.jsoup:jsoup:1.18.3'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
