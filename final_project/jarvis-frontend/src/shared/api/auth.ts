@@ -13,6 +13,13 @@ export async function fetchMe(): Promise<AuthUser> {
   return data;
 }
 
+// 회원 탈퇴 (M-17). 현재 비밀번호로 본인 확인 — 틀리면 400 MEMBER_PASSWORD_MISMATCH(401이 아니라
+// 인터셉터의 토큰 재발급을 타지 않는다). 진행 중인 결제 주문이 있으면 409 MEMBER_HAS_ACTIVE_ORDERS.
+// 성공하면 서버가 인증 쿠키를 지운다 — 호출부는 로그아웃과 같이 로컬 상태를 비우면 된다.
+export async function withdraw(password: string): Promise<void> {
+  await api.post("/api/members/me/withdraw", { password });
+}
+
 // 로그아웃: body 없음, RT 쿠키로 대상 식별. 서버에서 RT 삭제 + 쿠키 만료(Max-Age=0).
 // 멱등 — 쿠키가 없어도 항상 성공.
 //

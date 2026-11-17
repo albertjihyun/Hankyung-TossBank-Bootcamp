@@ -49,6 +49,28 @@ class ProfileServiceTest {
     }
 
     @Test
+    @DisplayName("탈퇴 삭제 — 방금 읽은 graphVersion을 그대로 If-Match로 실어 전체 초기화한다")
+    void purgeForWithdrawalResetsWithReadVersion() {
+        when(profileGraphClient.getGraph(MEMBER_ID))
+                .thenReturn(json("{\"exists\":true,\"graphVersion\":\"g42\"}"));
+
+        service.purgeForWithdrawal(MEMBER_ID);
+
+        verify(profileGraphClient).reset(eq(MEMBER_ID), eq(json("{\"scope\":\"ALL\"}")), eq("g42"));
+        verify(homeRecommendationService).evictCache(MEMBER_ID);
+    }
+
+    @Test
+    @DisplayName("탈퇴 삭제 — 프로필이 없으면 초기화를 부르지 않는다")
+    void purgeForWithdrawalSkipsWhenNoProfile() {
+        when(profileGraphClient.getGraph(MEMBER_ID)).thenReturn(json("{\"exists\":false}"));
+
+        service.purgeForWithdrawal(MEMBER_ID);
+
+        verify(profileGraphClient, never()).reset(anyLong(), any(), anyString());
+    }
+
+    @Test
     @DisplayName("M-11 조회는 캐시를 건드리지 않는다 — 읽기라 버릴 이유가 없다")
     void getGraphDoesNotEvict() {
         when(profileGraphClient.getGraph(MEMBER_ID)).thenReturn(json("{\"exists\":true}"));

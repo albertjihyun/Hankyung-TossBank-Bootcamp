@@ -31,6 +31,7 @@ CREATE TABLE member (
     birth_date         DATE         NOT NULL,              -- 가입 시 수집 (D16)
     agreed_terms_at    DATETIME     NOT NULL,              -- 이용약관 동의 시각 (D21)
     agreed_privacy_at  DATETIME     NOT NULL,              -- 개인정보처리방침 동의 시각 (D21)
+    withdrawn_at       DATETIME     NULL,                  -- 탈퇴 시각. 값이 있으면 이메일·닉네임·생일(월일)이 지워진 행 (D55, Flyway V2)
     created_at         DATETIME     NOT NULL,
     updated_at         DATETIME     NULL,
     PRIMARY KEY (id),
