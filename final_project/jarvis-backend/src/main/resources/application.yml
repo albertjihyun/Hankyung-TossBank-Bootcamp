@@ -181,6 +181,9 @@ app:
     # 추천 목록(CH-5 조회) TTL — 세션과 근거가 다르므로 값을 공유하지 않는다 (07 §2-1).
     # 세션은 대화 지속성이, 이쪽은 listId 노출 창이 근거라 세션을 늘려도 따라 늘면 안 된다.
     list-ttl-minutes: 10
+  # 행동 로그 보존 (02 D53) — 판매자 분석 기간 상한(731일)보다 짧으면 분석 화면이 조용히 비므로 그보다 길게 둔다.
+  behavior-events:
+    retention-days: 760
   stream-ticket:
     private-key: ${STREAM_TICKET_PRIVATE_KEY} # RS256 private key — base64(PKCS#8 DER), Spring만 보관 (03 §5)
     kid: ${STREAM_TICKET_KID}
