@@ -16,7 +16,7 @@
   <img alt="MariaDB" src="https://img.shields.io/badge/MariaDB-11.4-003545?logo=mariadb&logoColor=white">
   <img alt="Redis" src="https://img.shields.io/badge/Redis-cache%20%C2%B7%20state-DC382D?logo=redis&logoColor=white">
   <img alt="Kafka" src="https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white">
-  <img alt="tests" src="https://img.shields.io/badge/tests-603%20passing-success">
+  <img alt="tests" src="https://img.shields.io/badge/tests-703%20passing-success">
 </p>
 
 ---
@@ -115,11 +115,12 @@ flowchart LR
 | 영역 | 한계 | 영향 |
 |---|---|---|
 | 테스트 | 집계 쿼리의 **결과값**은 검증하지 않는다 | 통합 테스트는 `@Query` 93건이 실제 MariaDB에서 실행되는지와 재고·상태 전이·주문 멱등 키의 동시성을 확인한다. 판매자 분석 쿼리가 올바른 숫자를 내는지(픽스처 대조)는 아직 없다 |
-| 결제 | 결제·배송이 모의 구현이고, 결제 호출이 DB 트랜잭션 안에 있다 | 실제 결제사를 붙이려면 승인 취소(보상) 경로와 트랜잭션 분리가 먼저 필요하다 |
+| 결제 | 결제·배송이 모의 구현이고, 결제 호출이 DB 트랜잭션 안에 있다 | 재고를 먼저 확보한 뒤 결제하므로 "승인 후 재고 없음"은 생기지 않는다. 다만 실제 결제사를 붙이면 응답을 기다리는 동안 재고 잠금과 DB 커넥션을 쥐고, 결제 기록 테이블과 승인 취소 기능이 없다 |
 | 내부 API | 네트워크 층 방어가 없다 | 문서의 "nginx 경로 차단"은 운영 설정에 적용되지 않았다. 앱 층은 토큰 필터와 시큐리티 권한 두 겹이지만, 토큰은 회전·만료가 없는 공유 값 하나다 |
 | DB 변경 | 마이그레이션이 수동 SQL이고 적용 이력 관리 도구가 없다 | 적용 순서를 사람이 기억해야 하며, 순서 실수로 배포가 실패한 적이 있다 |
-| 관측성 | 요청 ID·구조화 로그·메트릭·알림이 없다 | 장애 시 서버별 로그를 직접 대조해야 한다 |
+| 관측성 | 구조화 로그·메트릭·알림·로그 중앙 수집이 없다 | 요청 ID는 모든 로그 줄과 오류 응답에 실리지만, 서버 4대의 로그를 한곳에서 볼 수단이 없어 서버별로 찾아야 한다 |
 | 부하 테스트 | 읽기 경로만 측정했다 | 주문·재고 차감 같은 쓰기 경로의 한계는 측정한 적이 없다 |
+| 판매자 분석 | 대시보드 집계가 캐시 없이 원본 테이블을 매번 훑는다 | 조회 기간은 최대 2년으로 막았지만, 행동 이벤트 테이블에 보존 기간·요약 테이블이 없어 데이터가 쌓일수록 느려진다 |
 | 규모 | Kafka 단일 브로커(복제 없음), AI 서버 1대 | 데모 규모의 의도된 선택이다([ADR-0003](../docs/adr/0003-fastapi-separate-tier-single-instance.md), [ADR-0012](../docs/adr/0012-kafka-single-use-case.md)) |
 
 ---
@@ -172,7 +173,7 @@ JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.11.10-hotspot" ./gradlew bootRun
 curl http://localhost:8080/actuator/health     # {"status":"UP"}
 
 # 4. 테스트 · 빌드
-./gradlew test          # 단위 584건 + 통합 19건 (통합은 Docker 필요 — 없으면 건너뜀)
+./gradlew test          # 단위 645건 + 통합 58건 (통합은 Docker 필요 — 없으면 건너뜀)
 ./gradlew bootJar       # build/libs/jarvis-backend-*.jar
 ```
 
