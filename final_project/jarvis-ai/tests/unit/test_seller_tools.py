@@ -170,7 +170,7 @@ class FakeSpringClient:
         self._maybe_fail("create_product")
         return ProductCreateResult(product_id=101, status="ON_SALE")
 
-    async def update_product(self, brand_id, product_id, patch):
+    async def update_product(self, brand_id, product_id, patch, *, idempotency_key=None):
         self.recorded_brand_id = brand_id
         self.recorded_patch = patch  # 전 필드 노출(name 등) 전달 검증용
         self._maybe_fail("update_product")

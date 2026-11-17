@@ -2109,9 +2109,19 @@ class SpringClient:
         return self._validate(ProductCreateResult, data)
 
     async def update_product(
-        self, brand_id: int, product_id: int, patch: ProductUpdate
+        self,
+        brand_id: int,
+        product_id: int,
+        patch: ProductUpdate,
+        *,
+        idempotency_key: str | None = None,
     ) -> ProductUpdateResult:
         """I-11 상품 수정 (§4.5). 바꿀 필드만 전송 — 재고도 이 API로 통합(별도 재고 API 없음).
+
+        `idempotency_key` 를 주면 `Idempotency-Key` 헤더로 싣는다 — BE 는 같은 키가 그 상품의
+        재고를 이미 바꿨으면 **다시 덮어쓰지 않는다**(jarvis-backend 02 D52). 재고는 절대값이라,
+        이 호출이 타임아웃 뒤에 BE 에서 성공하고 판매자가 같은 초안을 다시 승인하면 그 사이 팔린
+        수량이 되살아났다. 호출부(hitl)는 초안 id(draftId)를 키로 넘긴다.
 
         삭제된 상품 수정은 409 `PRODUCT_DELETED` 전용 예외 — 재시도 대상이 아니다(§4.5).
         `status` 로 `DELETED` 를 보내는 것도 BE 가 거부한다(삭제는 I-12 전용 전이).
@@ -2133,6 +2143,7 @@ class SpringClient:
                 "INVALID_STOCK": InvalidStock,
                 "INVALID_PRICE": InvalidPrice,
             },
+            extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
         )
         return self._validate(ProductUpdateResult, data)
 

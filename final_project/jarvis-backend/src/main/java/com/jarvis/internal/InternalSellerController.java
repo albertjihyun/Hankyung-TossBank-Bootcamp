@@ -211,8 +211,14 @@ public class InternalSellerController {
     public ApiResponse<SellerProductUpdateResponse> updateProduct(
             @PathVariable Long brandId,
             @PathVariable Long productId,
-            @Valid @RequestBody SellerProductUpdateRequest request) {
-        return ApiResponse.success(sellerProductService.updateInternal(brandId, productId, request));
+            @Valid @RequestBody SellerProductUpdateRequest request,
+            // 같은 수정 승인의 재전송이 재고를 다시 덮어쓰지 않게 하는 키 — AI 서버가 draftId를 싣는다 (02 D52)
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            @Pattern(regexp = "[A-Za-z0-9_-]{16,64}",
+                    message = "Idempotency-Key는 영문·숫자·-·_ 16~64자여야 합니다.")
+            String idempotencyKey) {
+        return ApiResponse.success(
+                sellerProductService.updateInternal(brandId, productId, request, idempotencyKey));
     }
 
     /** I-12 — soft delete(DELETED 전환)만, 이미 DELETED면 409 ALREADY_DELETED. HIDDEN→DELETED는 정상 전이 */

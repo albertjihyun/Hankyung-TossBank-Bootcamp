@@ -215,6 +215,17 @@ public class SellerProductService {
     @Transactional
     public SellerProductUpdateResponse updateInternal(Long brandId, Long productId,
                                                       SellerProductUpdateRequest request) {
+        return updateInternal(brandId, productId, request, null);
+    }
+
+    /**
+     * I-11 멱등 키 동반 수정 (02 D52). 키는 <b>재고</b>에만 의미가 있다 — 이름·가격·상태는 같은 값을 다시
+     * 써도 결과가 같지만, 재고는 그 사이 주문이 줄여 놓으므로 다시 덮어쓰면 팔린 수량이 되살아난다.
+     */
+    @Transactional
+    public SellerProductUpdateResponse updateInternal(Long brandId, Long productId,
+                                                      SellerProductUpdateRequest request,
+                                                      String idempotencyKey) {
         if (request.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR);
         }
@@ -267,7 +278,7 @@ public class SellerProductService {
             changes.add(ProductChangeType.STATUS.name());
             product.changeStatus(request.status());
         }
-        if (applyStocks(productId, request.resolvedStocks())) {
+        if (applyStocks(productId, request.resolvedStocks(), idempotencyKey)) {
             changes.add(ProductChangeType.STOCK.name());
         }
         // 상세 정적조각 무효화 — 재고·가격은 조각에 없지만 이름·이미지·옵션이 바뀔 수 있다 (07 §3-1)
@@ -455,7 +466,7 @@ public class SellerProductService {
      *
      * @return 한 옵션이라도 실제로 바뀌었으면 true (changes에 STOCK을 넣을지 판단용)
      */
-    private boolean applyStocks(Long productId, List<StockInput> stocks) {
+    private boolean applyStocks(Long productId, List<StockInput> stocks, String idempotencyKey) {
         if (stocks == null || stocks.isEmpty()) {
             return false;
         }
@@ -465,12 +476,19 @@ public class SellerProductService {
                     .findOneForUpdate(productId, input.optionId())
                     // 그 상품의 옵션이 아니거나(옵션 있는 상품에 null 포함) 재고 행이 없는 경우
                     .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STOCK));
+            // 이 요청이 이미 이 재고를 바꿨으면 다시 덮어쓰지 않는다 (02 D52). 행 잠금을 잡은 뒤에 확인해야
+            // 동시에 온 같은 요청 둘이 둘 다 "아직 안 했다"고 보지 않는다. 응답은 처음과 같게 STOCK을 싣는다
+            if (idempotencyKey != null && productChangeLogRepository
+                    .existsStockChangeBy(productId, input.optionId(), idempotencyKey)) {
+                changed = true;
+                continue;
+            }
             if (stock.getQuantity() == input.quantity()) {
                 continue;
             }
             productChangeLogRepository.save(ProductChangeLog.ofOption(productId, input.optionId(),
                     ProductChangeType.STOCK, String.valueOf(stock.getQuantity()),
-                    String.valueOf(input.quantity())));
+                    String.valueOf(input.quantity()), idempotencyKey));
             stock.changeQuantity(input.quantity());
             changed = true;
         }

@@ -34,6 +34,7 @@
 | `migrate-2026-11-16-refresh-token-family-pre.sql` | `refresh_token`에 `family_id`(NULL 허용)·`rotated_at` 추가 + 기존 행 백필 + 인덱스 2개 (02 D50) | 앱 배포 **전** — 새 앱이 컬럼을 찾는다 |
 | `migrate-2026-11-16-refresh-token-family-post.sql` | `family_id`를 NOT NULL로 (02 D50) | 앱 배포 **후** — 구 앱이 떠 있는 동안 조이면 그 앱의 로그인·재발급이 INSERT 실패로 죽는다 |
 | `migrate-2026-11-17-money-quantity-checks.sql` | `product`·`orders`·`order_item`에 금액·수량 CHECK 5개 (02 D51) | 앱 배포와 무관 — 앱 코드 변경 없음. **적용 전 위반 행 점검 필수**(머리말의 쿼리가 전부 0이어야 한다) |
+| `migrate-2026-11-17-product-change-log-idempotency-key.sql` | `product_change_logs.idempotency_key` 컬럼 + `idx_pclog_idempotency (product_id, idempotency_key)` (02 D52) | 앱 배포 **전** — 새 앱이 컬럼을 찾으므로 없으면 기동 실패. NULL 허용이라 구 앱과 공존 |
 
 > 위 표는 **적용 시점에 주의가 필요한 것만** 싣는다. 실제 적용은 [DEPLOY.md §4-2](../DEPLOY.md)의 루프가
 > `migrate-*.sql` **전부**를 날짜순으로 흘리므로, 표에 없는 파일도 빠짐없이 적용된다.

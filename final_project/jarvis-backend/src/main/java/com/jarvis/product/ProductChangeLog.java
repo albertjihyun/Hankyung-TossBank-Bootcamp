@@ -47,6 +47,14 @@ public class ProductChangeLog {
     @Column(name = "new_value", length = 50)
     private String newValue;
 
+    /**
+     * 이 변경을 일으킨 I-11 요청의 `Idempotency-Key`(AI의 draftId). 재고 변경에만 채운다 (02 D52).
+     * 재고는 절대값으로 덮어쓰는데 그 사이 주문이 수량을 줄이므로, 같은 요청이 한 번 더 적용되면
+     * 팔린 수량이 되살아난다 — 이 값으로 "이미 적용한 요청"을 알아본다.
+     */
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
     @Column(name = "created_at", nullable = false, columnDefinition = "datetime(6)")
     private LocalDateTime createdAt;
 
@@ -60,12 +68,19 @@ public class ProductChangeLog {
     public static ProductChangeLog ofOption(Long productId, Long optionId,
                                             ProductChangeType changeType,
                                             String oldValue, String newValue) {
+        return ofOption(productId, optionId, changeType, oldValue, newValue, null);
+    }
+
+    public static ProductChangeLog ofOption(Long productId, Long optionId,
+                                            ProductChangeType changeType,
+                                            String oldValue, String newValue, String idempotencyKey) {
         ProductChangeLog log = new ProductChangeLog();
         log.productId = productId;
         log.optionId = optionId;
         log.changeType = changeType;
         log.oldValue = oldValue;
         log.newValue = newValue;
+        log.idempotencyKey = idempotencyKey;
         log.createdAt = LocalDateTime.now();
         return log;
     }

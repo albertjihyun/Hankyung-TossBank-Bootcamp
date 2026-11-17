@@ -742,7 +742,10 @@ async def _execute_draft(record: DraftRecord) -> tuple[str, str]:
     if patch is None:
         return ("stale", f"{stock_problem} {_STALE_RETRY_GUIDE}")
     try:
-        updated = await client.update_product(record.brand_id, record.product_id, patch)
+        # draftId 를 멱등 키로 싣는다 — 타임아웃 뒤 같은 초안을 다시 승인해도 재고를 또 덮어쓰지 않는다.
+        updated = await client.update_product(
+            record.brand_id, record.product_id, patch, idempotency_key=record.draft_id
+        )
     except ProductDeletedNotEditable:
         # [#511] 삭제된 상품은 수정 대상이 아니다 — 재시도해도 결과가 같다.
         return (
