@@ -53,6 +53,9 @@ class ChatControllerTest {
     @MockitoBean RecommendationListService recommendationListService;
     @MockitoBean GuestService guestService;
     @MockitoBean SellerBrandResolver sellerBrandResolver;
+    /** 요청 제한은 여기서 검증 대상이 아니다 — 통과시킨다(전용 테스트는 PublicWriteRateLimiterTest) */
+    @MockitoBean com.jarvis.global.ratelimit.PublicWriteRateLimiter publicWriteRateLimiter;
+    @MockitoBean com.jarvis.global.auth.ClientIp clientIp;
 
     private void stubIssue() {
         when(guestService.ensureGuest(any())).thenReturn("guest-1");

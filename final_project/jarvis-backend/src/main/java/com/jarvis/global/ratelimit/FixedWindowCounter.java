@@ -53,6 +53,30 @@ public class FixedWindowCounter {
         }
     }
 
+    /** 세지 않고 현재 값만 읽는다 — "지금 막혀 있는가"를 묻되 이 요청을 횟수에 넣지 않을 때 */
+    public Attempt peek(String key) {
+        try {
+            String value = redisTemplate.opsForValue().get(key);
+            if (value == null) {
+                return Attempt.SKIPPED;
+            }
+            Long ttlMillis = redisTemplate.getExpire(key, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return new Attempt(Long.parseLong(value), ttlMillis == null ? 0 : Math.max(ttlMillis, 0));
+        } catch (RuntimeException e) {
+            log.warn("시도 조회 실패 — 제한 없이 통과. key={}", key, e);
+            return Attempt.SKIPPED;
+        }
+    }
+
+    /** 카운터를 지운다 — 실패해도 창이 지나면 스스로 사라지므로 삼킨다 */
+    public void reset(String key) {
+        try {
+            redisTemplate.delete(key);
+        } catch (RuntimeException e) {
+            log.warn("시도 카운터 초기화 실패 — TTL 만료에 맡긴다. key={}", key, e);
+        }
+    }
+
     /** 세지 못한 경우(대상 없음·Redis 장애)는 한도 판정에서 제외되도록 count 0 */
     public record Attempt(long count, long ttlMillis) {
         public static final Attempt SKIPPED = new Attempt(0, 0);

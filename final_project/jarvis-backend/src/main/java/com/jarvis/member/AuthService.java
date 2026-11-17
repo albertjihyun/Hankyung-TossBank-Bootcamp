@@ -76,13 +76,15 @@ public class AuthService {
     /** A-2 — 실패는 계정 존재 여부 무관 통일 401 AUTH_LOGIN_FAILED (04). 승계는 가입과 동일 */
     @Transactional
     public AuthResult login(LoginRequest request, String clientIp, String guestId) {
-        // 비밀번호 대조 전에 센다 — 존재하지 않는 계정으로 찌르는 것도 시도로 잡아야 한다
-        loginRateLimiter.check(clientIp, request.email());
+        // 이미 막힌 상태면 비밀번호를 대조하기 전에 끊는다. 계정 축은 실패했을 때만 올린다 —
+        // 성공까지 세면 정상 사용자가 막히고, 남의 계정을 잠그는 데도 쓰인다(LoginRateLimiter)
+        loginRateLimiter.checkLogin(clientIp, request.email());
         Member member = memberRepository.findByEmail(request.email())
-                .orElseThrow(() -> loginFail(null, clientIp));
+                .orElseThrow(() -> loginFail(null, clientIp, request.email()));
         if (!passwordEncoder.matches(request.password(), member.getPassword())) {
-            throw loginFail(member.getId(), clientIp);
+            throw loginFail(member.getId(), clientIp, request.email());
         }
+        loginRateLimiter.recordLoginSuccess(clientIp, request.email());
         inheritGuest(member.getId(), guestId);
         accountEventLogger.log(member.getId(), AccountEventType.LOGIN_SUCCESS, clientIp);
         return issueTokens(member, newFamilyId());
@@ -165,7 +167,9 @@ public class AuthService {
         return MeResponse.from(member);
     }
 
-    private BusinessException loginFail(Long memberId, String clientIp) {
+    private BusinessException loginFail(Long memberId, String clientIp, String email) {
+        // 없는 계정으로 찌른 것도 실패로 센다 — 계정이 있는지에 따라 동작이 달라지면 안 된다
+        loginRateLimiter.recordLoginFailure(clientIp, email);
         accountEventLogger.log(memberId, AccountEventType.LOGIN_FAIL, clientIp);
         return new BusinessException(ErrorCode.AUTH_LOGIN_FAILED);
     }

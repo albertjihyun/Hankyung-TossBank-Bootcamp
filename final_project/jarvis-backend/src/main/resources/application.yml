@@ -136,8 +136,17 @@ app:
   rate-limit:
     login:
       window-minutes: 10
-      account-limit: 5   # 정상 사용자가 10분에 5번 틀릴 일은 드물다
+      account-limit: 5   # 같은 IP에서 같은 계정을 10분에 5번 틀리면 그 IP만 막는다(성공하면 초기화)
       ip-limit: 30       # 회사·카페 등 공유 IP를 고려해 넉넉히
+      # 계정 하나에 쌓이는 실패의 상한(IP 무관) — IP를 바꿔가며 한 계정을 두드리는 분산 공격을 끊는다.
+      # 낮으면 남의 계정을 잠그는 데 쓰이므로 account-limit보다 충분히 크게 둔다
+      account-global-limit: 50
+    # 로그인 없이 쓰는 쓰기 API(E-1 이벤트 수집 · CH-1/CH-1b 채팅 세션·티켓)의 IP 단위 제한.
+    # 이벤트는 SDK가 5초마다 묶어 보내므로 1인당 분당 12건 안팎 — 공유 IP를 고려해 넉넉히 둔다
+    public:
+      window-seconds: 60
+      events-ip-limit: 300
+      chat-ip-limit: 60
     # 업로드 URL 발급 제한 (S-6) — 전송 없이 반복 발급이 가능해 회원 단위로 센다.
     # 로그인과 달리 IP 축을 두지 않는다: 이미 인증된 판매자라 계정이 곧 책임 주체다.
     upload:

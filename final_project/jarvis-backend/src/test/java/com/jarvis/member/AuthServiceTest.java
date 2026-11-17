@@ -211,6 +211,47 @@ class AuthServiceTest {
     }
 
     @Nested
+    class LoginRateLimit {
+
+        @Test
+        @DisplayName("로그인 성공 — 실패 카운터를 올리지 않고 그 IP의 실패 기록을 지운다")
+        void success_clearsFailures() {
+            Member member = memberFixture(1L);
+            when(memberRepository.findByEmail("user@test.com")).thenReturn(Optional.of(member));
+
+            authService.login(new LoginRequest("user@test.com", "password1"), IP, null);
+
+            verify(loginRateLimiter).checkLogin(IP, "user@test.com");
+            verify(loginRateLimiter).recordLoginSuccess(IP, "user@test.com");
+            verify(loginRateLimiter, never()).recordLoginFailure(any(), any());
+        }
+
+        @Test
+        @DisplayName("비밀번호 틀림 — 실패로 센다")
+        void wrongPassword_countsFailure() {
+            Member member = memberFixture(1L);
+            when(memberRepository.findByEmail("user@test.com")).thenReturn(Optional.of(member));
+
+            assertThatThrownBy(() -> authService.login(new LoginRequest("user@test.com", "wrong"), IP, null))
+                    .isInstanceOf(BusinessException.class);
+
+            verify(loginRateLimiter).recordLoginFailure(IP, "user@test.com");
+            verify(loginRateLimiter, never()).recordLoginSuccess(any(), any());
+        }
+
+        @Test
+        @DisplayName("없는 계정 — 있는 계정을 틀린 것과 똑같이 실패로 센다(계정 존재 여부로 동작이 갈리지 않는다)")
+        void unknownAccount_countsFailure() {
+            when(memberRepository.findByEmail("ghost@test.com")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> authService.login(new LoginRequest("ghost@test.com", "x"), IP, null))
+                    .isInstanceOf(BusinessException.class);
+
+            verify(loginRateLimiter).recordLoginFailure(IP, "ghost@test.com");
+        }
+    }
+
+    @Nested
     class Refresh {
 
         private static final String RAW = "raw-refresh-token";
