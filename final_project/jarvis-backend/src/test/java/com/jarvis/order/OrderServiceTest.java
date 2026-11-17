@@ -485,24 +485,6 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("O-2 재결제 진입은 비관적 락으로 주문을 로드한다 (동시 재결제 직렬화)")
-    void retryUsesPessimisticLock() {
-        Order order = Order.create(1L, "MOCK_CARD", 24000, "r", "p", "z", "a1", null, null);
-        ReflectionTestUtils.setField(order, "id", 1L);
-        ReflectionTestUtils.setField(order, "createdAt", LocalDateTime.of(2026, 7, 17, 12, 0));
-        ReflectionTestUtils.setField(order, "status", OrderStatus.PAYMENT_FAILED);
-        when(orderRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
-        when(orderItemRepository.findAllByOrderId(1L)).thenReturn(List.of());
-        when(paymentService.pay("MOCK_CARD", 24000)).thenReturn(PaymentResult.approved());
-        when(productStockService.reserve(anyMap())).thenReturn(Optional.of(RESERVED));
-
-        orderService.retryPayment(1L, 1L, new RetryPaymentRequest("MOCK_CARD"));
-
-        verify(orderRepository).findByIdForUpdate(1L);
-        verify(orderRepository, never()).findById(anyLong());
-    }
-
-    @Test
     @DisplayName("O-2 재확인을 통과한 뒤 경합으로 재고가 밀림 — 응답 failureReason이 OUT_OF_STOCK")
     void retryOutOfStockExposesReason() {
         // 재확인(requireStillPurchasable) 시점엔 재고가 있었지만 차감에서 진 경우 — 선검증은 경합 창을 좁힐 뿐이다

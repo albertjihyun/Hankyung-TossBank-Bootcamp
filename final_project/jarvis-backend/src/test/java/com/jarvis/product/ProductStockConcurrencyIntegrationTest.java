@@ -110,6 +110,8 @@ class ProductStockConcurrencyIntegrationTest extends MariaDbIntegrationTest {
         assertThat(deducted).isFalse();
         assertThat(data.stockQuantity(inStock)).isEqualTo(5);
         assertThat(data.stockQuantity(soldOut)).isZero();
+        // 되돌린 차감은 판매가 아니다 — 품절 신호(변경 로그)가 남으면 I-15가 속는다
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM product_change_logs", Integer.class)).isZero();
     }
 
     @Test

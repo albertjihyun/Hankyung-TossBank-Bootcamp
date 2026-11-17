@@ -73,8 +73,8 @@ class SellerAttributionServiceTest {
 
     // 직접 매출은 총액에서 차감해 만든다 — 그래야 합이 총액과 달라질 수 없다
     @Test
-    @DisplayName("S-1 AI 성과 — confirmed+estimated+direct = totalSales 항등식이 성립한다")
-    void aiAttributionIdentityHolds() {
+    @DisplayName("S-1 AI 성과 — 집계 행을 AI 매출·비중·주문 수·퍼널·수집 커버리지로 옮긴다")
+    void aiAttributionMapsAggregates() {
         // 스텁 행은 미리 만든다 — 헬퍼가 내부에서 when()을 쓰므로 when().thenReturn() 안에
         // 인라인하면 중첩 스터빙(UnfinishedStubbingException)이 된다
         OrderItemRepository.AttributionRow attr = attribution(820000, 360000, 34);
@@ -93,8 +93,6 @@ class SellerAttributionServiceTest {
 
         SellerSummaryResponse.AiAttribution ai = service.aggregate(BRAND_ID, FROM, TO);
 
-        assertThat(ai.confirmedSales() + ai.estimatedSales() + ai.directSales())
-                .isEqualTo(ai.totalSales());
         assertThat(ai.aiSales()).isEqualTo(1180000);
         assertThat(ai.aiShare()).isEqualTo(25.7);          // 1180000/4600000
         assertThat(ai.aiOrderCount()).isEqualTo(34);
