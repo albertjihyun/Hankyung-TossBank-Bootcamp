@@ -2,6 +2,7 @@ package com.jarvis.global.cache;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,6 +51,7 @@ public class RedisCache {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final RedisCircuitBreaker breaker;
 
     /**
      * 캐시에 있으면 그것을, 없으면 {@code loader}로 만들어 채운 뒤 돌려준다.
@@ -124,11 +126,8 @@ public class RedisCache {
 
     /** 쓰기 경로에서 명시적으로 무효화할 때. 실패는 무시한다 — TTL이 최후의 그물이다 */
     public void evict(String key) {
-        try {
-            redisTemplate.delete(key);
-        } catch (RuntimeException e) {
-            log.warn("캐시 무효화 실패 — TTL 소멸에 위임. key={}", key, e);
-        }
+        breaker.run(() -> redisTemplate.delete(key),
+                e -> log.warn("캐시 무효화 실패 — TTL 소멸에 위임. key={}", key, e));
     }
 
     /**
@@ -150,12 +149,9 @@ public class RedisCache {
     }
 
     private <T> T read(String key, TypeReference<T> type) {
-        try {
-            return parse(redisTemplate.opsForValue().get(key), type);
-        } catch (RuntimeException e) {
-            log.warn("캐시 조회 실패 — DB로 우회. key={}", key, e);
-            return null;
-        }
+        String raw = breaker.call(() -> redisTemplate.opsForValue().get(key), null,
+                e -> log.warn("캐시 조회 실패 — DB로 우회. key={}", key, e));
+        return parse(raw, type);
     }
 
     /** null이거나 역직렬화가 실패하면(스키마 변경 등) 미적중으로 취급한다 */
@@ -173,32 +169,40 @@ public class RedisCache {
 
     /** MGET 1회 — 실패하면 null을 돌려 전량 미스로 처리한다(fail-open) */
     private List<String> readAll(String keyPrefix, List<Long> ids) {
-        try {
-            return redisTemplate.opsForValue()
-                    .multiGet(ids.stream().map(id -> keyPrefix + id).toList());
-        } catch (RuntimeException e) {
-            log.warn("캐시 배치 조회 실패 — 전량 DB로 우회. prefix={}", keyPrefix, e);
-            return null;
-        }
+        return breaker.call(() -> redisTemplate.opsForValue()
+                        .multiGet(ids.stream().map(id -> keyPrefix + id).toList()), null,
+                e -> log.warn("캐시 배치 조회 실패 — 전량 DB로 우회. prefix={}", keyPrefix, e));
     }
 
     /** 첫 실패에서 나머지 저장을 포기한다 — Redis 장애 시 키 수만큼 타임아웃이 쌓이지 않게 */
     private <T> void writeAll(String keyPrefix, Duration ttl, Map<Long, T> values) {
-        try {
-            for (Map.Entry<Long, T> entry : values.entrySet()) {
-                redisTemplate.opsForValue().set(keyPrefix + entry.getKey(),
-                        objectMapper.writeValueAsString(entry.getValue()), ttl);
+        Map<String, String> serialized = new LinkedHashMap<>();
+        for (Map.Entry<Long, T> entry : values.entrySet()) {
+            String json = serialize(entry.getValue());
+            if (json != null) {
+                serialized.put(keyPrefix + entry.getKey(), json);
             }
-        } catch (Exception e) {
-            log.warn("캐시 배치 저장 실패 — 남은 키 저장 생략. prefix={}", keyPrefix, e);
         }
+        breaker.run(() -> serialized.forEach((k, v) -> redisTemplate.opsForValue().set(k, v, ttl)),
+                e -> log.warn("캐시 배치 저장 실패 — 남은 키 저장 생략. prefix={}", keyPrefix, e));
     }
 
     private <T> void write(String key, Duration ttl, T value) {
+        String json = serialize(value);
+        if (json == null) {
+            return;
+        }
+        breaker.run(() -> redisTemplate.opsForValue().set(key, json, ttl),
+                e -> log.warn("캐시 저장 실패 — 조회 결과는 그대로 반환. key={}", key, e));
+    }
+
+    /** 직렬화 실패는 Redis 장애가 아니라 값의 문제다 — 회로 차단기에 세지 않도록 Redis 호출과 분리한다 */
+    private String serialize(Object value) {
         try {
-            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
+            return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
-            log.warn("캐시 저장 실패 — 조회 결과는 그대로 반환. key={}", key, e);
+            log.warn("캐시 직렬화 실패 — 저장 생략", e);
+            return null;
         }
     }
 
@@ -219,22 +223,15 @@ public class RedisCache {
     }
 
     private boolean acquireLock(String key) {
-        try {
-            return Boolean.TRUE.equals(
-                    redisTemplate.opsForValue().setIfAbsent(lockKey(key), "1", LOCK_TTL));
-        } catch (RuntimeException e) {
-            // Redis가 죽었으면 락도 못 잡는다 — 계산은 해야 하므로 "잡은 것"으로 진행한다
-            log.warn("캐시 락 획득 실패 — 락 없이 계산. key={}", key, e);
-            return true;
-        }
+        // Redis가 죽었으면 락도 못 잡는다 — 계산은 해야 하므로 "잡은 것"으로 진행한다
+        return breaker.call(() -> Boolean.TRUE.equals(
+                        redisTemplate.opsForValue().setIfAbsent(lockKey(key), "1", LOCK_TTL)), true,
+                e -> log.warn("캐시 락 획득 실패 — 락 없이 계산. key={}", key, e));
     }
 
     private void releaseLock(String key) {
-        try {
-            redisTemplate.delete(lockKey(key));
-        } catch (RuntimeException e) {
-            log.warn("캐시 락 해제 실패 — TTL로 소멸. key={}", key, e);
-        }
+        breaker.run(() -> redisTemplate.delete(lockKey(key)),
+                e -> log.warn("캐시 락 해제 실패 — TTL로 소멸. key={}", key, e));
     }
 
     private static String lockKey(String key) {

@@ -1,6 +1,7 @@
 package com.jarvis.seller;
 
 import com.jarvis.global.event.BehaviorStreamHealth;
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -31,22 +32,21 @@ public class ActiveVisitorStore {
 
     private final StringRedisTemplate redisTemplate;
     private final BehaviorStreamHealth streamHealth;
+    private final RedisCircuitBreaker breaker;
 
     public void record(Long brandId, String sessionKey, LocalDateTime at) {
         String key = KEY_PREFIX + brandId;
-        try {
-            double score = epochSeconds(at);
+        double score = epochSeconds(at);
+        // 집계 한 건 때문에 컨슈머를 실패시키지 않는다 — 실패가 쌓이면 생존 신호가 아니라
+        // 값의 정확도 문제이고, 그건 창이 지나면 자연히 회복된다
+        breaker.run(() -> {
             redisTemplate.opsForZSet().add(key, sessionKey, score);
             // 쓸 때도 낡은 원소를 걷어낸다. 정리가 조회(count)에만 있으면, 대시보드를 열지 않는 브랜드의
             // 집합은 이벤트가 끊기지 않는 한 TTL만 계속 밀리며 끝없이 자란다. KEY_TTL보다 오래된 원소는
             // 어떤 조회 창에도 들지 않으므로 지워도 숫자가 달라지지 않는다
             redisTemplate.opsForZSet().removeRangeByScore(key, 0, score - KEY_TTL.toSeconds());
             redisTemplate.expire(key, KEY_TTL);
-        } catch (Exception e) {
-            // 집계 한 건 때문에 컨슈머를 실패시키지 않는다 — 실패가 쌓이면 생존 신호가 아니라
-            // 값의 정확도 문제이고, 그건 창이 지나면 자연히 회복된다
-            log.warn("실시간 방문자 기록 실패 (brandId={})", brandId, e);
-        }
+        }, e -> log.warn("실시간 방문자 기록 실패 (brandId={})", brandId, e));
     }
 
     /**
@@ -58,14 +58,11 @@ public class ActiveVisitorStore {
             return OptionalLong.empty();
         }
         String key = KEY_PREFIX + brandId;
-        try {
+        return breaker.call(() -> {
             redisTemplate.opsForZSet().removeRangeByScore(key, 0, epochSeconds(since));
             Long size = redisTemplate.opsForZSet().zCard(key);
             return OptionalLong.of(size == null ? 0L : size);
-        } catch (Exception e) {
-            log.warn("실시간 방문자 조회 실패 — DB 폴백 (brandId={})", brandId, e);
-            return OptionalLong.empty();
-        }
+        }, OptionalLong.empty(), e -> log.warn("실시간 방문자 조회 실패 — DB 폴백 (brandId={})", brandId, e));
     }
 
     private static double epochSeconds(LocalDateTime at) {

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,11 +41,24 @@ class TokenEpochTest {
     @BeforeEach
     void setUp() {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        tokenEpoch = new TokenEpoch(redisTemplate, 35);
+        tokenEpoch = new TokenEpoch(redisTemplate, new RedisCircuitBreaker(), 35);
     }
 
     private void markerAt(Instant instant) {
         when(valueOps.get(KEY)).thenReturn(String.valueOf(instant.getEpochSecond()));
+    }
+
+    @Test
+    @DisplayName("Redis가 연속으로 연결에 실패하면 이후 요청은 Redis를 기다리지 않고 바로 통과한다 (회로 차단)")
+    void stopsCallingRedisWhileCircuitIsOpen() {
+        when(valueOps.get(KEY)).thenThrow(new RedisConnectionFailureException("down"));
+        for (int i = 0; i < 3; i++) {
+            assertThat(tokenEpoch.isRevoked(MEMBER_ID, REVOKED_AT)).isFalse();
+        }
+
+        assertThat(tokenEpoch.isRevoked(MEMBER_ID, REVOKED_AT)).isFalse();
+
+        verify(valueOps, org.mockito.Mockito.times(3)).get(KEY);
     }
 
     @Test

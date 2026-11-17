@@ -1,5 +1,6 @@
 package com.jarvis.global.auth;
 
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import java.time.Duration;
 import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
@@ -34,11 +35,13 @@ public class TokenEpoch {
     private static final String KEY_PREFIX = "auth:epoch:";
 
     private final StringRedisTemplate redisTemplate;
+    private final RedisCircuitBreaker breaker;
     private final Duration ttl;
 
-    public TokenEpoch(StringRedisTemplate redisTemplate,
+    public TokenEpoch(StringRedisTemplate redisTemplate, RedisCircuitBreaker breaker,
                       @Value("${app.auth.epoch-ttl-minutes}") long ttlMinutes) {
         this.redisTemplate = redisTemplate;
+        this.breaker = breaker;
         this.ttl = Duration.ofMinutes(ttlMinutes);
     }
 
@@ -48,12 +51,10 @@ public class TokenEpoch {
      * <p>실패해도 예외를 올리지 않는다 — 무효화를 못 했다고 로그아웃 자체가 실패하면 안 된다.
      */
     public void invalidate(long memberId) {
-        try {
-            redisTemplate.opsForValue()
-                    .set(KEY_PREFIX + memberId, String.valueOf(Instant.now().getEpochSecond()), ttl);
-        } catch (RuntimeException e) {
-            log.warn("토큰 무효화 마커 기록 실패 — 해당 AT는 자연 만료까지 유효하다. memberId={}", memberId, e);
-        }
+        breaker.run(() -> redisTemplate.opsForValue()
+                        .set(KEY_PREFIX + memberId, String.valueOf(Instant.now().getEpochSecond()), ttl),
+                e -> log.warn("토큰 무효화 마커 기록 실패 — 해당 AT는 자연 만료까지 유효하다. memberId={}",
+                        memberId, e));
     }
 
     /**
@@ -67,13 +68,11 @@ public class TokenEpoch {
         if (issuedAt == null) {
             return false;
         }
-        try {
+        // fail-open — 못 읽으면 통과. 무효화 미적용이 전원 로그아웃보다 낫다.
+        // 모든 인증 요청이 지나가는 자리라 회로 차단기가 가장 크게 효과를 보는 곳이다
+        return breaker.call(() -> {
             String marker = redisTemplate.opsForValue().get(KEY_PREFIX + memberId);
             return marker != null && issuedAt.getEpochSecond() < Long.parseLong(marker);
-        } catch (RuntimeException e) {
-            // fail-open — 못 읽으면 통과. 무효화 미적용이 전원 로그아웃보다 낫다
-            log.warn("토큰 무효화 마커 조회 실패 — 무효화 미적용으로 통과. memberId={}", memberId, e);
-            return false;
-        }
+        }, false, e -> log.warn("토큰 무효화 마커 조회 실패 — 무효화 미적용으로 통과. memberId={}", memberId, e));
     }
 }
