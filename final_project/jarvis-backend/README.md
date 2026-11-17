@@ -114,13 +114,13 @@ flowchart LR
 
 | 영역 | 한계 | 영향 |
 |---|---|---|
-| 테스트 | 집계 쿼리의 **결과값**은 검증하지 않는다 | 통합 테스트는 `@Query` 93건이 실제 MariaDB에서 실행되는지와 재고·상태 전이·주문 멱등 키의 동시성을 확인한다. 판매자 분석 쿼리가 올바른 숫자를 내는지(픽스처 대조)는 아직 없다 |
+| 테스트 | 집계 쿼리의 **결과값** 검증이 일부뿐이다 | 통합 테스트는 `@Query` 전부가 실제 MariaDB에서 실행되는지와 재고·상태 전이·멱등 키의 동시성을 확인한다. 결과값을 픽스처로 대조하는 건 판매량·수집 커버리지 정도이고, 판매자 분석 쿼리 대부분은 아직 없다 |
 | 결제 | 결제·배송이 모의 구현이고, 결제 호출이 DB 트랜잭션 안에 있다 | 재고를 먼저 확보한 뒤 결제하므로 "승인 후 재고 없음"은 생기지 않는다. 다만 실제 결제사를 붙이면 응답을 기다리는 동안 재고 잠금과 DB 커넥션을 쥐고, 결제 기록 테이블과 승인 취소 기능이 없다 |
 | 내부 API | 네트워크 층 방어가 없다 | 문서의 "nginx 경로 차단"은 운영 설정에 적용되지 않았다. 앱 층은 토큰 필터와 시큐리티 권한 두 겹이지만, 토큰은 회전·만료가 없는 공유 값 하나다 |
-| DB 변경 | 마이그레이션이 수동 SQL이고 적용 이력 관리 도구가 없다 | 적용 순서를 사람이 기억해야 하며, 순서 실수로 배포가 실패한 적이 있다 |
 | 관측성 | 구조화 로그·메트릭·알림·로그 중앙 수집이 없다 | 요청 ID는 모든 로그 줄과 오류 응답에 실리지만, 서버 4대의 로그를 한곳에서 볼 수단이 없어 서버별로 찾아야 한다 |
 | 부하 테스트 | 읽기 경로만 측정했다 | 주문·재고 차감 같은 쓰기 경로의 한계는 측정한 적이 없다 |
-| 판매자 분석 | 대시보드 집계가 캐시 없이 원본 테이블을 매번 훑는다 | 조회 기간은 최대 2년으로 막았지만, 행동 이벤트 테이블에 보존 기간·요약 테이블이 없어 데이터가 쌓일수록 느려진다 |
+| 판매자 분석 | 요약(사전 집계) 테이블이 없다 | 가장 무거운 AI 성과 블록만 60초 캐시하고 나머지는 원본을 매번 훑는다. 행동 로그는 760일 보존 후 지우지만, 2년 치 기간 조회는 그만큼 무겁다 |
+| 개인정보 | 탈퇴가 완전한 익명화는 아니다 | 탈퇴하면 이메일·닉네임·생일 월일을 지우지만, 판매자 분석의 과거 수치를 지키려고 성별·출생연도와 행동 로그의 회원 id는 보존 기간까지 남는다 |
 | 규모 | Kafka 단일 브로커(복제 없음), AI 서버 1대 | 데모 규모의 의도된 선택이다([ADR-0003](../docs/adr/0003-fastapi-separate-tier-single-instance.md), [ADR-0012](../docs/adr/0012-kafka-single-use-case.md)) |
 
 ---
@@ -159,8 +159,8 @@ scripts/                      # 로컬 셋업 · 시드 · 증분 마이그레�
 
 | 경로 | 스크립트 | 하는 일 |
 |---|---|---|
-| Docker | `scripts/setup-local.sh` | `.env`·설정 파일 복사 + MariaDB·Redis·Kafka 컨테이너 기동. **스키마·시드·시크릿은 직접 넣는다** |
-| 네이티브 (Git Bash, Windows) | `scripts/setup-frontend-dev.sh` | MariaDB·Redis 설치 확인 → DB·계정 생성 → 스키마·마이그레이션·시드 적용 → 설정 파일·시크릿 생성까지 한 번에. Kafka는 띄우지 않는다(없어도 DB 직접 적재로 동작) |
+| Docker | `scripts/setup-local.sh` | `.env`·설정 파일 복사 + MariaDB·Redis·Kafka 컨테이너 기동. **시드·시크릿은 직접 넣는다**(스키마는 앱 기동 시 Flyway가 만든다) |
+| 네이티브 (Git Bash, Windows) | `scripts/setup-frontend-dev.sh` | MariaDB·Redis 설치 확인 → DB·계정 생성 → 스키마(Flyway)·시드 적용 → 설정 파일·시크릿 생성까지 한 번에. Kafka는 띄우지 않는다(없어도 DB 직접 적재로 동작) |
 
 ```bash
 # 1. 로컬 환경 셋업 (위 표에서 하나)
@@ -173,7 +173,7 @@ JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.11.10-hotspot" ./gradlew bootRun
 curl http://localhost:8080/actuator/health     # {"status":"UP"}
 
 # 4. 테스트 · 빌드
-./gradlew test          # 단위 645건 + 통합 58건 (통합은 Docker 필요 — 없으면 건너뜀)
+./gradlew test          # 단위 660건 + 통합 75건 (통합은 Docker 필요 — 없으면 건너뜀)
 ./gradlew bootJar       # build/libs/jarvis-backend-*.jar
 ```
 
@@ -183,11 +183,11 @@ PowerShell에서는:
 $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"; .\gradlew.bat bootRun
 ```
 
-### 로컬 데이터 준비 (`setup-frontend-dev.sh`는 자동 수행, `setup-local.sh`는 아래 순서로 직접 적용)
+### 로컬 데이터 준비 (`setup-frontend-dev.sh`는 자동 수행, `setup-local.sh`는 앱을 한 번 띄운 뒤 아래 순서로 직접 적용)
 
 | 순서 | 스크립트 | 내용 |
 |---|---|---|
-| 1 | `docs/backend/schema.sql` | 전체 스키마 (최초 1회) |
+| 1 | `src/main/resources/db/migration/` | 스키마 — 앱 기동 시 Flyway가 자동 적용 (`./gradlew flywayMigrate`로 미리 적용해도 된다) |
 | 2 | `scripts/seed-accounts.sql` | 데모 계정 (판매자·구매자) |
 | 3 | `scripts/seed-catalog.sql` | 상품·브랜드·카테고리 |
 | 4 | `scripts/seed-commerce-demo.sql` | 주문·후기 데모 데이터 |
@@ -262,5 +262,5 @@ $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"; .\gradlew.
 | [../docs/load-testing.md](../docs/load-testing.md) | k6 부하테스트 방법론·스크립트·측정 이력 |
 | [DEPLOY.md](DEPLOY.md) | 배포 절차 — 이미지 빌드·환경변수·DB 반영·헬스체크 |
 | [docs/backend/](docs/backend/README.md) | 설계 명세 01~08 (상태 머신 · 데이터 모델 · 아키텍처 · API · AI 연동 계약 · Redis · Kafka) |
-| [docs/backend/schema.sql](docs/backend/schema.sql) | 전체 스키마 (23개 테이블) |
+| [docs/backend/schema.sql](docs/backend/schema.sql) | 전체 스키마 스냅샷 (23개 테이블). 실제 적용은 `src/main/resources/db/migration/`(Flyway)이고, 둘이 다르면 테스트가 실패한다 |
 | [scripts/README.md](scripts/README.md) | 셋업·시드·마이그레이션 스크립트 안내 |
