@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import com.jarvis.global.response.BusinessException;
 import com.jarvis.global.response.ErrorCode;
 import java.util.List;
@@ -35,7 +36,7 @@ class LoginRateLimiterTest {
 
     /** 창 10분 / 계정 5회 / IP 30회 / 계정 전체 실패 50회 */
     private LoginRateLimiter limiter() {
-        return new LoginRateLimiter(new FixedWindowCounter(redisTemplate), 10, 5, 30, 50);
+        return new LoginRateLimiter(new FixedWindowCounter(redisTemplate, new RedisCircuitBreaker()), 10, 5, 30, 50);
     }
 
     private void stub(String key, long count, long ttlMillis) {

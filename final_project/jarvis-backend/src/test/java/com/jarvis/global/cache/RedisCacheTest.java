@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jarvis.global.redis.RedisCircuitBreaker;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +49,7 @@ class RedisCacheTest {
     @BeforeEach
     void setUp() {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        cache = new RedisCache(redisTemplate, new ObjectMapper());
+        cache = new RedisCache(redisTemplate, new ObjectMapper(), new RedisCircuitBreaker());
         loaderCalls = new AtomicInteger();
     }
 
