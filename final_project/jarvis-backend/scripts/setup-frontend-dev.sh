@@ -68,23 +68,36 @@ FLUSH PRIVILEGES;"
     || fail "생성한 계정으로 접속이 안 됩니다 — 다시 실행해보고, 반복되면 문의 주세요."
 fi
 
-# ── 3) 스키마 적용 (이미 적용됐으면 건너뜀 — schema.sql은 재실행 불가 DDL) ──
+# ── 3) 스키마 (02 D54 — Flyway) ──
+# Flyway 도입 전에 만든 DB(이력 테이블 없음)는 먼저 과거 수동 마이그레이션으로 V1 상태까지 올린다.
+# 그 뒤 Flyway가 기준선을 V1로 찍고 남은 V번호만 적용한다. 빈 DB는 Flyway가 V1부터 만든다.
+# 과거 스크립트 일부는 이미 적용된 DB에서 "already exists"로 실패한다 — 그건 건너뛰고, 정말 빠진 컬럼이 있으면
+# 앱 기동 시 ddl-auto=validate가 잡는다.
 HAS_MEMBER=$(MDB -u"$DB_USER" -p"$DB_PASS" -N -e "SHOW TABLES LIKE 'member'" "$DB_NAME")
-if [ -z "$HAS_MEMBER" ]; then
-  say "스키마 적용 중 (docs/backend/schema.sql)"
-  MDB -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < docs/backend/schema.sql
-else
-  say "스키마 이미 적용됨 — 건너뜀"
+HAS_FLYWAY=$(MDB -u"$DB_USER" -p"$DB_PASS" -N -e "SHOW TABLES LIKE 'flyway_schema_history'" "$DB_NAME")
+if [ -n "$HAS_MEMBER" ] && [ -z "$HAS_FLYWAY" ]; then
+  for f in scripts/migrate-*.sql; do
+    [ -e "$f" ] || continue
+    say "Flyway 전환 전 수동 마이그레이션 적용: $f"
+    MDB -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$f" 2>/dev/null \
+      || say "  └ 오류로 중단 — 이미 적용된 변경이면 정상(건너뜀)"
+  done
 fi
-
-# ── 3.5) 증분 마이그레이션 (항상 적용 — 전부 재실행 무해) ──
-# schema.sql은 최초 생성 전용이라, 이미 스키마가 깔린 DB에 그 뒤 추가된 테이블·컬럼을
-# 반영하는 경로가 이것뿐이다. 날짜 접두사 오름차순 = 적용 순서.
-for f in scripts/migrate-*.sql; do
-  [ -e "$f" ] || continue
-  say "마이그레이션 적용: $f"
-  MDB -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$f"
-done
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+  for d in "/c/Program Files/Microsoft/jdk-21"* \
+           "/c/Program Files/Eclipse Adoptium/jdk-21"* \
+           "/c/Program Files/Java/jdk-21"*; do
+    if [ -d "$d" ]; then JAVA_HOME=$d; break; fi
+  done
+fi
+[ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] \
+  || fail "JDK 21을 찾지 못했습니다 — winget install Microsoft.OpenJDK.21 후 터미널을 새로 열고 재실행"
+export JAVA_HOME
+say "스키마 마이그레이션 (gradlew flywayMigrate)"
+./gradlew -q flywayMigrate \
+  -Pflyway.url="jdbc:mariadb://127.0.0.1:$DB_PORT/$DB_NAME" \
+  -Pflyway.user="$DB_USER" -Pflyway.password="$DB_PASS" \
+  || fail "스키마 마이그레이션 실패 — JAVA_HOME(JDK 21)이 잡혀 있는지 확인하세요."
 
 # ── 4) 시드 적용 (전부 재실행 무해: INSERT IGNORE / NOT EXISTS) ──
 for f in scripts/seed-accounts.sql scripts/seed-catalog.sql scripts/seed-commerce-demo.sql scripts/seed-analytics-demo.sql; do
