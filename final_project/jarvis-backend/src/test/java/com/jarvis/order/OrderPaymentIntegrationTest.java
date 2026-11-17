@@ -136,4 +136,34 @@ class OrderPaymentIntegrationTest extends MariaDbIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM orders WHERE member_id = ?", Integer.class, memberId))
                 .isZero();
     }
+
+    @Test
+    @DisplayName("결제 실패 주문을 두 번 동시에 재결제(더블클릭) — 결제는 한 번만 나가고 재고도 한 번만 빠진다")
+    void concurrentRetryPaysOnce() throws Exception {
+        TestData data = new TestData(jdbc);
+        long productId = data.product();
+        data.stock(productId, 5);
+        long memberId = data.member();
+        when(paymentService.pay(org.mockito.ArgumentMatchers.eq("MOCK_FAIL"), anyInt()))
+                .thenReturn(PaymentResult.declined("MOCK_DECLINED"));
+        when(paymentService.pay(org.mockito.ArgumentMatchers.eq("MOCK_CARD"), anyInt()))
+                .thenReturn(PaymentResult.approved());
+        Long orderId = orderService.create(memberId, buy(productId, "MOCK_FAIL")).orderId();
+
+        com.jarvis.order.dto.RetryPaymentRequest retry = new com.jarvis.order.dto.RetryPaymentRequest("MOCK_CARD");
+        List<Outcome<OrderCreateResponse>> outcomes = Concurrently.run(List.of(
+                () -> orderService.retryPayment(memberId, orderId, retry),
+                () -> orderService.retryPayment(memberId, orderId, retry)));
+
+        // 한 요청은 결제에 성공하고, 늦은 요청은 이미 결제된 주문이라 거절된다(주문 행 잠금이 둘을 줄 세운다)
+        assertThat(outcomes.stream().filter(Outcome::succeeded).map(o -> o.value().status()))
+                .containsExactly("PAID");
+        assertThat(outcomes.stream().filter(o -> !o.succeeded()).map(Outcome::error))
+                .singleElement().isInstanceOf(com.jarvis.global.response.BusinessException.class);
+        verify(paymentService, times(1)).pay(org.mockito.ArgumentMatchers.eq("MOCK_CARD"), anyInt());
+        assertThat(data.stockQuantity(productId)).isEqualTo(4);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM order_status_logs WHERE order_id = ? AND to_status = 'PAID'",
+                Integer.class, orderId)).as("PAID 전이 로그도 한 줄").isEqualTo(1);
+    }
 }
