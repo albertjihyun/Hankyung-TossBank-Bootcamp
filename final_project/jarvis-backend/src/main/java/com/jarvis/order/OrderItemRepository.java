@@ -72,6 +72,18 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     long countByOrderIdAndStatusNot(Long orderId, OrderItemStatus status);
 
     /**
+     * 결제된 주문 중 아직 끝나지 않은 줄(배송 중·클레임 진행 등) 수 — 탈퇴 가능 판정 (02 D55).
+     * 결제 전(PENDING)·결제 실패 주문은 돈이 오가지 않았으므로 막지 않는다.
+     */
+    @Query(value = """
+            SELECT COUNT(*) FROM order_item oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.member_id = :memberId AND o.status = 'PAID'
+              AND oi.status NOT IN ('CONFIRMED', 'CANCELLED', 'RETURNED')
+            """, nativeQuery = true)
+    long countUnfinishedPaidItems(@Param("memberId") Long memberId);
+
+    /**
      * I-30 발송 대상 조회 — 아이템이 그 브랜드 소유일 때만 반환한다(노션 I-30).
      * 소유가 아니면 빈 값이라 호출부가 404로 존재를 은닉한다 — 403이 아니다(I-11 규칙).
      * brandId는 티켓 claim에서 오지만 신뢰하지 않고 실행 시점에 다시 확인하는 지점이다.

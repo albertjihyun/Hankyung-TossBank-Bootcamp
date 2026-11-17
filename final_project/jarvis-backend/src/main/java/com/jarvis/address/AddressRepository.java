@@ -9,6 +9,11 @@ import org.springframework.data.repository.query.Param;
 
 public interface AddressRepository extends JpaRepository<Address, Long> {
 
+    /** 탈퇴 (02 D55) — 주문은 배송지를 스냅샷으로 들고 있어 원본을 지워도 된다 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Address a where a.memberId = :memberId")
+    int deleteAllOfMember(@Param("memberId") Long memberId);
+
     /** M-8 목록 — 기본 먼저, 이후 등록순 */
     List<Address> findAllByMemberIdOrderByIsDefaultDescIdAsc(Long memberId);
 

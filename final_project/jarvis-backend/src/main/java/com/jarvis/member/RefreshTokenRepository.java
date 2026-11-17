@@ -11,6 +11,11 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 
     Optional<RefreshToken> findByTokenHash(String tokenHash);
 
+    /** 탈퇴 (02 D55) — 모든 기기의 로그인을 끊는다 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("DELETE FROM RefreshToken r WHERE r.memberId = :memberId")
+    int deleteAllOfMember(@Param("memberId") Long memberId);
+
     /**
      * 회전 표시 — 아직 쓰이지 않은 RT일 때만 1건이 갱신된다 (02 D6·D50).
      * 같은 RT로 동시에 온 재발급은 DB가 직렬화해 한쪽만 1을 받는다. 0을 받은 쪽은 "이미 쓰인 RT"다.
