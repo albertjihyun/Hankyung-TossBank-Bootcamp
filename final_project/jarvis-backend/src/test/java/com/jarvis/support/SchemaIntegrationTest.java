@@ -75,4 +75,44 @@ class SchemaIntegrationTest extends MariaDbIntegrationTest {
         assertThatThrownBy(() -> data.stock(productA, optionOfB, 3))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    @DisplayName("상품 가격 — 음수와 '판매가 > 정가'를 DB가 거부한다 (02 D51)")
+    void productPriceIsConstrained() {
+        TestData data = new TestData(jdbc);
+        long productId = data.product();
+
+        assertThatThrownBy(() -> jdbc.update("UPDATE product SET price = -1 WHERE id = ?", productId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE product SET price = original_price + 1 WHERE id = ?", productId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        // 경계값은 허용 — 0원 상품, 판매가 = 정가
+        assertThat(jdbc.update("UPDATE product SET price = original_price WHERE id = ?", productId)).isEqualTo(1);
+        assertThat(jdbc.update("UPDATE product SET price = 0 WHERE id = ?", productId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("주문 줄 — 수량 0·음수와 음수 금액을 DB가 거부한다. 매출 집계의 재료가 오염되지 않는다 (02 D51)")
+    void orderItemAmountAndQuantityAreConstrained() {
+        TestData data = new TestData(jdbc);
+        long itemId = data.orderItem(data.order(data.member(), "PAID"), data.product(), "ORDERED");
+
+        assertThatThrownBy(() -> jdbc.update("UPDATE order_item SET quantity = 0 WHERE id = ?", itemId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("UPDATE order_item SET quantity = -3 WHERE id = ?", itemId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("UPDATE order_item SET price = -1 WHERE id = ?", itemId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("주문 총액은 음수가 될 수 없다 (02 D51)")
+    void orderTotalCannotBeNegative() {
+        TestData data = new TestData(jdbc);
+        long orderId = data.order(data.member(), "PAID");
+
+        assertThatThrownBy(() -> jdbc.update("UPDATE orders SET total_amount = -1 WHERE id = ?", orderId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
 }
