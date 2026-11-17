@@ -423,15 +423,46 @@ class SellerProductServiceTest {
     }
 
     @Test
-    @DisplayName("description sanitize — script/인라인 핸들러/javascript: 제거 (04 §10 I-11)")
+    @DisplayName("description sanitize — 태그는 전부 걷어내고 글자만 남긴다 (04 §10 I-11)")
     void sanitizeStripsExecutableHtml() {
         String dirty = "<p onclick=\"x()\">좋은 상품</p><script>alert(1)</script>"
                 + "<a href=\"javascript:evil()\">링크</a>";
 
         String clean = SellerProductService.sanitizeDescription(dirty);
 
-        assertThat(clean).doesNotContain("<script>").doesNotContain("onclick")
-                .doesNotContain("javascript:").contains("좋은 상품");
+        assertThat(clean).isEqualTo("좋은 상품링크");
+    }
+
+    /** 결과를 HTML로 읽었을 때 요소가 하나도 없어야 한다 — 어떤 렌더러가 HTML로 그려도 실행될 것이 없다 */
+    private static void assertNoMarkup(String sanitized) {
+        assertThat(org.jsoup.Jsoup.parseBodyFragment(sanitized).body().children()).isEmpty();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "[{index}] {0}")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            // 예전 정규식을 통과하던 것 — 공백 대신 /로 속성을 구분한다
+            "<img/src=x/onerror=alert(1)>",
+            "<svg/onload=alert(1)>",
+            "<body/onload=alert(1)>",
+            // 한 겹 숨긴 태그 — 한 번만 걷어내고 엔티티를 되돌리면 다시 살아난다
+            "&lt;script&gt;alert(1)&lt;/script&gt;",
+            "&lt;img src=x onerror=alert(1)&gt;",
+            // 태그를 쪼개 끼워 넣기 — 바깥을 지우면 안쪽이 이어 붙어 완성된다
+            "<scr<script>ipt>alert(1)</scr</script>ipt>",
+            "<<img src=x onerror=alert(1)>img src=x onerror=alert(1)>",
+            "<a href=\"&#106;avascript:alert(1)\">x</a>",
+            "<iframe src=\"data:text/html,<script>alert(1)</script>\"></iframe>"})
+    @DisplayName("description sanitize — 우회 시도도 결과에 태그가 하나도 남지 않는다")
+    void sanitizeDefeatsBypassPayloads(String payload) {
+        assertNoMarkup(SellerProductService.sanitizeDescription(payload));
+    }
+
+    @Test
+    @DisplayName("description sanitize — 일반 텍스트는 그대로다(줄바꿈·부등호·& 포함)")
+    void sanitizeKeepsPlainText() {
+        String text = "제주 한라봉청 500g\n\n- 당도 13 Brix < 15 Brix\n- A&B 세트\n문의: javascript: 아님, online=예";
+
+        assertThat(SellerProductService.sanitizeDescription(text)).isEqualTo(text);
     }
 
     @Test
